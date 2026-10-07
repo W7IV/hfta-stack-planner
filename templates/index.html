@@ -58,6 +58,32 @@
   </section>
 
   <section>
+    <h2>Azimuth sector <small>several profiles around one heading</small></h2>
+    <label class="check inline"><input id="sec-on" type="checkbox"> Use an azimuth sector</label>
+    <div id="sector" hidden>
+      <label class="file">Terrain profiles (.PRO, one per azimuth)<input id="sec-pro" type="file" accept=".pro,.PRO,.txt" multiple></label>
+      <span id="sec-pro-info" class="info"></span>
+      <label class="file">Arrival angles (.PRN)<input id="sec-prn" type="file" accept=".prn,.PRN,.txt"></label>
+      <span id="sec-prn-info" class="info"></span>
+      <div class="grid2">
+        <label>Centre (° true)<input id="sec-centre" type="number" step="0.5" value="50"></label>
+        <label>Either side (°)<input id="sec-spread" type="number" step="0.5" value="10"></label>
+        <label>Step (°)<input id="sec-step" type="number" step="0.5" value="2.5"></label>
+        <label>Sector weight<input id="sec-weight" type="number" step="0.1" min="0" value="1"></label>
+        <label>Weighting
+          <select id="sec-mode"><option value="equal">Equal</option><option value="taper">Taper (centre highest)</option>
+            <option value="stations">Contest stations (file)</option></select>
+        </label>
+        <label class="sec-st">Band in file<select id="sec-band"></select></label>
+      </div>
+      <label class="file sec-st">Station bearings (bearings_*.json from contest-intel)<input id="sec-json" type="file" accept=".json"></label>
+      <span id="sec-json-info" class="info sec-st"></span>
+      <p class="hint">The azimuth is read from each file name (for example <code>site-52.50.PRO</code>). Each azimuth becomes a path. More azimuths take longer: 9 azimuths x 3 bands is 27 times one path.</p>
+      <div id="sec-preview" class="info"></div>
+    </div>
+  </section>
+
+  <section>
     <h2>Antennas <small>1 = lowest</small></h2>
     <div class="row-inline">
       <label>Number
@@ -147,6 +173,10 @@
     <div class="card">
       <h3>Figure of Merit by band <small>dB &middot; Δ is the change against the best single antenna on that band</small></h3>
       <div id="fom-table"></div>
+    </div>
+    <div class="card" id="az-card" hidden>
+      <h3>FOM against azimuth <small>full stack, each band</small></h3>
+      <div id="az-plot" class="plot small"></div>
     </div>
     <div class="card">
       <h3>Geometry</h3>

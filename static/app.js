@@ -135,11 +135,67 @@ function readAnts() {
     min: +$('.a-min', tr).value, max: +$('.a-max', tr).value }));
 }
 
+// ---------- azimuth sector ----------
+const sector = { profiles: {}, prn: '', bearings: null };
+function azFromName(name) {
+  const m = name.replace(/\.[^.]+$/, '').match(/(\d{1,3}(?:\.\d+)?)(?!.*\d)/);
+  return m ? +m[1] % 360 : null;
+}
+function readMany(files, cb) {
+  let left = files.length; const out = [];
+  [...files].forEach(f => { const r = new FileReader(); r.onload = () => { out.push([f.name, r.result]); if (!--left) cb(out); }; r.readAsText(f); });
+}
+function sectorAzimuths() {
+  const c = +$('#sec-centre').value, sp = +$('#sec-spread').value, st = +$('#sec-step').value || 1;
+  const azs = [];
+  for (let a = c - sp; a <= c + sp + 1e-6; a += st) azs.push(((a % 360) + 360) % 360);
+  return azs;
+}
+function nearestProfile(az) {
+  let best = null, d = 1e9;
+  for (const k of Object.keys(sector.profiles)) {
+    const dd = Math.abs(((+k - az + 540) % 360) - 180);
+    if (dd < d) { d = dd; best = k; }
+  }
+  return d <= 0.51 ? best : null;
+}
+function stationWeights(azs) {
+  const rep = sector.bearings, b = $('#sec-band').value;
+  const h = rep?.bands?.[b]?.histogram;
+  if (!h) return azs.map(() => 1);
+  return azs.map(a => {   // gaussian smoothing, 3 degrees
+    let s = 0; for (let k = -15; k <= 15; k++) s += h[((Math.round(a) + k) % 360 + 360) % 360] * Math.exp(-0.5 * (k / 3) ** 2);
+    return s;
+  });
+}
+function sectorPaths() {
+  if (!$('#sec-on').checked) return [];
+  const azs = sectorAzimuths(), mode = $('#sec-mode').value, c = +$('#sec-centre').value, sp = +$('#sec-spread').value || 1;
+  let w = mode === 'taper' ? azs.map(a => Math.cos((Math.abs(((a - c + 540) % 360) - 180) / sp) * Math.PI / 2) + 0.2)
+        : mode === 'stations' ? stationWeights(azs) : azs.map(() => 1);
+  const total = w.reduce((x, y) => x + y, 0) || 1, sw = +$('#sec-weight').value || 0;
+  const out = [];
+  azs.forEach((a, i) => {
+    const k = nearestProfile(a);
+    if (k !== null) out.push({ name: `Az ${(+k).toFixed(1).replace(/\.0$/, '')}°`, weight: +(sw * w[i] / total * azs.length).toFixed(4),
+                               profile: sector.profiles[k], aoa: sector.prn, azimuth: +k });
+  });
+  return out;
+}
+function sectorPreview() {
+  if (!$('#sec-on').checked) return;
+  const ps = sectorPaths(), missing = sectorAzimuths().filter(a => nearestProfile(a) === null);
+  $('#sec-preview').textContent = ps.length
+    ? `${ps.length} azimuths: ` + ps.map(p => `${p.name} ×${p.weight.toFixed(2)}`).join(', ') + (missing.length ? ` · no profile for ${missing.map(a => a.toFixed(1)).join(', ')}°` : '')
+    : 'Load profiles that cover the sector.';
+  $$('.sec-st').forEach(e => e.hidden = $('#sec-mode').value !== 'stations');
+}
+
 // ---------- requests ----------
 function common() {
-  const paths = $$('#paths .path').map(p => ({
+  const paths = $$('#paths .path').filter(p => p.dataset.pro).map(p => ({
     name: $('.p-name', p).value, weight: +$('.p-weight', p).value || 0,
-    profile: p.dataset.pro || '', aoa: p.dataset.prn || '' }));
+    profile: p.dataset.pro || '', aoa: p.dataset.prn || '' })).concat(sectorPaths());
   return {
     units: units(), soil: $('#soil').value, sigma: +$('#sigma').value, epsr: +$('#epsr').value,
     diffraction: $('#diffraction').checked, move_tower: +$('#move_tower').value || 0,
@@ -364,7 +420,7 @@ function showDetail(res, title) {
     b.onclick = () => { currentPath = i; showDetail(analysis, title); };
     $('#path-tabs').appendChild(b);
   });
-  drawPatterns(res); drawFomTable(res); drawGeometry(res); drawTerrain(res);
+  drawPatterns(res); drawFomTable(res); drawAzimuth(res); drawGeometry(res); drawTerrain(res);
 }
 
 function comboName(r, u) {
@@ -440,6 +496,18 @@ function drawFomTable(res) {
   $('#fom-table').innerHTML = h;
 }
 
+function drawAzimuth(res) {
+  const idx = res.paths.map((p, i) => ({ i, az: /^Az ([\d.]+)°/.exec(p.name) })).filter(x => x.az);
+  $('#az-card').hidden = idx.length < 2;
+  if (idx.length < 2) return;
+  const stack = res.rows[res.rows.length - 1], L = plotTheme();
+  const traces = res.bands.map((b, bi) => ({
+    x: idx.map(x => +x.az[1]), y: idx.map(x => stack.band_foms[bi][x.i]), mode: 'lines+markers', name: `${b.name} stack`,
+    line: { color: COLOURS[bi % COLOURS.length] } }));
+  L.xaxis = { ...L.xaxis, title: 'Azimuth (° true)' }; L.yaxis = { ...L.yaxis, title: 'FOM (dB)' };
+  Plotly.react('az-plot', traces, L, { responsive: true, displaylogo: false });
+}
+
 function drawGeometry(res) {
   const u = uLabel(res.units), stack = res.rows[res.rows.length - 1], hs = stack.heights;
   const lines = [];
@@ -485,6 +553,26 @@ function drawTerrain(res) {
 
 // ---------- wiring ----------
 $('#add-path').onclick = () => addPath();
+$('#sec-on').onchange = () => { $('#sector').hidden = !$('#sec-on').checked; sectorPreview(); };
+$('#sec-pro').onchange = e => readMany(e.target.files, list => {
+  sector.profiles = {};
+  const bad = [];
+  list.forEach(([n, t]) => { const a = azFromName(n); if (a === null) bad.push(n); else sector.profiles[a] = t; });
+  const az = Object.keys(sector.profiles).map(Number).sort((a, b) => a - b);
+  $('#sec-pro-info').textContent = `${az.length} profiles, ${az[0] ?? '—'}° to ${az[az.length - 1] ?? '—'}°` + (bad.length ? ` · no azimuth in: ${bad.join(', ')}` : '');
+  sectorPreview();
+});
+$('#sec-prn').onchange = e => readMany(e.target.files, ([[n, t]]) => { sector.prn = t; $('#sec-prn-info').textContent = n; });
+$('#sec-json').onchange = e => readMany(e.target.files, ([[n, t]]) => {
+  try {
+    sector.bearings = JSON.parse(t);
+    const bands = Object.keys(sector.bearings.bands || {}).filter(b => sector.bearings.bands[b].n);
+    $('#sec-band').innerHTML = bands.map(b => `<option value="${b}">${b === 'all' ? 'All bands' : b + ' m'}</option>`).join('');
+    $('#sec-json-info').textContent = `${n}: ${sector.bearings.region}, ${sector.bearings.contests.join(', ')}, ${sector.bearings.reference_logs} reference logs`;
+  } catch (err) { $('#sec-json-info').textContent = 'Not a bearings file'; }
+  sectorPreview();
+});
+['#sec-centre', '#sec-spread', '#sec-step', '#sec-mode', '#sec-band', '#sec-weight'].forEach(s => $(s).addEventListener('input', sectorPreview));
 $('#add-band').onclick = () => { addBand(); refreshChecks(); };
 $$('[data-preset]').forEach(b => b.onclick = () => setPreset(b.dataset.preset));
 $('#n_ant').onchange = renderAntRows;
