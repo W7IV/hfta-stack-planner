@@ -154,23 +154,32 @@ def fom(pat_db: np.ndarray, aoa: Dict[int, float]) -> Optional[float]:
     return None if not np.isfinite(v) else float(v)
 
 
-# --- higher-level tasks (one worker call = one antenna set over all paths) --
+# --- higher-level tasks (one worker call = one antenna set, all bands x paths) --
 def evaluate(task: dict) -> dict:
     """
-    task = {heights_ft, phases, ant_type, freq, sigma, epsr, diffraction, move_tower_ft,
-            paths: [{dist, hgt, aoa(dict), weight}], want_pattern: bool}
-    Returns per-path FOM, weighted score, and optionally the patterns.
+    task = {heights_ft, phases, sigma, epsr, diffraction, move_tower_ft,
+            paths: [{dist, hgt, weight}],
+            bands: [{freq, ant_type, weight, aoa: [dict per path]}],
+            want_pattern: bool}
+    Returns per band: per-path FOM and path-weighted band score; overall band-weighted score.
     """
-    foms, pats = [], []
-    for p in task["paths"]:
-        pat = pattern(p["dist"], p["hgt"], task["freq"], task["heights_ft"], task["phases"],
-                      task["ant_type"], task["sigma"], task["epsr"], task["diffraction"],
-                      task.get("move_tower_ft", 0.0))
-        foms.append(fom(pat, p["aoa"]))
-        if task.get("want_pattern"):
-            pats.append([round(float(x), 2) for x in pat])
-    score = weighted_score(foms, [p["weight"] for p in task["paths"]])
-    r = {"heights_ft": list(task["heights_ft"]), "foms": foms, "score": score}
+    pw = [p["weight"] for p in task["paths"]]
+    band_foms, band_scores, pats = [], [], []
+    for b in task["bands"]:
+        foms, bp = [], []
+        for p, aoa in zip(task["paths"], b["aoa"]):
+            pat = pattern(p["dist"], p["hgt"], b["freq"], task["heights_ft"], task["phases"],
+                          b["ant_type"], task["sigma"], task["epsr"], task["diffraction"],
+                          task.get("move_tower_ft", 0.0))
+            foms.append(fom(pat, aoa))
+            if task.get("want_pattern"):
+                bp.append([round(float(x), 2) for x in pat])
+        band_foms.append(foms)
+        band_scores.append(weighted_score(foms, pw))
+        pats.append(bp)
+    score = weighted_score(band_scores, [b["weight"] for b in task["bands"]])
+    r = {"heights_ft": list(task["heights_ft"]), "band_foms": band_foms,
+         "band_scores": band_scores, "score": score}
     if task.get("want_pattern"):
         r["patterns"] = pats
     return r
@@ -189,7 +198,8 @@ def subsets(n: int) -> List[Tuple[int, ...]]:
 
 
 # --- optimiser grid ---------------------------------------------------------
-def height_grid(specs: List[dict], step_ft: float, min_spacing_ft: float) -> List[Tuple[float, ...]]:
+def height_grid(specs: List[dict], step_ft: float, min_spacing_ft: float,
+                max_top_ft: Optional[float] = None) -> List[Tuple[float, ...]]:
     """
     specs: per antenna, bottom to top: {"fixed": h} or {"min": a, "max": b} (feet).
     Returns all height tuples with h[i+1] - h[i] >= min_spacing.
@@ -206,13 +216,35 @@ def height_grid(specs: List[dict], step_ft: float, min_spacing_ft: float) -> Lis
             axes.append([round(lo + i * step_ft, 3) for i in range(n + 1)])
     out = []
     for combo in itertools.product(*axes):
+        if max_top_ft is not None and combo[-1] > max_top_ft + 1e-6:
+            continue
         if all(combo[i + 1] - combo[i] >= min_spacing_ft - 1e-6 for i in range(len(combo) - 1)):
             out.append(combo)
     return out
 
 
+def _axis(lo: float, hi: float, step: float) -> List[float]:
+    if hi < lo:
+        raise ValueError("Maximum is below minimum")
+    n = int(np.floor((hi - lo) / step + 1e-6))
+    return [round(lo + i * step, 3) for i in range(n + 1)]
+
+
+def equal_grid(n: int, bottom: Tuple[float, float], spacing: Tuple[float, float], step_ft: float,
+               min_spacing_ft: float, max_top_ft: Optional[float] = None) -> List[Tuple[float, ...]]:
+    """Equally spaced stacks: heights = b + i*s. Searches bottom height b and spacing s."""
+    out = []
+    s_axis = [0.0] if n == 1 else [s for s in _axis(*spacing, step_ft) if s >= min_spacing_ft - 1e-6]
+    for b in _axis(*bottom, step_ft):
+        for s in s_axis:
+            hs = tuple(round(b + i * s, 3) for i in range(n))
+            if max_top_ft is None or hs[-1] <= max_top_ft + 1e-6:
+                out.append(hs)
+    return out
+
+
 def refine_grid(centres: List[Tuple[float, ...]], specs: List[dict], coarse: float,
-                fine: float, min_spacing_ft: float) -> List[Tuple[float, ...]]:
+                fine: float, min_spacing_ft: float, max_top_ft: Optional[float] = None) -> List[Tuple[float, ...]]:
     """Fine grid of +/- one coarse step around each centre, clipped to the user ranges."""
     seen = set()
     for c in centres:
@@ -222,6 +254,22 @@ def refine_grid(centres: List[Tuple[float, ...]], specs: List[dict], coarse: flo
                 local.append({"fixed": h})
             else:
                 local.append({"min": max(s["min"], h - coarse), "max": min(s["max"], h + coarse)})
-        for g in height_grid(local, fine, min_spacing_ft):
+        for g in height_grid(local, fine, min_spacing_ft, max_top_ft):
             seen.add(g)
     return sorted(seen)
+
+
+def refine_equal(centres: List[Tuple[float, ...]], bottom, spacing, coarse: float, fine: float,
+                 min_spacing_ft: float, max_top_ft: Optional[float] = None) -> List[Tuple[float, ...]]:
+    seen = set()
+    for c in centres:
+        b, s = c[0], (c[1] - c[0] if len(c) > 1 else 0.0)
+        lb = (max(bottom[0], b - coarse), min(bottom[1], b + coarse))
+        ls = (max(spacing[0], s - coarse), min(spacing[1], s + coarse))
+        for g in equal_grid(len(c), lb, ls, fine, min_spacing_ft, max_top_ft):
+            seen.add(g)
+    return sorted(seen)
+
+
+def wavelength_ft(freq_mhz: float) -> float:
+    return 983.5712 / freq_mhz

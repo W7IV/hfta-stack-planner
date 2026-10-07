@@ -19,14 +19,8 @@
   <section>
     <h2>Station</h2>
     <div class="grid2">
-      <label>Frequency (MHz)<input id="freq" type="number" step="0.001" value="14.2"></label>
       <label>Units
         <select id="units"><option value="ft">feet</option><option value="m">metres</option></select>
-      </label>
-      <label>Antenna type
-        <select id="antenna_type">
-          {% for a in antenna_types %}<option {% if a=='3-Ele' %}selected{% endif %}>{{ a }}</option>{% endfor %}
-        </select>
       </label>
       <label>Ground
         <select id="soil">
@@ -36,16 +30,31 @@
       </label>
       <label class="custom-soil" hidden>Conductivity (S/m)<input id="sigma" type="number" step="0.001" value="0.005"></label>
       <label class="custom-soil" hidden>Permittivity<input id="epsr" type="number" step="1" value="13"></label>
+      <label>Maximum tower height<input id="max_tower" type="number" step="1" placeholder="no limit"></label>
       <label>Move tower back<input id="move_tower" type="number" step="1" value="0"></label>
       <label class="check"><input id="diffraction" type="checkbox" checked> Diffraction</label>
     </div>
-    <p id="freq-warning" class="warn" hidden></p>
+  </section>
+
+  <section>
+    <h2>Bands <small>same physical heights on every band</small></h2>
+    <div class="presets">
+      <button class="ghost small" data-preset="single">Single band (20 m)</button>
+      <button class="ghost small" data-preset="tri">Tribander 20-15-10</button>
+    </div>
+    <table class="tbl bands">
+      <thead><tr><th>On</th><th>MHz</th><th>Elements</th><th>Boom</th><th>Weight</th><th></th></tr></thead>
+      <tbody id="band-rows"></tbody>
+    </table>
+    <button id="add-band" class="ghost small">+ Add band</button>
+    <p class="hint">Elements and boom are per band. On a tribander, give the elements and the electrical boom length that are active on each band. Boom length is for information only: the calculation core does not use it.</p>
+    <p id="band-warning" class="warn" hidden></p>
   </section>
 
   <section>
     <h2>Paths <small>terrain profile + arrival angles</small></h2>
     <div id="paths"></div>
-    <button id="add-path" class="ghost">+ Add path</button>
+    <button id="add-path" class="ghost small">+ Add path</button>
   </section>
 
   <section>
@@ -55,19 +64,30 @@
         <select id="n_ant"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
       </label>
     </div>
-    <table class="ants">
+    <table class="tbl ants">
       <thead><tr><th>#</th><th>Height</th><th>Phase</th><th>Vary</th><th>Min</th><th>Max</th></tr></thead>
       <tbody id="ant-rows"></tbody>
     </table>
-    <p class="hint">Height is used for analysis. "Vary" with Min/Max is used by the optimiser; unticked antennas stay at their height.</p>
+    <p class="hint">Height is used for analysis. In the free search, ticked antennas vary between Min and Max; unticked antennas stay at their height.</p>
   </section>
 
   <section>
-    <h2>Optimiser</h2>
+    <h2>Spacing and search</h2>
     <div class="grid2">
+      <label>Minimum spacing (λ)<input id="min_spacing_lambda" type="number" step="0.05" min="0" value="0.5"></label>
+      <label>Equivalent<output id="min_spacing_eq" class="out">—</output></label>
+      <label>Search
+        <select id="mode">
+          <option value="free">Free spacing</option>
+          <option value="equal">Equal spacing</option>
+          <option value="both" selected>Compare both</option>
+        </select>
+      </label>
       <label>Step<input id="step" type="number" step="0.5" value="5"></label>
-      <label>Minimum spacing<input id="min_spacing" type="number" step="1" value="20"></label>
+      <label class="eq">Spacing min<input id="spacing_min" type="number" step="1" value="30"></label>
+      <label class="eq">Spacing max<input id="spacing_max" type="number" step="1" value="70"></label>
     </div>
+    <p class="hint">Minimum spacing uses the wavelength of the lowest enabled band. Equal spacing searches the bottom height (Min/Max of antenna 1) and one spacing for all antennas.</p>
   </section>
 
   <div class="actions">
@@ -84,30 +104,53 @@
   </div>
 
   <div id="empty" class="empty">
-    <p>Load a terrain profile (.PRO) and an ARRL arrival-angle file (.PRN) for each path.</p>
-    <p><b>Analyse stack</b> shows the pattern and Figure of Merit (FOM) of the full stack and of each antenna or sub-group.</p>
-    <p><b>Optimise heights</b> searches the height ranges for the best FOM over the arrival angles of your paths.</p>
+    <p>Set the bands, then load a terrain profile (.PRO) and an ARRL arrival-angle file (.PRN) for each path.</p>
+    <p><b>Analyse stack</b> shows the pattern and Figure of Merit (FOM) of the stack, each antenna alone and each sub-group, on every band.</p>
+    <p><b>Optimise heights</b> searches heights for the best FOM. With several bands, use the band weights to choose the best compromise.</p>
   </div>
 
-  <div id="opt-summary" hidden></div>
-
-  <div id="out" hidden>
-    <div class="path-tabs" id="path-tabs"></div>
-    <div class="card">
-      <h3>Elevation pattern and arrival angles</h3>
-      <div id="pattern-plot" class="plot"></div>
+  <div id="opt" hidden>
+    <div class="card" id="weights-card">
+      <h3>Band weights <small>move to re-rank all results &middot; no new calculation</small></h3>
+      <div id="weights"></div>
+    </div>
+    <div id="opt-summary" class="card summary"></div>
+    <div class="card" id="compare-card" hidden>
+      <h3>Equal spacing against free spacing</h3>
+      <div id="compare"></div>
     </div>
     <div class="card">
-      <h3>Figure of Merit <small>dB &middot; higher is better &middot; &Delta; is change from the best single antenna</small></h3>
-      <div id="fom-table"></div>
+      <h3>Trade-off matrix <small>FOM dB per band &middot; Δ is the loss against the best result for that band</small></h3>
+      <div class="row-inline"><label>Show
+        <select id="matrix-src"><option value="all">All searches</option><option value="free">Free spacing</option><option value="equal">Equal spacing</option></select>
+      </label></div>
+      <div id="matrix"></div>
     </div>
     <div class="card" id="map-card" hidden>
       <h3 id="map-title">FOM map</h3>
+      <div class="row-inline">
+        <label>Colour by<select id="map-by"></select></label>
+        <label>Search<select id="map-src"></select></label>
+      </div>
       <div id="map-plot" class="plot"></div>
     </div>
-    <div class="card" id="top-card" hidden>
-      <h3>Best configurations</h3>
-      <div id="top-table"></div>
+  </div>
+
+  <div id="out" hidden>
+    <h2 class="section-title" id="detail-title">Stack detail</h2>
+    <div class="path-tabs" id="path-tabs"></div>
+    <div class="card">
+      <h3>Elevation pattern and arrival angles <small>one plot per band</small></h3>
+      <label class="check inline"><input id="show-groups" type="checkbox"> Show all sub-groups (otherwise single antennas and full stack)</label>
+      <div id="pattern-plots" class="plots-grid"></div>
+    </div>
+    <div class="card">
+      <h3>Figure of Merit by band <small>dB &middot; Δ is the change against the best single antenna on that band</small></h3>
+      <div id="fom-table"></div>
+    </div>
+    <div class="card">
+      <h3>Geometry</h3>
+      <div id="geometry"></div>
     </div>
     <div class="card">
       <h3>Terrain profile</h3>
@@ -131,6 +174,7 @@
   </div>
 </template>
 
+<script>window.ANT_TYPES = {{ antenna_types|tojson }};</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

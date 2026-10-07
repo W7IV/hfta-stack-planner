@@ -4,6 +4,12 @@ app.py - Flask web GUI for OpenHFTA terrain analysis, stack evaluation and heigh
 Run:  python app.py      (then open http://localhost:5000)
 Env:  OPENHFTA_DIR  path to the OpenHFTA checkout (default ../openhfta)
       HFTA_WORKERS  number of calculation processes (default: CPU count)
+
+Model of a request
+  bands : one or more bands analysed with the SAME physical heights (single-band or tribander).
+          Each band has its own frequency, element count (antenna type), boom length and weight.
+  paths : one or more azimuths. Each path = terrain profile + ARRL .PRN file (all bands) + weight.
+  Score : FOM per band = path-weighted mean; overall = band-weighted mean of band FOMs.
 """
 from __future__ import annotations
 
@@ -18,12 +24,11 @@ from flask import Flask, jsonify, render_template, request
 import engine
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 4 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
 WORKERS = int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))
 POOL = None
 JOBS: dict = {}
-JOBS_LOCK = threading.Lock()
 EVAL_BUDGET = 500  # max combinations in one search pass before coarse-to-fine is used
 
 
@@ -44,51 +49,108 @@ def from_ft(v, units):
 
 
 def decode_common(body: dict) -> dict:
-    """Shared settings and paths. Raises ValueError with a user-readable message."""
+    """Shared settings, bands and paths. Raises ValueError with a user-readable message."""
     units = body.get("units", "ft")
-    freq = float(body["freq"])
-    ant = body.get("antenna_type", "3-Ele")
-    if ant not in engine.ANTENNA_TYPES:
-        raise ValueError(f"Unknown antenna type {ant}")
     soil = body.get("soil", "Average soil")
     if soil == "Custom":
         sigma, epsr = float(body["sigma"]), float(body["epsr"])
     else:
         sigma, epsr = engine.SOIL_PRESETS[soil]
-    paths = []
-    for p in body.get("paths", []):
-        if not p.get("profile"):
-            continue
-        d, h = engine.parse_profile_text(p["profile"])
-        aoa = engine.parse_aoa(p["aoa"], freq) if p.get("aoa") else {}
-        paths.append({"name": p.get("name") or f"Path {len(paths) + 1}", "dist": d, "hgt": h,
-                      "aoa": aoa, "weight": float(p.get("weight", 1.0))})
-    if not paths:
+
+    raw_paths = [p for p in body.get("paths", []) if p.get("profile")]
+    if not raw_paths:
         raise ValueError("Load at least one terrain profile")
+    paths = []
+    for i, p in enumerate(raw_paths):
+        d, h = engine.parse_profile_text(p["profile"])
+        paths.append({"name": p.get("name") or f"Path {i + 1}", "dist": d, "hgt": h,
+                      "weight": float(p.get("weight", 1.0)), "aoa_text": p.get("aoa", "")})
+
+    bands = []
+    for b in body.get("bands", []):
+        if not b.get("enabled", True):
+            continue
+        freq = float(b["freq"])
+        ant = b.get("antenna_type", "3-Ele")
+        if ant not in engine.ANTENNA_TYPES:
+            raise ValueError(f"Unknown antenna type {ant}")
+        aoa = [engine.parse_aoa(p["aoa_text"], freq) if p["aoa_text"] else {} for p in paths]
+        bands.append({"name": b.get("name") or engine.hfta.frequency_to_band(freq) or f"{freq} MHz",
+                      "freq": freq, "ant_type": engine.ANTENNA_TYPES[ant], "ant_label": ant,
+                      "boom_ft": to_ft(b["boom"], units) if b.get("boom") else None,
+                      "weight": float(b.get("weight", 1.0)), "aoa": aoa})
+    if not bands:
+        raise ValueError("Enable at least one band")
+
+    lam_max = max(engine.wavelength_ft(b["freq"]) for b in bands)  # lowest band sets spacing rules
+    min_sp_lambda = float(body.get("min_spacing_lambda", 0.5) or 0)
     return {
-        "units": units, "freq": freq, "ant_type": engine.ANTENNA_TYPES[ant], "sigma": sigma,
-        "epsr": epsr, "diffraction": bool(body.get("diffraction", True)),
-        "move_tower_ft": to_ft(body.get("move_tower", 0) or 0, units), "paths": paths,
+        "units": units, "sigma": sigma, "epsr": epsr,
+        "diffraction": bool(body.get("diffraction", True)),
+        "move_tower_ft": to_ft(body.get("move_tower", 0) or 0, units),
+        "max_tower_ft": to_ft(body["max_tower"], units) if body.get("max_tower") else None,
+        "min_spacing_lambda": min_sp_lambda, "min_spacing_ft": min_sp_lambda * lam_max,
+        "paths": paths, "bands": bands,
     }
 
 
 def task(c: dict, heights_ft, phases, want_pattern=False) -> dict:
-    return {"heights_ft": list(heights_ft), "phases": list(phases), "ant_type": c["ant_type"],
-            "freq": c["freq"], "sigma": c["sigma"], "epsr": c["epsr"], "diffraction": c["diffraction"],
+    return {"heights_ft": list(heights_ft), "phases": list(phases),
+            "sigma": c["sigma"], "epsr": c["epsr"], "diffraction": c["diffraction"],
             "move_tower_ft": c["move_tower_ft"],
-            "paths": [{k: p[k] for k in ("dist", "hgt", "aoa", "weight")} for p in c["paths"]],
+            "paths": [{k: p[k] for k in ("dist", "hgt", "weight")} for p in c["paths"]],
+            "bands": [{k: b[k] for k in ("freq", "ant_type", "weight", "aoa")} for b in c["bands"]],
             "want_pattern": want_pattern}
 
 
-def path_info(c: dict) -> list:
-    out = []
-    for p in c["paths"]:
-        u = c["units"]
-        out.append({"name": p["name"], "weight": p["weight"],
-                    "dist": [from_ft(x, u) for x in p["dist"]], "hgt": [from_ft(x, u) for x in p["hgt"]],
-                    "aoa": {str(k): round(v * 100, 2) for k, v in sorted(p["aoa"].items())},
-                    "has_aoa": bool(p["aoa"])})
+def meta(c: dict) -> dict:
+    """Description of paths and bands for the browser."""
+    u = c["units"]
+    paths = [{"name": p["name"], "weight": p["weight"],
+              "dist": [from_ft(x, u) for x in p["dist"]], "hgt": [from_ft(x, u) for x in p["hgt"]]}
+             for p in c["paths"]]
+    bands = []
+    for b in c["bands"]:
+        bands.append({"name": b["name"], "freq": b["freq"], "antenna": b["ant_label"], "weight": b["weight"],
+                      "boom": from_ft(b["boom_ft"], u) if b["boom_ft"] else None,
+                      "lambda": from_ft(engine.wavelength_ft(b["freq"]), u),
+                      "aoa": [{str(k): round(v * 100, 2) for k, v in sorted(a.items())} for a in b["aoa"]],
+                      "has_aoa": [bool(a) for a in b["aoa"]],
+                      "warning": engine.frequency_warning(b["freq"])})
+    return {"paths": paths, "bands": bands, "units": u, "angles": engine.ANGLES.tolist(),
+            "min_spacing": from_ft(c["min_spacing_ft"], u), "min_spacing_lambda": c["min_spacing_lambda"],
+            "max_tower": from_ft(c["max_tower_ft"], u) if c["max_tower_ft"] else None}
+
+
+def geometry_warnings(c: dict, heights_ft) -> list:
+    out, u = [], c["units"]
+    lab = "m" if u == "m" else "ft"
+    for i in range(len(heights_ft) - 1):
+        sp = heights_ft[i + 1] - heights_ft[i]
+        if sp < c["min_spacing_ft"] - 1e-6:
+            out.append(f"Antennas {i + 1}-{i + 2}: spacing {from_ft(sp, u)} {lab} is below the minimum "
+                       f"{from_ft(c['min_spacing_ft'], u)} {lab} ({c['min_spacing_lambda']} λ on the lowest band). "
+                       "Coupling between antennas is not modelled.")
+        if sp <= 0:
+            out.append("Antenna heights must increase from antenna 1 (lowest) upward.")
+    if c["max_tower_ft"] and heights_ft and max(heights_ft) > c["max_tower_ft"] + 1e-6:
+        out.append(f"Top antenna is above the maximum tower height ({from_ft(c['max_tower_ft'], u)} {lab}).")
     return out
+
+
+def detail_rows(c: dict, heights_ft, phases) -> list:
+    """Every antenna sub-group of one stack, with patterns, for all bands and paths."""
+    combos = engine.subsets(len(heights_ft))
+    futs = {pool().submit(engine.evaluate, task(c, [heights_ft[i] for i in cb], [phases[i] for i in cb], True)): cb
+            for cb in combos}
+    rows = []
+    for f in as_completed(futs):
+        cb, r = futs[f], f.result()
+        rows.append({"antennas": [i + 1 for i in cb], "heights": [from_ft(heights_ft[i], c["units"]) for i in cb],
+                     "band_foms": r["band_foms"], "band_scores": r["band_scores"], "score": r["score"],
+                     "patterns": r["patterns"]})
+    rows.sort(key=lambda r: (len(r["antennas"]), r["antennas"]))
+    return rows
 
 
 def err(msg, code=400):
@@ -112,30 +174,17 @@ def prn_bands():
 
 @app.post("/api/analyse")
 def analyse():
-    """Run one stack, and optionally every sub-combination of its antennas."""
+    """Run one stack and every sub-group of its antennas, on every band."""
     try:
         body = request.get_json()
         c = decode_common(body)
-        ants = body["antennas"]  # [{height, phase}] bottom to top
+        ants = body["antennas"]  # bottom to top
         h_ft = [to_ft(a["height"], c["units"]) for a in ants]
-        ph = [-1 if a.get("phase") == 180 else 1 for a in ants]
-        combos = engine.subsets(len(ants)) if body.get("combinations") and len(ants) > 1 \
-            else [tuple(range(len(ants)))]
+        ph = [-1 if int(a.get("phase", 0)) == 180 else 1 for a in ants]
     except (KeyError, ValueError, TypeError) as e:
         return err(str(e))
-
-    futs = {pool().submit(engine.evaluate, task(c, [h_ft[i] for i in cb], [ph[i] for i in cb], True)): cb
-            for cb in combos}
-    rows = []
-    for f in as_completed(futs):
-        cb = futs[f]
-        r = f.result()
-        rows.append({"antennas": [i + 1 for i in cb],
-                     "heights": [from_ft(h_ft[i], c["units"]) for i in cb],
-                     "foms": r["foms"], "score": r["score"], "patterns": r["patterns"]})
-    rows.sort(key=lambda r: (len(r["antennas"]), r["antennas"]))
-    return jsonify({"angles": engine.ANGLES.tolist(), "rows": rows, "paths": path_info(c),
-                    "warning": engine.frequency_warning(c["freq"]), "units": c["units"]})
+    return jsonify({**meta(c), "rows": detail_rows(c, h_ft, ph),
+                    "geometry": geometry_warnings(c, h_ft)})
 
 
 @app.post("/api/optimise")
@@ -143,34 +192,40 @@ def optimise():
     try:
         body = request.get_json()
         c = decode_common(body)
-        if not any(p["aoa"] for p in c["paths"]):
-            raise ValueError("The optimiser needs arrival-angle data for at least one path")
+        if not any(any(b["aoa"]) for b in c["bands"]):
+            raise ValueError("The optimiser needs arrival-angle data for at least one band and path")
         u = c["units"]
-        specs = []
-        for a in body["antennas"]:  # bottom to top
-            if a.get("mode") == "fixed":
-                specs.append({"fixed": to_ft(a["height"], u)})
-            else:
-                specs.append({"min": to_ft(a["min"], u), "max": to_ft(a["max"], u)})
-        phases = [-1 if a.get("phase") == 180 else 1 for a in body["antennas"]]
+        mode = body.get("mode", "free")  # free | equal | both
+        ants = body["antennas"]
+        phases = [-1 if int(a.get("phase", 0)) == 180 else 1 for a in ants]
         step = to_ft(body["step"], u)
-        spacing = to_ft(body.get("min_spacing", 0) or 0, u)
         if step <= 0:
             raise ValueError("Step must be greater than zero")
-        full = engine.height_grid(specs, step, spacing)
-        if not full:
-            raise ValueError("No height combination satisfies the ranges and minimum spacing")
+        specs = [{"fixed": to_ft(a["height"], u)} if not a.get("vary") else
+                 {"min": to_ft(a["min"], u), "max": to_ft(a["max"], u)} for a in ants]
+        bottom = (to_ft(ants[0]["min"], u), to_ft(ants[0]["max"], u))
+        spacing = (to_ft(body.get("spacing_min", 0) or 0, u), to_ft(body.get("spacing_max", 0) or 0, u))
+        if mode in ("equal", "both") and len(ants) > 1 and spacing[1] <= 0:
+            raise ValueError("Set the spacing range for the equal-spacing search")
+        grids = {}
+        if mode in ("free", "both"):
+            grids["free"] = engine.height_grid(specs, step, c["min_spacing_ft"], c["max_tower_ft"])
+        if mode in ("equal", "both"):
+            grids["equal"] = engine.equal_grid(len(ants), bottom, spacing, step, c["min_spacing_ft"], c["max_tower_ft"])
+        for k, g in grids.items():
+            if not g:
+                raise ValueError(f"No height combination satisfies the {k} search ranges, minimum spacing "
+                                 "and maximum tower height")
     except (KeyError, ValueError, TypeError) as e:
         return err(str(e))
 
     jid = uuid.uuid4().hex[:12]
     job = {"id": jid, "state": "running", "phase": "", "done": 0, "total": 0, "started": time.time(),
            "result": None, "error": None, "cancel": False}
-    with JOBS_LOCK:
-        JOBS[jid] = job
-    threading.Thread(target=run_search, args=(job, c, specs, phases, step, spacing, full),
-                     daemon=True).start()
-    return jsonify({"job": jid, "combinations": len(full)})
+    JOBS[jid] = job
+    args = dict(specs=specs, phases=phases, step=step, bottom=bottom, spacing=spacing)
+    threading.Thread(target=run_search, args=(job, c, grids, args), daemon=True).start()
+    return jsonify({"job": jid, "combinations": {k: len(v) for k, v in grids.items()}})
 
 
 def run_batch(job, c, grid, phases, label):
@@ -187,68 +242,57 @@ def run_batch(job, c, grid, phases, label):
     return out
 
 
-def run_search(job, c, specs, phases, step, spacing, full):
+def search(job, c, kind, full, a) -> dict:
+    """One search (free or equal). Coarse-to-fine when the grid is larger than EVAL_BUDGET."""
+    results, coarse = {}, None
+    name = "Free spacing" if kind == "free" else "Equal spacing"
+    if len(full) <= EVAL_BUDGET:
+        grid = full
+    else:
+        coarse = a["step"]
+        grid = full
+        while len(grid) > EVAL_BUDGET:
+            coarse *= 2
+            grid = (engine.height_grid(a["specs"], coarse, c["min_spacing_ft"], c["max_tower_ft"]) if kind == "free"
+                    else engine.equal_grid(len(a["phases"]), a["bottom"], a["spacing"], coarse,
+                                           c["min_spacing_ft"], c["max_tower_ft"]))
+    label = f"{name}: {'coarse ' if coarse else ''}search"
+    for r in run_batch(job, c, grid, a["phases"], label):
+        results[tuple(r["heights_ft"])] = r
+    if coarse:
+        best = sorted((r for r in results.values() if r["score"] is not None), key=lambda r: -r["score"])[:5]
+        centres = [tuple(r["heights_ft"]) for r in best]
+        fine = (engine.refine_grid(centres, a["specs"], coarse, a["step"], c["min_spacing_ft"], c["max_tower_ft"])
+                if kind == "free" else
+                engine.refine_equal(centres, a["bottom"], a["spacing"], coarse, a["step"],
+                                    c["min_spacing_ft"], c["max_tower_ft"]))
+        fine = [g for g in fine if g not in results]
+        for r in run_batch(job, c, fine, a["phases"], f"{name}: fine search"):
+            results[tuple(r["heights_ft"])] = r
+    u = c["units"]
+    rows = [{"h": [from_ft(x, u) for x in r["heights_ft"]],
+             "b": [None if s is None else round(s, 3) for s in r["band_scores"]],
+             "p": [[None if f is None else round(f, 3) for f in fl] for fl in r["band_foms"]]}
+            for r in results.values() if r["score"] is not None]
+    if not rows:
+        raise RuntimeError("No FOM could be computed (check arrival-angle data and frequency)")
+    return {"kind": kind, "rows": rows, "evaluated": len(results), "full_grid": len(full),
+            "coarse_step": from_ft(coarse, u) if coarse else None}
+
+
+def run_search(job, c, grids, a):
     try:
-        results = {}
-        if len(full) <= EVAL_BUDGET:
-            for r in run_batch(job, c, full, phases, "Full search"):
-                results[tuple(r["heights_ft"])] = r
-            coarse_step = None
-        else:
-            coarse_step = step
-            grid = full
-            while len(grid) > EVAL_BUDGET:
-                coarse_step *= 2
-                grid = engine.height_grid(specs, coarse_step, spacing)
-            for r in run_batch(job, c, grid, phases, f"Coarse search ({len(grid)} of {len(full)})"):
-                results[tuple(r["heights_ft"])] = r
-            best = sorted((r for r in results.values() if r["score"] is not None),
-                          key=lambda r: -r["score"])[:5]
-            fine = [g for g in engine.refine_grid([tuple(r["heights_ft"]) for r in best], specs,
-                                                  coarse_step, step, spacing) if g not in results]
-            for r in run_batch(job, c, fine, phases, f"Fine search ({len(fine)})"):
-                results[tuple(r["heights_ft"])] = r
-
-        ranked = sorted((r for r in results.values() if r["score"] is not None), key=lambda r: -r["score"])
-        if not ranked:
-            raise RuntimeError("No FOM could be computed (check arrival-angle data and frequency)")
-
-        # best configuration: full pattern + each antenna alone, for the report
-        best_h = ranked[0]["heights_ft"]
-        detail = []
-        for cb in engine.subsets(len(best_h)):
-            r = engine.evaluate(task(c, [best_h[i] for i in cb], [phases[i] for i in cb], True))
-            detail.append({"antennas": [i + 1 for i in cb], "heights": [from_ft(best_h[i], c["units"]) for i in cb],
-                           "foms": r["foms"], "score": r["score"], "patterns": r["patterns"]})
-        detail.sort(key=lambda r: (len(r["antennas"]), r["antennas"]))
-
-        u = c["units"]
-        top = [{"heights": [from_ft(h, u) for h in r["heights_ft"]], "foms": r["foms"], "score": r["score"]}
-               for r in ranked[:15]]
-
-        # map of score over the two varying heights (only when exactly two vary)
-        var = [i for i, s in enumerate(specs) if "fixed" not in s]
-        fmap = None
-        if len(var) == 2:
-            i, j = var
-            fmap = {"x_label": f"Antenna {i + 1}", "y_label": f"Antenna {j + 1}",
-                    "points": [[from_ft(r["heights_ft"][i], u), from_ft(r["heights_ft"][j], u), round(r["score"], 2)]
-                               for r in ranked]}
-        elif len(var) == 1:
-            i = var[0]
-            fmap = {"x_label": f"Antenna {i + 1}", "line": sorted(
-                [[from_ft(r["heights_ft"][i], u), round(r["score"], 2)] for r in ranked])}
-
-        # how flat the optimum is: range of heights within 0.5 dB of the best
-        tol = [r for r in ranked if r["score"] >= ranked[0]["score"] - 0.5]
-        flat = [{"antenna": k + 1, "min": from_ft(min(r["heights_ft"][k] for r in tol), u),
-                 "max": from_ft(max(r["heights_ft"][k] for r in tol), u)} for k in range(len(specs))]
-
-        job["result"] = {"top": top, "detail": detail, "map": fmap, "within_half_db": flat,
-                         "evaluated": len(results), "full_grid": len(full),
-                         "coarse_step": from_ft(coarse_step, u) if coarse_step else None,
-                         "angles": engine.ANGLES.tolist(), "paths": path_info(c),
-                         "warning": engine.frequency_warning(c["freq"]), "units": u,
+        searches = [search(job, c, k, g, a) for k, g in grids.items()]
+        # detail (all sub-groups, all bands, patterns) for the best overall result at default weights
+        bw = [b["weight"] for b in c["bands"]]
+        allrows = [r for s in searches for r in s["rows"]]
+        best = max(allrows, key=lambda r: engine.weighted_score(r["b"], bw) or -1e9)
+        job.update(phase="Patterns for the best result", done=0, total=0)
+        best_ft = [to_ft(h, c["units"]) for h in best["h"]]
+        job["result"] = {**meta(c), "searches": searches, "phases": a["phases"],
+                         "varying": [i for i, s in enumerate(a["specs"]) if "fixed" not in s],
+                         "rows": detail_rows(c, best_ft, a["phases"]),
+                         "geometry": geometry_warnings(c, best_ft),
                          "seconds": round(time.time() - job["started"], 1)}
         job["state"] = "done"
     except Exception as e:  # noqa: BLE001
