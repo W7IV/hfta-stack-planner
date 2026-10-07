@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="{{ url_for('static', filename='plotly.min.js') }}"></script>
+</head>
+<body>
+<header>
+  <h1>HFTA Stack Planner</h1>
+  <span class="sub">Terrain analysis with the OpenHFTA core &middot; dedicated to N6BV</span>
+</header>
+
+<main>
+<aside id="inputs">
+
+  <section>
+    <h2>Station</h2>
+    <div class="grid2">
+      <label>Frequency (MHz)<input id="freq" type="number" step="0.001" value="14.2"></label>
+      <label>Units
+        <select id="units"><option value="ft">feet</option><option value="m">metres</option></select>
+      </label>
+      <label>Antenna type
+        <select id="antenna_type">
+          {% for a in antenna_types %}<option {% if a=='3-Ele' %}selected{% endif %}>{{ a }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Ground
+        <select id="soil">
+          {% for s in soils %}<option {% if s=='Average soil' %}selected{% endif %}>{{ s }}</option>{% endfor %}
+          <option>Custom</option>
+        </select>
+      </label>
+      <label class="custom-soil" hidden>Conductivity (S/m)<input id="sigma" type="number" step="0.001" value="0.005"></label>
+      <label class="custom-soil" hidden>Permittivity<input id="epsr" type="number" step="1" value="13"></label>
+      <label>Move tower back<input id="move_tower" type="number" step="1" value="0"></label>
+      <label class="check"><input id="diffraction" type="checkbox" checked> Diffraction</label>
+    </div>
+    <p id="freq-warning" class="warn" hidden></p>
+  </section>
+
+  <section>
+    <h2>Paths <small>terrain profile + arrival angles</small></h2>
+    <div id="paths"></div>
+    <button id="add-path" class="ghost">+ Add path</button>
+  </section>
+
+  <section>
+    <h2>Antennas <small>1 = lowest</small></h2>
+    <div class="row-inline">
+      <label>Number
+        <select id="n_ant"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+      </label>
+    </div>
+    <table class="ants">
+      <thead><tr><th>#</th><th>Height</th><th>Phase</th><th>Vary</th><th>Min</th><th>Max</th></tr></thead>
+      <tbody id="ant-rows"></tbody>
+    </table>
+    <p class="hint">Height is used for analysis. "Vary" with Min/Max is used by the optimiser; unticked antennas stay at their height.</p>
+  </section>
+
+  <section>
+    <h2>Optimiser</h2>
+    <div class="grid2">
+      <label>Step<input id="step" type="number" step="0.5" value="5"></label>
+      <label>Minimum spacing<input id="min_spacing" type="number" step="1" value="20"></label>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button id="run-analyse">Analyse stack</button>
+    <button id="run-optimise" class="secondary">Optimise heights</button>
+  </div>
+</aside>
+
+<section id="results">
+  <div id="status" class="status" hidden></div>
+  <div id="progress" hidden>
+    <div class="bar"><div id="progress-fill"></div></div>
+    <div class="progress-row"><span id="progress-text"></span><button id="cancel" class="ghost small">Cancel</button></div>
+  </div>
+
+  <div id="empty" class="empty">
+    <p>Load a terrain profile (.PRO) and an ARRL arrival-angle file (.PRN) for each path.</p>
+    <p><b>Analyse stack</b> shows the pattern and Figure of Merit (FOM) of the full stack and of each antenna or sub-group.</p>
+    <p><b>Optimise heights</b> searches the height ranges for the best FOM over the arrival angles of your paths.</p>
+  </div>
+
+  <div id="opt-summary" hidden></div>
+
+  <div id="out" hidden>
+    <div class="path-tabs" id="path-tabs"></div>
+    <div class="card">
+      <h3>Elevation pattern and arrival angles</h3>
+      <div id="pattern-plot" class="plot"></div>
+    </div>
+    <div class="card">
+      <h3>Figure of Merit <small>dB &middot; higher is better &middot; &Delta; is change from the best single antenna</small></h3>
+      <div id="fom-table"></div>
+    </div>
+    <div class="card" id="map-card" hidden>
+      <h3 id="map-title">FOM map</h3>
+      <div id="map-plot" class="plot"></div>
+    </div>
+    <div class="card" id="top-card" hidden>
+      <h3>Best configurations</h3>
+      <div id="top-table"></div>
+    </div>
+    <div class="card">
+      <h3>Terrain profile</h3>
+      <div id="terrain-plot" class="plot small"></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<template id="path-tpl">
+  <div class="path">
+    <div class="path-head">
+      <input class="p-name" placeholder="Path name (e.g. Europe)">
+      <label class="w">Weight<input class="p-weight" type="number" step="0.1" min="0" value="1"></label>
+      <button class="ghost small p-del" title="Remove path">&times;</button>
+    </div>
+    <label class="file">Terrain (.PRO)<input class="p-pro" type="file" accept=".pro,.PRO,.txt"></label>
+    <span class="p-pro-info info"></span>
+    <label class="file">Arrival angles (.PRN)<input class="p-prn" type="file" accept=".prn,.PRN,.txt"></label>
+    <span class="p-prn-info info"></span>
+  </div>
+</template>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
