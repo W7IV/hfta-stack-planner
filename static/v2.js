@@ -227,7 +227,7 @@ function rTowers() {
   const p = P(), el = $("#p-towers");
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
   HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.</p>
-  <div id="towerCards"></div><button id="addTw">Add tower</button><div id="scanCard"></div>`;
+  <div id="towerCards"></div><button id="addTw">Add tower</button><div id="compCard"></div><div id="scanCard"></div>`;
   const box = $("#towerCards"), models = Object.keys(META.library);
   p.towers.forEach((t, i) => {
     t.guys = t.guys || { levels: [], ice_in: 1.0, margin_ft: 2.0 };
@@ -256,6 +256,7 @@ function rTowers() {
     wireGuys(c, t);
     box.appendChild(c);
   });
+  compCard();
   $("#addTw").onclick = () => { p.towers.push({ id: uid("w"), name: `Tower ${p.towers.length + 1}`, switching: "stackmatch", height_ft: 100, antennas: [{ model: "JK Big-Tri", h: 60 }], guys: { levels: [], ice_in: 1.0, margin_ft: 2.0 } }); save(true).then(rTowers); };
   scanCard();
 }
@@ -452,3 +453,71 @@ async function init() {
   await openProject(SLUG);
 }
 init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not start: ${esc(e.message)}</p>`; });
+
+/* ---------------------------------------------------------------- one-tower compromise */
+function compForm() {
+  const p = P();
+  p.settings.compromise = p.settings.compromise || { site: p.sites[0]?.id, weights: {}, switching: "stackmatch", min_gap: 15, max_height: 160, guys_from_tower: "",
+    groups: [{ model: "JK Big-Tri", count: 3, lo: 20, hi: 130, step: 5, min_spacing: 30, equal_tol: 10 },
+             { model: "JK 404C", count: 2, lo: 40, hi: 160, step: 5, min_spacing: 50, equal_tol: "" }] };
+  return p.settings.compromise;
+}
+function compCard() {
+  const p = P(), f = compForm(), models = Object.keys(META.library); if (!p.sites.length || !p.targets.length) { $("#compCard").innerHTML = ""; return; }
+  const guyTowers = p.towers.filter(t => (t.guys?.levels || []).length);
+  $("#compCard").innerHTML = `<div class="card" style="margin-top:14px"><h2>Best compromise for one tower <span class="chip good">HFTA</span></h2>
+  <p class="small mute">Searches the heights of one tower for the best result over all ticked targets together. For each target and band the best stack-switch setting is used,
+  as in Compare. Score per target = mean over bands; overall = weighted mean over targets. Every number is HFTA runs plus this arithmetic.</p>
+  <div class="row"><label>Site<select id="cmSite">${p.sites.map(x => `<option value="${x.id}" ${x.id === f.site ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+    <label>Switching<select id="cmSw"><option value="stackmatch" ${f.switching === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option><option value="full" ${f.switching === "full" ? "selected" : ""}>Whole stack only</option><option value="all" ${f.switching === "all" ? "selected" : ""}>Every combination</option></select></label>
+    <label>Max height (ft)<input type="number" id="cmMax" value="${f.max_height}"></label>
+    <label>Min gap between groups (ft)<input type="number" id="cmGap" value="${f.min_gap}"></label>
+    <label>Respect guys of<select id="cmGuy"><option value="">no guy check</option>${guyTowers.map(t => `<option value="${t.id}" ${t.id === f.guys_from_tower ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label></div>
+  <h3 class="small" style="margin:12px 0 4px">Targets and weights</h3>
+  <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
+    <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
+  <h3 class="small" style="margin:12px 0 4px">Antenna groups (each group has its own bands)</h3>
+  <div class="tbl"><table><tr><th>Antenna</th><th class="n">Count</th><th class="n">From (ft)</th><th class="n">To (ft)</th><th class="n">Step</th><th class="n">Min spacing</th><th class="n">Equal ± (ft)</th><th></th></tr>
+  ${f.groups.map((g, j) => `<tr><td><select data-gm="${j}">${models.map(m => `<option ${m === g.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></td>
+    ${["count", "lo", "hi", "step", "min_spacing", "equal_tol"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : ""}></td>`).join("")}
+    <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
+  <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Find best compromise</button></div>
+  <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
+  const sv = () => save();
+  $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
+  $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); };
+  $("#cmGuy").onchange = e => { f.guys_from_tower = e.target.value; sv(); };
+  $$("[data-ct]").forEach(cb => cb.onchange = () => { f.weights[cb.dataset.ct] = cb.checked ? Number($(`[data-cw="${cb.dataset.ct}"]`).value || 1) : 0; sv(); });
+  $$("[data-cw]").forEach(inp => inp.onchange = () => { f.weights[inp.dataset.cw] = Number(inp.value); $(`[data-ct="${inp.dataset.cw}"]`).checked = Number(inp.value) > 0; sv(); });
+  $$("[data-gm]").forEach(sel => sel.onchange = () => { f.groups[sel.dataset.gm].model = sel.value; sv(); });
+  $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? "" : Number(inp.value); sv(); });
+  $$("[data-gx]").forEach(b => b.onclick = () => { f.groups.splice(Number(b.dataset.gx), 1); sv(); compCard(); });
+  $("#cmAddG").onclick = () => { f.groups.push({ model: "JK Big-Tri", count: 2, lo: 30, hi: 120, step: 5, min_spacing: 30, equal_tol: "" }); sv(); compCard(); };
+  $("#cmGo").onclick = async () => {
+    await save(true);
+    const targets = p.targets.filter(t => f.weights[t.id] !== 0).map(t => t.id);
+    if (!targets.length) return toast("Tick at least one target");
+    const body = { site: f.site, targets, weights: Object.fromEntries(targets.map(t => [t, f.weights[t] ?? 1])), groups: f.groups, switching: f.switching,
+      min_gap: f.min_gap, max_height: f.max_height, guys_from_tower: f.guys_from_tower || null, min_spacing: 30, top: 25 };
+    const { job } = await api("POST", `/api/v2/p/${SLUG}/compromise`, body); const r = await poll(job, $("#cmProg")); if (r) compResult(r);
+  };
+  api("GET", `/api/v2/p/${SLUG}/compromise`).then(r => { if (r && r.rows) compResult(r); });
+}
+function compResult(r) {
+  const p = P(), lay = l => l.map((g, i) => `${r.groups[i].model.replace("JK ", "")} ${g.join(" / ")}`).join("; ");
+  $("#cmOut").innerHTML = `<p class="small mute" style="margin-top:10px">${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
+    Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
+  <div class="tbl"><table><tr><th>#</th><th>Layout</th><th class="n">Overall</th>${r.targets.map(t => `<th class="n">${esc(t.name)} <span class="mute">(w ${r.weights[t.id]})</span></th>`).join("")}<th></th></tr>
+  ${r.rows.map((x, k) => `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}</td><td class="n"><b>${fmt(x.overall)}</b></td>
+    ${r.targets.map(t => `<td class="n">${fmt(x.targets[t.id])}<br><span class="small ${x.loss[t.id] < -1 ? "neg" : x.loss[t.id] < -0.3 ? "amb" : "mute"}">${x.loss[t.id] >= 0 ? "best" : fmt(x.loss[t.id])}</span></td>`).join("")}
+    <td><button class="ghost small" data-apply="${k}">Use as tower</button></td></tr>`).join("")}
+  <tr><td></td><td class="mute">Best for each target alone</td><td></td>${r.targets.map(t => `<td class="n mute">${fmt(r.own_best[t.id])}<br><span class="small">${esc(lay(r.own_layout[t.id]))}</span></td>`).join("")}<td></td></tr></table></div>`;
+  $$("[data-apply]").forEach(b => b.onclick = async () => {
+    const x = r.rows[Number(b.dataset.apply)], f = compForm();
+    const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ model: r.groups[i].model, h })));
+    const g = p.towers.find(t => t.id === f.guys_from_tower);
+    p.towers.push({ id: uid("w"), name: `Compromise ${lay(x.layout)}`.slice(0, 60), switching: f.switching, height_ft: f.max_height, targets: r.targets.map(t => t.id),
+      antennas: ants, guys: g ? JSON.parse(JSON.stringify(g.guys)) : { levels: [], ice_in: 1.0, margin_ft: 2.0 } });
+    await save(true); toast("Added as a new tower. Run Compare to see the HFTA runs behind it."); rTowers();
+  });
+}

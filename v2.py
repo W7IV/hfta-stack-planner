@@ -4,7 +4,7 @@ import io, json, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
-from core import antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP
+from core import antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM
 
 bp = Blueprint("v2", __name__)
 CTX = {}   # set by app.py: pool(), JOBS
@@ -209,6 +209,27 @@ def scan(slug):
     job = {"state": "running", "phase": "Planning", "done": 0, "total": 0, "result": None, "error": None, "cancel": False, "started": time.time()}
     CTX["jobs"][jid] = job; threading.Thread(target=_run_scan, args=(job, slug, request.get_json()), daemon=True).start()
     return jsonify({"job": jid})
+
+# ------------------------------------------------------------ one-tower compromise
+def _run_comp(job, slug, body):
+    try:
+        proj = P.load(slug); r = CM.search(proj, slug, body, CTX["pool"](), job)
+        r["request"] = body; r["stamp"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        (P.path(slug) / "compromise.json").write_text(json.dumps(r)); job["result"] = r; job["state"] = "done"
+    except Exception as e:  # noqa: BLE001
+        job["state"], job["error"] = "error", str(e)
+
+@bp.post("/api/v2/p/<slug>/compromise")
+def compromise(slug):
+    jid = uuid.uuid4().hex[:8]
+    job = {"state": "running", "phase": "Planning", "done": 0, "total": 0, "result": None, "error": None, "cancel": False, "started": time.time()}
+    CTX["jobs"][jid] = job; threading.Thread(target=_run_comp, args=(job, slug, request.get_json()), daemon=True).start()
+    return jsonify({"job": jid})
+
+@bp.get("/api/v2/p/<slug>/compromise")
+def compromise_last(slug):
+    p = P.path(slug) / "compromise.json"
+    return jsonify(json.loads(p.read_text()) if p.exists() else {})
 
 # ------------------------------------------------------------ guys
 def guy_rows(proj, tower):
