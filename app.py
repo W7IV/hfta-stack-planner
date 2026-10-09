@@ -158,7 +158,7 @@ def err(msg, code=400):
 
 
 # --- routes -----------------------------------------------------------------
-@app.get("/")
+@app.get("/classic")
 def index():
     return render_template("index.html", antenna_types=list(engine.ANTENNA_TYPES),
                            soils=list(engine.SOIL_PRESETS))
@@ -315,5 +315,10 @@ def job_cancel(jid):
     return jsonify({"ok": True})
 
 
+import v2  # noqa: E402
+v2.CTX.update(pool=pool, jobs=JOBS)
+app.register_blueprint(v2.bp)
+app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024   # DEM files can be large; the app runs locally
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=False, threaded=True)
+    app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)), debug=False, threaded=True)

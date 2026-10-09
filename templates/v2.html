@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+<script src="{{ url_for('static', filename='plotly.min.js') }}"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">HFTA Stack Planner <span class="ver">v2</span></div>
+  <div class="proj">
+    <label for="projSel" class="sr">Project</label>
+    <select id="projSel"></select>
+    <button id="newProj" class="ghost">New project</button>
+  </div>
+  <div class="status">
+    <span id="hftaBadge" class="badge pure" title="Every number shown can be reproduced in the original HFTA">Pure HFTA</span>
+    <span id="saveState" class="mute"></span>
+  </div>
+</header>
+<div class="layout">
+  <nav class="rail" aria-label="Steps">
+    <button data-step="sites" class="step on"><b>1</b><span>Sites</span><small id="st-sites"></small></button>
+    <button data-step="targets" class="step"><b>2</b><span>Targets</span><small id="st-targets"></small></button>
+    <button data-step="towers" class="step"><b>3</b><span>Towers</span><small id="st-towers"></small></button>
+    <button data-step="compare" class="step"><b>4</b><span>Compare</span><small id="st-compare"></small></button>
+    <button data-step="report" class="step"><b>5</b><span>Report</span><small id="st-report"></small></button>
+    <a class="classic" href="/classic">Classic optimiser</a>
+  </nav>
+  <main id="main">
+    <section id="p-sites" class="page"></section>
+    <section id="p-targets" class="page" hidden></section>
+    <section id="p-towers" class="page" hidden></section>
+    <section id="p-compare" class="page" hidden></section>
+    <section id="p-report" class="page" hidden></section>
+  </main>
+</div>
+<div id="drawer" class="drawer" hidden><div class="drawer-in"><button class="x" id="drawerX" aria-label="Close">×</button><div id="drawerBody"></div></div></div>
+<div id="modal" class="modal" hidden><div class="modal-in"><div id="modalBody"></div></div></div>
+<div id="toast" class="toast" hidden></div>
+<script src="{{ url_for('static', filename='v2.js') }}"></script>
+</body>
+</html>

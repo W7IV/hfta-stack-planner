@@ -1,53 +1,63 @@
 # HFTA Stack Planner
 
-Web interface for the OpenHFTA terrain-analysis core (port of N6BV's HFTA).
-Purpose: choose antenna heights and evaluate Yagi stacks by Figure of Merit (FOM)
-over the arrival angles of one or more paths.
+A local web application around **OpenHFTA**, the open-source port of N6BV's HFTA (HF Terrain Assessment).
+It compares tower sites, antenna stacks and switch settings over real terrain, and every number it reports can be
+reproduced in the original HFTA.
 
-## Features
-- **Bands**: one band, or several bands on the same physical heights (preset: tribander 20-15-10).
-  Each band has its own frequency, element count, boom length and weight. On a tribander, enter
-  the elements and electrical boom length that are active on each band.
-- **Band matrix**: FOM of every antenna sub-group on every band, side by side.
-- **Trade-off matrix** (optimiser): best overall, best for each band, and the top results, with the
-  loss on each band against that band's best. Band weight sliders re-rank all results instantly.
-- **Search modes**: free spacing, equal spacing (bottom height + one spacing), or both with the
-  cost of equal spacing in dB.
-- **Limits**: minimum spacing in wavelengths of the lowest band (default 0.5 λ), maximum tower height.
-- **Geometry table**: heights and spacings in wavelengths per band, and spacing ÷ boom length.
-  Boom length is information only; the core does not use it.
-- 1 to 4 antennas of one type (Dipole, 2-6 and 8 elements); height and phase (0°/180°) for each.
-- One or more paths. Each path = terrain profile (.PRO) + ARRL arrival-angle file (.PRN) + weight.
-- **Analyse stack**: pattern and FOM of the full stack, each antenna alone, and every sub-group.
-  Δ column shows the change against the best single antenna.
-- **Optimise heights**: searches height ranges (any antenna can be held fixed) with a step and
-  minimum spacing. Ranks by weighted FOM over all paths. Shows the best result, top 15, a FOM map,
-  and the height range that stays within 0.5 dB of the best.
-  Large searches (> 500 combinations) use a coarse grid first, then a fine grid near the 5 best.
-- Warning when the frequency is outside 7–30 MHz (method less reliable) or the .PRN file lacks the band.
+## The rule
+**Every Figure of Merit (FOM) shown is one HFTA run, or simple arithmetic on HFTA runs.**
+The arithmetic is limited to:
+- the weighted mean over a target's headings (e.g. 44°, 52°, 60° for Europe), and
+- the best of a tower's stack-switch settings (whole stack, pairs, single antennas).
 
-## Limits (from the calculation core)
-- All antennas in a stack are the same type. Max 4. Phase 0° or 180° only.
-- Horizontal polarisation only. Terrain profile max 148 points.
-- About 0.25 s per pattern per path on one processor. Calculations run in parallel processes.
+Anything HFTA cannot do is a separate, labelled **layer**, switched off by default:
 
-## Run (Linux)
-```
-git clone https://github.com/RioDXGroup/openhfta.git ../openhfta
-cd ../openhfta && make            # needs gfortran
-cd ../hfta-gui
-pip install -r requirements.txt
-python app.py                      # open http://localhost:5000
-```
-Environment: `OPENHFTA_DIR` (default `../openhfta`), `OPENHFTA_LIB` (path to the core library),
-`HFTA_WORKERS` (processes, default = CPU count), `PORT`.
+| Layer | What it adds | Default |
+|---|---|---|
+| Maker gain | manufacturer free-space gain minus HFTA's generic type (e.g. 7-el entered as 6-el) | off |
+| Beam loss | loss of a fixed antenna off its heading | off |
+| Guy and ice check | geometry check of antennas against guy wires (not a FOM) | separate tab |
 
-The Fortran core is not thread-safe (COMMON blocks). Never call it from threads; use processes.
+The top bar shows **Pure HFTA** while no layer is on.
 
-## Files
-- `engine.py` — wrapper around the core: parsing, pattern, FOM, height grids. Numerics unchanged.
-- `app.py` — Flask routes `/api/analyse`, `/api/optimise`, `/api/job/<id>`.
-- `templates/index.html`, `static/app.js`, `static/style.css` — interface. `static/plotly.min.js` is
-  bundled so the page works offline.
-- `samples/` — two terrain profiles from the OpenHFTA test set and `TEST-ONLY-synthetic.PRN`.
-  The .PRN is invented data for testing only. Use the ARRL Antenna Book files for real work.
+## Workflow (five steps)
+1. **Sites**: one or more tower positions on the property. Terrain from MicroDEM .PRO files, K6TU one-degree
+   terrain sets (https://www.k6tu.net), or generated on this computer from a DEM file (GeoTIFF or ESRI ASCII grid;
+   USGS 3DEP 1 m LiDAR works). Compare the sites' profiles and ground slope side by side.
+2. **Targets**: a path (e.g. Europe 52°), its ARRL elevation-angle file (.PRN), headings and bands.
+   The ARRL .PRN files come with the ARRL Antenna Book and are not included.
+3. **Towers**: stacks of antennas from the library (generic HFTA types and JK Antennas models), rotating or fixed,
+   stack switching, and for rotating towers the guy and ice check (Phillystran or EHS, radial ice, element droop).
+   A height scan finds good heights for one antenna.
+4. **Compare**: all sites × towers × targets × bands. Click any value to see the HFTA runs behind it, the elevation
+   pattern with the arrival angles, and the exact inputs to type into HFTA.
+5. **Report**: HTML report, Excel workbook (results built from the run log with live formulas), CSV, the
+   **HFTA replay pack**, and the project file.
+
+## HFTA replay pack
+A zip with every terrain and .PRN file used, `runs.csv` (each HFTA run: terrain file, elevation file, frequency,
+antenna type, heights, ground, diffraction, FOM), `combination.csv` (how runs combine into each result),
+`expected_out/<run>.PRN` (the expected pattern in HFTA's OUT.PRN layout) and step-by-step instructions.
+
+## Proof of agreement with HFTA
+`python tests/test_hfta_match.py` compares the core with 16 runs written by the original HFTA (560 gains);
+all agree within 0.1 dB, the precision HFTA prints.
+
+## Running it (on your own computer)
+The app runs locally; nothing is sent to a server.
+
+1. Install Python 3.10+ and gfortran. On Windows, use WSL (Ubuntu): `sudo apt install python3-pip gfortran`.
+2. Build the OpenHFTA core next to this folder (`../openhfta`), following its README.
+3. `pip install -r requirements.txt`
+4. `python app.py`, then open http://localhost:5000
+   (`PORT` and `HOST` environment variables change the address; the default listens on this computer only).
+
+Projects are stored in `projects/<name>/` (project.json, terrain, .PRN files, results).
+The previous single-page optimiser (multi-antenna height search, tribander trade-off matrix) is still at `/classic`.
+
+## Limits
+- HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data
+  must resolve features of about 1/8 wavelength.
+- HFTA has no mutual coupling between stacked antennas; close spacing (under about 0.3 wavelength) is rated
+  too well.
+- At most 4 antennas of one type per band, as in HFTA.
