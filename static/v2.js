@@ -21,7 +21,10 @@ async function api(method, url, body, isForm) {
 function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, ms); }
 function save(now) {
   $("#saveState").textContent = "Saving…"; clearTimeout(saveTimer);
-  const go = async () => { try { S = await api("PUT", `/api/v2/p/${SLUG}`, P()); $("#saveState").textContent = "Saved"; status(); } catch (e) { $("#saveState").textContent = "Not saved: " + e.message; } };
+  /* Keep the same project object after saving: the page's inputs hold references into it. Replacing it with the
+     server's copy made later edits go to an old object and be lost. Only the file and result status come from the server. */
+  const go = async () => { try { const proj = P(), r = await api("PUT", `/api/v2/p/${SLUG}`, proj); if (r.slug === SLUG) { r.project = proj; S = r; }
+    $("#saveState").textContent = "Saved"; status(); } catch (e) { $("#saveState").textContent = "Not saved: " + e.message; } };
   if (now) return go(); saveTimer = setTimeout(go, 500);
 }
 function bind(el, obj, key, after, num) {
