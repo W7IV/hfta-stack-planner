@@ -5,7 +5,8 @@ diffraction). Combination steps are plain arithmetic and are recorded too:
   - azimuth averaging: weighted mean of FOM (dB) over the target's headings
   - stack switching: the best (highest) of the switch settings offered by the tower
   - bands, targets: shown separately; no hidden totals
-Layers beyond HFTA (manufacturer gain, beam loss of fixed antennas) are computed as separate deltas.
+Layers beyond HFTA (manufacturer gain) are computed as separate deltas.
+The direction of every run is set by the terrain file, i.e. by the targets a tower is evaluated on.
 """
 from __future__ import annotations
 import hashlib, itertools, json
@@ -105,18 +106,6 @@ def finish(proj, pslug, cells, runs, patterns):
         models = {a["model"] for a in c["antennas"]}
         g = A.gain_correction_db(models.pop(), c["band"]) if len(models) == 1 else None
         lay["jk_gain"] = g
-        c["off_heading"] = None
-        if tw.get("kind") == "fixed":
-            off = abs((tg["heading"] - tw["heading"] + 180) % 360 - 180)
-            if off > A.BEAMWIDTH[c["hfta_type"]] / 2:
-                c["off_heading"] = round(off)
-        if tw.get("kind") == "fixed" and best:
-            bw = A.BEAMWIDTH[c["hfta_type"]]
-            loss = lambda az: max(-12 * (((az - tw["heading"] + 180) % 360 - 180) / bw) ** 2, -25.0)
-            good = [a for a in best["az"] if a["fom"] is not None]
-            lay["beam_loss"] = round(sum(loss(a["az"]) * a["weight"] for a in good) / sum(a["weight"] for a in good), 2)
-        else:
-            lay["beam_loss"] = 0.0
         c["layers"] = lay
     return fom_log
 

@@ -32,7 +32,7 @@ def cell_rows(proj, res, layers_on):
                     "antennas": " / ".join(f'{a["model"]} {a["h"]:g}' for a in c["antennas"]),
                     "switch_setting": " / ".join(f"{h:g}" for h in best["heights"]) if best else "",
                     "hfta_fom_db": c.get("hfta_fom"), "layer_maker_gain_db": c.get("layers", {}).get("jk_gain"),
-                    "layer_beam_loss_db": c.get("layers", {}).get("beam_loss"), "with_layers_on_db": total(c, layers_on) if not c["issues"] else None,
+"with_layers_on_db": total(c, layers_on) if not c["issues"] else None,
                     "issues": "; ".join(c["issues"])})
     return out
 
@@ -60,6 +60,8 @@ Nothing else is hidden in the numbers. Items marked *layer* are additions beyond
 6. Compute. The FOM shown by HFTA is `hfta_fom_db`. The pattern can be compared with `expected_out/<run_id>.PRN`.
 
 ## From runs to a result
+- Direction: HFTA treats the antennas as facing the azimuth of the terrain file. A tower is evaluated only on the
+  targets chosen for it, so the terrain files set the direction.
 - Headings: a target is evaluated at one or more headings (e.g. -8, 0, +8 degrees around the target bearing). Each
   heading uses the nearest terrain file. The heading value = weighted mean of the run FOMs in dB:
   sum(weight x FOM) / sum(weight).
@@ -69,7 +71,6 @@ Nothing else is hidden in the numbers. Items marked *layer* are additions beyond
 
 ## Layers beyond HFTA (not reproducible in HFTA; shown as separate columns)
 - *Maker gain*: manufacturer free-space gain minus the gain of HFTA's generic type for that element count.
-- *Beam loss (fixed antennas)*: main-lobe loss off the fixed heading, -12 x (offset / beamwidth)^2 dB.
 """
 
 def replay_pack(proj, pslug, res, layers_on) -> bytes:
@@ -161,20 +162,20 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
     wres["A1"] = f"{proj['name']}: results (FOM, dB). HFTA column = original HFTA. Layer columns are additions beyond HFTA."; wres["A1"].font = F(bold=True, size=12)
     wres["A2"] = "Layers switched on in this export: " + (", ".join(k for k, v in layers_on.items() if v) or "none (pure HFTA)"); wres["A2"].font = ITAL
     hdr(wres, 4, ["Cell key", "Site", "Tower", "Target", "Band (m)", "Freq (MHz)", "Antennas (model, height ft)", "HFTA FOM (dB)",
-                  "Layer: maker gain (dB)", "Layer: beam loss (dB)", "With layers on (dB)", "Note"])
+                  "Layer: maker gain (dB)", "With layers on (dB)", "Note"])
     for i, (ci, c) in enumerate([(ci, c) for ci, c in enumerate(res["cells"])], 5):
         put(wres, i, 1, f"C{ci}"); put(wres, i, 2, S[c["site"]]); put(wres, i, 3, TW[c["tower"]]); put(wres, i, 4, TN[c["target"]])
         put(wres, i, 5, c["band"]); put(wres, i, 6, c["freq"]); put(wres, i, 7, " / ".join(f'{a["model"]} {a["h"]:g}' for a in c["antennas"]))
         if c["issues"]:
-            put(wres, i, 12, "; ".join(c["issues"])); continue
+            put(wres, i, 11, "; ".join(c["issues"])); continue
         put(wres, i, 8, f'=_xlfn.MAXIFS(Settings!$H$4:$H${ns},Settings!$B$4:$B${ns},A{i})', BOLD, "0.00")
-        lj, lb = c["layers"].get("jk_gain"), c["layers"].get("beam_loss")
-        put(wres, i, 9, lj, BLUE, "0.00"); put(wres, i, 10, lb, BLUE, "0.00")
-        on_j = 1 if layers_on.get("jk_gain") else 0; on_b = 1 if layers_on.get("beam_loss") else 0
-        put(wres, i, 11, f"=H{i}+{on_j}*N(I{i})+{on_b}*N(J{i})", None, "0.00")
+        lj = c["layers"].get("jk_gain")
+        put(wres, i, 9, lj, BLUE, "0.00")
+        on_j = 1 if layers_on.get("jk_gain") else 0
+        put(wres, i, 10, f"=H{i}+{on_j}*N(I{i})", None, "0.00")
     for ws in (wres, wr, wc, ws_):
         for j in range(1, 20): ws.column_dimensions[L(j)].width = 14
-    wres.column_dimensions["G"].width = 46; wres.column_dimensions["L"].width = 50; wres.freeze_panes = "B5"
+    wres.column_dimensions["G"].width = 46; wres.column_dimensions["K"].width = 50; wres.freeze_panes = "B5"
     # Sites
     wsi = wb.create_sheet("Sites")
     hdr(wsi, 1, ["Site", "Latitude", "Longitude", "Terrain source", "Profiles", "Notes"])
@@ -192,10 +193,11 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
         for j, v in enumerate([t["name"], t["prn"], t["heading"], ", ".join(map(str, t["offsets"])), ", ".join(map(str, t["weights"])), ", ".join(t["bands"])], 1):
             put(wi, r, j, v)
         r += 1
-    r += 1; hdr(wi, r, ["Tower", "Kind", "Fixed heading", "Switching", "Antenna", "Height (ft)"]); r += 1
+    r += 1; hdr(wi, r, ["Tower", "Serves targets", "Switching", "Antenna", "Height (ft)"]); r += 1
     for t in proj["towers"]:
         for a in sorted(t["antennas"], key=lambda a: -a["h"]):
-            for j, v in enumerate([t["name"], t.get("kind"), t.get("heading"), t.get("switching"), a["model"], a["h"]], 1): put(wi, r, j, v)
+            serves = ", ".join(TN[x] for x in t.get("targets") or TN) 
+            for j, v in enumerate([t["name"], serves, t.get("switching"), a["model"], a["h"]], 1): put(wi, r, j, v)
             r += 1
     for j in range(1, 7): wi.column_dimensions[L(j)].width = 22
     if guy_rows:

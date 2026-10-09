@@ -160,7 +160,7 @@ def results(slug):
         best = c["options"][c["best"]] if c.get("best") is not None else None
         slim.append({"i": i, "site": c["site"], "tower": c["tower"], "target": c["target"], "band": c["band"], "freq": c["freq"],
                      "hfta": c.get("hfta_fom"), "layers": c.get("layers", {}), "total": EV.total(c, on) if not c["issues"] else None,
-                     "use": best["heights"] if best else None, "n_options": len(c["options"]), "issues": c["issues"], "off_heading": c.get("off_heading")})
+                     "use": best["heights"] if best else None, "n_options": len(c["options"]), "issues": c["issues"]})
     return jsonify({"stamp": res["stamp"], "cells": slim, "n_runs": res["n_runs"], "layers_on": on})
 
 @bp.get("/api/v2/p/<slug>/cell/<int:i>")
@@ -234,7 +234,7 @@ def export(slug, kind):
     if kind == "project":
         return send_file(io.BytesIO(json.dumps(proj, indent=1).encode()), as_attachment=True, download_name=f"{base}.hfta-project.json")
     if not res: return err("Run the evaluation first (step 4).")
-    gr = {t["name"]: guy_rows(proj, t) for t in proj["towers"] if t.get("kind") == "rotating" and (t.get("guys") or {}).get("levels")}
+    gr = {t["name"]: guy_rows(proj, t) for t in proj["towers"] if (t.get("guys") or {}).get("levels")}
     if kind == "xlsx":
         return send_file(io.BytesIO(EX.workbook(proj, slug, res, on, gr)), as_attachment=True, download_name=f"{base}.xlsx")
     if kind == "csv":

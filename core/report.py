@@ -39,7 +39,7 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     e = html.escape; S = {s["id"]: s for s in proj["sites"]}; TW = {t["id"]: t for t in proj["towers"]}; TG = {t["id"]: t for t in proj["targets"]}
     on = [k for k, v in layers_on.items() if v]
     lay_txt = "Pure HFTA: every number can be reproduced in the original HFTA." if not on else \
-        "Layers beyond HFTA are ON in this report: " + ", ".join({"jk_gain": "maker gain", "beam_loss": "beam loss of fixed antennas"}[k] for k in on) + ". The HFTA-only value is shown beside each total."
+        "Layers beyond HFTA are ON in this report: " + ", ".join({"jk_gain": "maker gain"}.get(k, k) for k in on) + ". The HFTA-only value is shown beside each total."
     st = proj["settings"]; o = []
     o.append(f"<main><h1>{e(proj['name'])}</h1><p class=mute>HFTA Stack Planner report, {datetime.date.today()}. "
              f"Results computed {e(res['stamp'])} from {res['n_runs']} HFTA runs.</p><div class=note>{e(lay_txt)}</div>")
@@ -54,8 +54,8 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
         o.append(f"<tr><td>{e(t['name'])}</td><td>{e(t['prn'])}</td><td class=n>{t['heading']:g}°</td><td>{hd}</td><td>{', '.join(t['bands'])}</td></tr>")
     o.append("</table><h3>Towers</h3>")
     for t in proj["towers"]:
-        kind = "rotating" if t.get("kind") == "rotating" else f"fixed at {t.get('heading')}°"
-        o.append(f"<p><b>{e(t['name'])}</b> <span class=chip>{kind}</span><span class=chip>switching: {e(t.get('switching', 'stackmatch'))}</span></p><table><tr><th>Height (ft)</th><th>Antenna</th><th>Bands (HFTA type)</th></tr>")
+        serves = ", ".join(TG[x]["name"] for x in t.get("targets") or TG)
+        o.append(f"<p><b>{e(t['name'])}</b> <span class=chip>serves: {e(serves)}</span><span class=chip>switching: {e(t.get('switching', 'stackmatch'))}</span></p><table><tr><th>Height (ft)</th><th>Antenna</th><th>Bands (HFTA type)</th></tr>")
         for a in sorted(t["antennas"], key=lambda a: -a["h"]):
             m = a["model"]; bands = A.bands_of(m, t.get("bands"))
             btxt = ", ".join(f"{b} m ({A.hfta_type(m, b)})" for b in bands)
@@ -85,15 +85,13 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
                 v = total(c, layers_on); values[lab][b] = v
                 bo = c["options"][c["best"]]["heights"]; cls = "n best" if best[b] is not None and abs(v - best[b]) < 0.005 else "n"
                 extra = f"<br><span class=mute>HFTA {c['hfta_fom']:.2f}</span>" if on else ""
-                if c.get("off_heading") and not layers_on.get("beam_loss"):
-                    extra += f"<br><span class=mute>terrain files {c['off_heading']}° off the fixed heading: value is for the antenna turned toward the target</span>"
                 o.append(f"<td class='{cls}'>{v:.2f}{extra}</td><td class=mute>{' / '.join(f'{h:g}' for h in bo)}</td>")
             o.append("</tr>")
         o.append("</table></div>")
         if bands and series:
             o.append(_svg_bars(bands, series, values, f"{t['name']}: FOM by band"))
     if guy_rows:
-        o.append("<h2>Guy clearance (not part of HFTA)</h2>")
+        o.append("<h2>Guy clearance (not part of HFTA; applies to antennas that turn)</h2>")
         for tname, rows in guy_rows.items():
             tw = next(t for t in proj["towers"] if t["name"] == tname); g = tw.get("guys", {})
             lv = ", ".join(f"{l['h']:g} ft to {l['r']:g} ft anchors ({e(l['wire'])})" for l in g.get("levels", []))

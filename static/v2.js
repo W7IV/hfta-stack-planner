@@ -28,9 +28,9 @@ function bind(el, obj, key, after, num) {
   el.addEventListener("change", () => { obj[key] = num ? (el.value === "" ? null : Number(el.value)) : (el.type === "checkbox" ? el.checked : el.value); save(); after && after(); });
 }
 function status() {
-  const p = P(), on = Object.entries(p.settings.layers || {}).filter(([k, v]) => v).map(([k]) => k);
+  const p = P(), on = Object.entries(p.settings.layers || {}).filter(([k, v]) => v && k === "jk_gain").map(([k]) => k);
   const b = $("#hftaBadge"); b.className = "badge " + (on.length ? "layer" : "pure");
-  b.textContent = on.length ? "Layers on: " + on.map(k => ({ jk_gain: "maker gain", beam_loss: "beam loss" }[k])).join(", ") : "Pure HFTA";
+  b.textContent = on.length ? "Layers on: " + on.map(k => ({ jk_gain: "maker gain" }[k] || k)).join(", ") : "Pure HFTA";
   b.title = on.length ? "Some numbers include additions beyond HFTA. The HFTA value is always shown beside them." : "Every number shown can be reproduced in the original HFTA";
   const ready = p.sites.filter(s => (S.site_files[s.id] || {}).n).length;
   $("#st-sites").textContent = `${ready}/${p.sites.length} with terrain`;
@@ -215,7 +215,7 @@ function bandsText(model) {
 function towerSvg(t) {
   const H = Math.max(t.height_ft || 0, ...t.antennas.map(a => a.h), 50) * 1.08, W = 150, Ht = 300, y = h => Ht - 10 - h / H * (Ht - 30);
   let s = `<svg viewBox="0 0 ${W} ${Ht}" class="tower-fig" role="img" aria-label="Tower drawing"><line x1="40" y1="${y(0)}" x2="40" y2="${y(t.height_ft || H / 1.08)}" stroke="${css("--ink")}" stroke-width="3"/>`;
-  for (const g of (t.kind === "rotating" ? t.guys?.levels || [] : [])) s += `<line x1="40" y1="${y(g.h)}" x2="${W - 4}" y2="${y(Math.max(0, g.h * (1 - 100 / g.r)))}" stroke="${css("--mute")}" stroke-dasharray="3 3"/>`;
+  for (const g of (t.guys?.levels || [])) s += `<line x1="40" y1="${y(g.h)}" x2="${W - 4}" y2="${y(Math.max(0, g.h * (1 - 100 / g.r)))}" stroke="${css("--mute")}" stroke-dasharray="3 3"/>`;
   for (const a of t.antennas) {
     const m = META.library[a.model] || {}, w = Math.min(90, (m.turning_radius_ft || 20) * 1.6);
     const col = m.bands && m.bands["40"] ? "#d9822b" : m.bands && m.bands["80"] ? "#8e44ad" : "#2c7a4b";
@@ -226,7 +226,7 @@ function towerSvg(t) {
 function rTowers() {
   const p = P(), el = $("#p-towers");
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
-  HFTA treats each antenna as facing the azimuth of the terrain file it is given. Rotating towers use the headings of each target. A fixed tower should only serve targets near its heading; new fixed towers do so by default (within ±60°).</p>
+  HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.</p>
   <div id="towerCards"></div><button id="addTw">Add tower</button><div id="scanCard"></div>`;
   const box = $("#towerCards"), models = Object.keys(META.library);
   p.towers.forEach((t, i) => {
@@ -234,9 +234,7 @@ function rTowers() {
     const c = document.createElement("div"); c.className = "card";
     c.innerHTML = `<h2><input class="w" data-k="name" value="${esc(t.name)}"></h2>
       <div class="split"><div class="figwrap">${towerSvg(t)}</div><div>
-      <div class="row"><label>Type<select data-k="kind"><option value="rotating" ${t.kind === "rotating" ? "selected" : ""}>Rotating</option><option value="fixed" ${t.kind === "fixed" ? "selected" : ""}>Fixed</option></select></label>
-        ${t.kind === "fixed" ? `<label>Fixed heading (°)<input type="number" data-k="heading" value="${t.heading ?? 0}"></label>` : ""}
-        <label>Tower height (ft)<input type="number" data-k="height_ft" value="${t.height_ft ?? ""}"></label>
+      <div class="row"><label>Tower height (ft)<input type="number" data-k="height_ft" value="${t.height_ft ?? ""}"></label>
         <label>Switching<select data-k="switching">
           <option value="full" ${t.switching === "full" ? "selected" : ""}>Whole stack only</option>
           <option value="stackmatch" ${(t.switching || "stackmatch") === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option>
@@ -247,27 +245,24 @@ function rTowers() {
           <td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td><td class="small">${esc(bandsText(a.model))}</td>
           <td><button class="danger small" data-ad="${j}">Remove</button></td></tr>`).join("")}</table></div>
       <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button><button class="danger" data-del>Delete tower</button></div>
-      ${t.kind === "rotating" ? guyBlock(t) : ""}</div></div>`;
-    $$("[data-k]", c).forEach(inp => bind(inp, t, inp.dataset.k, () => {
-      if ((inp.dataset.k === "kind" || inp.dataset.k === "heading") && t.kind === "fixed")
-        t.targets = p.targets.filter(g => Math.abs(((g.heading - (t.heading || 0)) % 360 + 540) % 360 - 180) <= 60).map(g => g.id);
-      save(); rTowers(); }, inp.type === "number"));
+      ${guyBlock(t)}</div></div>`;
+    $$("[data-k]", c).forEach(inp => bind(inp, t, inp.dataset.k, () => rTowers(), inp.type === "number"));
     $$("[data-tg]", c).forEach(cb => cb.onchange = () => { t.targets = $$("[data-tg]", c).filter(x => x.checked).map(x => x.dataset.tg); save(); });
     $$("[data-am]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.am].model = s.value; save(); rTowers(); });
     $$("[data-ah]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.ah].h = Number(s.value); save(); rTowers(); });
     $$("[data-ad]", c).forEach(b => b.onclick = () => { t.antennas.splice(Number(b.dataset.ad), 1); save(); rTowers(); });
     $("[data-add]", c).onclick = () => { t.antennas.push({ model: "JK Big-Tri", h: 60 }); save(); rTowers(); };
     $("[data-del]", c).onclick = () => { p.towers.splice(i, 1); save(true).then(rTowers); };
-    if (t.kind === "rotating") wireGuys(c, t);
+    wireGuys(c, t);
     box.appendChild(c);
   });
-  $("#addTw").onclick = () => { p.towers.push({ id: uid("w"), name: `Tower ${p.towers.length + 1}`, kind: "rotating", switching: "stackmatch", height_ft: 100, antennas: [{ model: "JK Big-Tri", h: 60 }], guys: { levels: [], ice_in: 1.0, margin_ft: 2.0 } }); save(true).then(rTowers); };
+  $("#addTw").onclick = () => { p.towers.push({ id: uid("w"), name: `Tower ${p.towers.length + 1}`, switching: "stackmatch", height_ft: 100, antennas: [{ model: "JK Big-Tri", h: 60 }], guys: { levels: [], ice_in: 1.0, margin_ft: 2.0 } }); save(true).then(rTowers); };
   scanCard();
 }
 function guyBlock(t) {
   const g = t.guys, wires = Object.keys(META.wires);
   return `<div class="card" style="margin-top:12px;background:var(--soft)"><h2>Guy and ice check <span class="chip">not part of HFTA</span></h2>
-    <p class="small mute">An antenna sweeps a circle of its turning radius as the tower turns. Guys sag under ice; elements droop. Negative clearance = contact.</p>
+    <p class="small mute">For antennas that turn: each sweeps a circle of its turning radius. Guys sag under ice; elements droop. Negative clearance = contact. Leave empty if not needed.</p>
     <div class="tbl"><table><tr><th class="n">Guy height (ft)</th><th class="n">Anchor radius (ft)</th><th>Guy line</th><th class="n">Initial tension (lb)</th><th></th></tr>
     ${g.levels.map((l, j) => `<tr><td class="n"><input type="number" data-gh="${j}" value="${l.h}"></td><td class="n"><input type="number" data-gr="${j}" value="${l.r}"></td>
       <td><select data-gw="${j}">${wires.map(w => `<option ${w === l.wire ? "selected" : ""}>${esc(w)}</option>`).join("")}</select></td>
@@ -338,12 +333,9 @@ async function rCompare() {
   <div class="card"><h2>Layers beyond HFTA <span class="chip">off by default</span></h2>
     <label style="display:flex;gap:6px;align-items:flex-start"><input type="checkbox" id="lyJk" ${L.jk_gain ? "checked" : ""}><span>Maker gain: manufacturer free-space gain minus the HFTA generic type
       (e.g. Big-Tri 7-el on 10 m, which HFTA can only enter as 6-el).</span></label>
-    <label style="display:flex;gap:6px;align-items:flex-start;margin-top:6px"><input type="checkbox" id="lyBl" ${L.beam_loss ? "checked" : ""}><span>Beam loss of fixed antennas off their heading
-      (−12 × (offset ÷ beamwidth)² dB).</span></label>
     <p class="small mute">With a layer on, the HFTA value stays visible beside each total, and exports mark the layer.</p></div></div>
   <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="cmpPlot" class="plot"></div></div>`;
   $("#lyJk").onchange = e => { L.jk_gain = e.target.checked; save(true).then(rCompare); };
-  $("#lyBl").onchange = e => { L.beam_loss = e.target.checked; save(true).then(rCompare); };
   $("#evalBtn").onclick = async () => {
     await save(true); const bad = checkReady(); if (bad) return toast(bad, 5000);
     const { job } = await api("POST", `/api/v2/p/${SLUG}/evaluate`); const r = await poll(job, $("#evProg"));
@@ -361,7 +353,7 @@ function checkReady() {
   return null;
 }
 function matrix() {
-  const p = P(), on = Object.values(p.settings.layers).some(Boolean);
+  const p = P(), on = !!p.settings.layers.jk_gain;
   const tg = p.targets.filter(t => RES.cells.some(c => c.target === t.id)); if (!CMP.target || !tg.some(t => t.id === CMP.target)) CMP.target = tg[0]?.id;
   const site = id => p.sites.find(s => s.id === id)?.name ?? id, tower = id => p.towers.find(t => t.id === id)?.name ?? id;
   const cells = RES.cells.filter(c => c.target === CMP.target);
@@ -386,7 +378,6 @@ function matrix() {
       let shown = fmt(v), cls = "n cell" + (Math.abs(v - best[b]) < 0.005 ? " best" : "");
       if (CMP.delta && r !== CMP.ref) { const rv = val(get(CMP.ref, b)); shown = rv === null ? "–" : (v - rv >= 0 ? "+" : "") + fmt(v - rv); }
       let sub = on ? `<br><span class="small mute">HFTA ${fmt(c.hfta)}</span>` : "";
-      if (c.off_heading && !P().settings.layers.beam_loss) { sub += `<br><span class="chip warn" title="The terrain files of this target are ${c.off_heading}° away from where this fixed tower points. HFTA treats the antenna as facing the azimuth of its terrain file, so this value describes the antenna turned toward the target, not the fixed tower. Untick the target for this tower, or switch on the beam-loss layer.">${c.off_heading}° off heading</span>`; cls += " off"; }
       h += `<td class="${cls}" data-i="${c.i}" title="Show the HFTA runs">${shown}${sub}</td><td class="small mute">${(c.use || []).join(" / ")}</td>`;
     }
     h += "</tr>";
@@ -403,7 +394,7 @@ async function cellDrawer(i) {
   const site = p.sites.find(s => s.id === c.site)?.name, tower = p.towers.find(t => t.id === c.tower)?.name, tgt = p.targets.find(t => t.id === c.target);
   const st = p.settings, best = c.options[c.best];
   let h = `<h2>${esc(site)} · ${esc(tower)} · ${esc(tgt.name)} · ${c.band} m</h2>
-    <p><b>HFTA FOM ${fmt(c.hfta_fom)} dB</b> with antennas at ${best.heights.join(" / ")} ft. Layers: maker gain ${fmt(c.layers.jk_gain)} dB, beam loss ${fmt(c.layers.beam_loss)} dB (not included unless switched on).</p>
+    <p><b>HFTA FOM ${fmt(c.hfta_fom)} dB</b> with antennas at ${best.heights.join(" / ")} ft. Layer: maker gain ${fmt(c.layers.jk_gain)} dB (not included unless switched on).</p>
     <h3>Switch settings</h3><div class="tbl"><table><tr><th>Antennas in use (ft)</th>${c.options[0].az.map(a => `<th class="n">${a.az}°</th>`).join("")}<th class="n">Weighted mean</th></tr>
     ${c.options.map((o, k) => `<tr><td>${o.heights.join(" / ")}${k === c.best ? ' <span class="chip good">best</span>' : ""}</td>${o.az.map(a => `<td class="n">${fmt(a.fom)}</td>`).join("")}<td class="n"><b>${fmt(o.score)}</b></td></tr>`).join("")}</table></div>
     <p class="small mute">Weights: ${c.options[0].az.map(a => a.weight).join(", ")}. Mean = Σ(weight × FOM) ÷ Σ weight. Best setting = highest mean.</p>
@@ -425,7 +416,7 @@ async function cellDrawer(i) {
 
 /* ---------------------------------------------------------------- 5. Report */
 function rReport() {
-  const p = P(), on = Object.entries(p.settings.layers).filter(([k, v]) => v).map(([k]) => k);
+  const p = P(), on = p.settings.layers.jk_gain ? ["maker gain"] : [];
   const ex = (k, t, d) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && k !== "project" ? "disabled" : ""}>Download</button></div>`;
   $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">${on.length ? `Layers beyond HFTA are on (${on.join(", ")}). Exports show the HFTA value and each layer in separate columns.` : "No layers are on: every exported number is a pure HFTA result."}</p>
   ${S.has_results ? "" : `<div class="note">Run the evaluation in step 4 first.</div>`}

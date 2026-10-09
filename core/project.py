@@ -14,7 +14,7 @@ def new_id(prefix): return f"{prefix}{uuid.uuid4().hex[:6]}"
 def default_project(name: str) -> dict:
     return {"name": name, "version": 2, "created": time.strftime("%Y-%m-%d %H:%M"), "units": "ft",
             "settings": {"soil": "Average soil", "sigma": 0.005, "epsr": 13.0, "diffraction": True,
-                         "band_freq": {}, "layers": {"jk_gain": False, "beam_loss": False}},
+                         "band_freq": {}, "layers": {"jk_gain": False}},
             "sites": [], "targets": [], "towers": []}
 
 def path(pslug): return ROOT / pslug

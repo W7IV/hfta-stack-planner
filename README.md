@@ -15,8 +15,7 @@ Anything HFTA cannot do is a separate, labelled **layer**, switched off by defau
 | Layer | What it adds | Default |
 |---|---|---|
 | Maker gain | manufacturer free-space gain minus HFTA's generic type (e.g. 7-el entered as 6-el) | off |
-| Beam loss | loss of a fixed antenna off its heading (HFTA treats an antenna as facing the azimuth of its terrain file) | off |
-| Guy and ice check | geometry check of antennas against guy wires (not a FOM) | separate tab |
+| Guy and ice check | geometry check of turning antennas against guy wires (not a FOM) | separate panel |
 
 The top bar shows **Pure HFTA** while no layer is on.
 
@@ -26,8 +25,9 @@ The top bar shows **Pure HFTA** while no layer is on.
    USGS 3DEP 1 m LiDAR works). Compare the sites' profiles and ground slope side by side.
 2. **Targets**: a path (e.g. Europe 52°), its ARRL elevation-angle file (.PRN), headings and bands.
    The ARRL .PRN files come with the ARRL Antenna Book and are not included.
-3. **Towers**: stacks of antennas from the library (generic HFTA types and JK Antennas models), rotating or fixed,
-   stack switching, and for rotating towers the guy and ice check (Phillystran or EHS, radial ice, element droop).
+3. **Towers**: stacks of antennas from the library (generic HFTA types and JK Antennas models), the targets each
+   tower serves (this sets the directions, because HFTA treats the antennas as facing the azimuth of the terrain
+   file), stack switching, and an optional guy and ice check (Phillystran or EHS, radial ice, element droop).
    A height scan finds good heights for one antenna.
 4. **Compare**: all sites × towers × targets × bands. Click any value to see the HFTA runs behind it, the elevation
    pattern with the arrival angles, and the exact inputs to type into HFTA.

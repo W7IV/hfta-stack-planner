@@ -53,4 +53,4 @@ pre.code{font:12px/1.4 var(--mono);background:var(--soft);padding:8px;border-rad
 .exports{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.exports .card{display:flex;flex-direction:column;gap:6px}.exports .card button{align-self:flex-start;margin-top:auto}
 .bandbox{display:flex;gap:6px;flex-wrap:wrap}.bandbox label{display:flex;gap:3px;align-items:center;font-size:12.5px}
 @media (max-width:760px){.layout{grid-template-columns:1fr}.rail{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.step{grid-template-columns:24px auto}.step small{display:none}.classic{display:none}main{padding:14px 16px}.grid2{grid-template-columns:1fr}}
-td.off{opacity:.75}
+
