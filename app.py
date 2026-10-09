@@ -4,6 +4,8 @@ app.py - Flask web GUI for OpenHFTA terrain analysis, stack evaluation and heigh
 Run:  python app.py      (then open http://localhost:5000)
 Env:  OPENHFTA_DIR  path to the OpenHFTA checkout (default ../openhfta)
       HFTA_WORKERS  number of calculation processes (default: CPU count)
+      PROJECTS_DIR  where projects are stored (default ./projects; on a host, a persistent volume)
+      APP_PASSWORD  if set, the browser asks for it (any user name). Use it when the app is on the internet.
 
 Model of a request
   bands : one or more bands analysed with the SAME physical heights (single-band or tribander).
@@ -25,6 +27,25 @@ import engine
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+
+
+@app.before_request
+def _password():
+    """Simple protection for a hosted copy: HTTP basic authentication, password from APP_PASSWORD."""
+    if not APP_PASSWORD or request.path == "/healthz":
+        return None
+    import hmac
+    a = request.authorization
+    if a and a.password and hmac.compare_digest(a.password, APP_PASSWORD):
+        return None
+    return ("Password required", 401, {"WWW-Authenticate": 'Basic realm="HFTA Stack Planner"'})
+
+
+@app.get("/healthz")
+def _healthz():
+    return "ok"
 
 WORKERS = int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))
 POOL = None

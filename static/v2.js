@@ -466,7 +466,7 @@ async function cellDrawer(i) {
 /* ---------------------------------------------------------------- 5. Report */
 function rReport() {
   const p = P();
-  const ex = (k, t, d) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && k !== "project" ? "disabled" : ""}>Download</button></div>`;
+  const ex = (k, t, d) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && !["project", "bundle"].includes(k) ? "disabled" : ""}>Download</button></div>`;
   $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">Every exported number is a pure HFTA result. Spacing warnings and the guy check are included as notes; they never change a number.</p>
   ${S.has_results ? "" : `<div class="note">Run the evaluation in step 4 first.</div>`}
   <div class="exports">
@@ -474,7 +474,8 @@ function rReport() {
     ${ex("xlsx", "Workbook (Excel)", "Results, every HFTA run, and the combination of runs as live formulas, so each number can be traced.")}
     ${ex("replay", "HFTA replay pack (zip)", "Every terrain and .PRN file used, each run with its exact HFTA inputs and FOM, expected patterns in OUT.PRN layout, and step-by-step instructions.")}
     ${ex("csv", "Results (CSV)", "One row per site, tower, target and band, for your own spreadsheet.")}
-    ${ex("project", "Project file", "Everything needed to open this study again or share it (terrain and .PRN files are in the replay pack).")}
+    ${ex("bundle", "Project with files (zip)", "The project with its terrain and .PRN files. Open it on another computer or on a hosted copy with “Open project zip”. Results are recomputed there.")}
+    ${ex("project", "Project file (settings only)", "The project settings without terrain or .PRN files.")}
   </div>`;
   $$("[data-ex]").forEach(b => b.onclick = () => { window.location = `/api/v2/p/${SLUG}/export/${b.dataset.ex}`; });
 }
@@ -495,6 +496,13 @@ async function init() {
   $("#newProj").onclick = () => { modal(`<h2>New project</h2><form id="npf" class="row"><label>Name<input id="npn" class="w" required></label><button>Create</button><button type="button" class="ghost" id="npc">Cancel</button></form>`);
     $("#npc").onclick = closeModal; $("#npf").onsubmit = async e => { e.preventDefault(); const r = await api("POST", "/api/v2/projects", { name: $("#npn").value });
       META.projects.push(r.slug); SLUG = r.slug; fill(); closeModal(); openProject(r.slug); go("sites"); }; };
+  $("#openProj").onclick = () => $("#openProjIn").click();
+  $("#openProjIn").onchange = async () => {
+    const f = $("#openProjIn").files[0]; if (!f) return; const fd = new FormData(); fd.append("file", f);
+    try { const r = await api("POST", "/api/v2/projects/import", fd, true); META.projects.push(r.slug); SLUG = r.slug; fill(); await openProject(r.slug); go("sites"); toast(`Opened as “${r.slug}”`); }
+    catch (e) { toast(e.message, 5000); }
+    $("#openProjIn").value = "";
+  };
   $$(".step").forEach(b => b.onclick = () => go(b.dataset.step));
   $("#drawerX").onclick = () => $("#drawer").hidden = true;
   document.addEventListener("keydown", e => { if (e.key === "Escape") { $("#drawer").hidden = true; closeModal(); } });

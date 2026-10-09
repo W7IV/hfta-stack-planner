@@ -33,6 +33,49 @@ def create():
         slug = f"{P.slug(name)}-{n}"; n += 1
     P.save(slug, P.default_project(name)); return jsonify({"slug": slug})
 
+# ------------------------------------------------------------ project with all its files (move between computers)
+@bp.post("/api/v2/projects/import")
+def import_project():
+    """Zip made by export/bundle: project.json, sites/<site id>/*.PRO, prn/*.PRN (results are recomputed)."""
+    import zipfile, re
+    f = request.files.get("file")
+    if not f: return err("No file")
+    try: z = zipfile.ZipFile(f.stream)
+    except zipfile.BadZipFile: return err("Not a zip file")
+    names = [n for n in z.namelist() if not n.endswith("/")]
+    pj = next((n for n in names if n.split("/")[-1] == "project.json"), None)
+    if not pj: return err("project.json not found in the zip")
+    root = pj[: -len("project.json")]
+    proj = P.upgrade(json.loads(z.read(pj)))
+    base = P.slug(proj.get("name") or "Imported"); slug = base; n = 2
+    while (P.path(slug) / "project.json").exists(): slug = f"{base}-{n}"; n += 1
+    site_ids = {s["id"] for s in proj.get("sites", [])}
+    for n_ in names:
+        rel = n_[len(root):] if n_.startswith(root) else None
+        if not rel: continue
+        parts = rel.split("/")
+        if len(parts) == 3 and parts[0] == "sites" and parts[1] in site_ids and re.fullmatch(r"[\w.\- ]+\.pro", parts[2], re.I):
+            d = P.site_dir(slug, parts[1]); d.mkdir(parents=True, exist_ok=True); (d / parts[2]).write_bytes(z.read(n_))
+        elif len(parts) == 2 and parts[0] == "prn" and re.fullmatch(r"[\w.\- ]+\.prn", parts[1], re.I):
+            d = P.prn_dir(slug); d.mkdir(parents=True, exist_ok=True); (d / parts[1]).write_bytes(z.read(n_))
+    P.save(slug, proj)
+    return jsonify({"slug": slug})
+
+def bundle(slug) -> bytes:
+    import zipfile
+    proj = P.load(slug); b = io.BytesIO()
+    with zipfile.ZipFile(b, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("project.json", json.dumps(proj, indent=1))
+        for s in proj["sites"]:
+            d = P.site_dir(slug, s["id"])
+            if d.exists():
+                for f in sorted(d.iterdir()):
+                    if f.is_file(): z.write(f, f"sites/{s['id']}/{f.name}")
+        if P.prn_dir(slug).exists():
+            for f in sorted(P.prn_dir(slug).iterdir()):
+                if f.is_file(): z.write(f, f"prn/{f.name}")
+    return b.getvalue()
+
 def state(slug):
     proj = P.load(slug)
     sites = {}
@@ -252,6 +295,8 @@ def export(slug, kind):
     proj = P.load(slug); res = load_results(slug); on = layers(proj); base = P.slug(proj["name"])
     if kind == "project":
         return send_file(io.BytesIO(json.dumps(proj, indent=1).encode()), as_attachment=True, download_name=f"{base}.hfta-project.json")
+    if kind == "bundle":
+        return send_file(io.BytesIO(bundle(slug)), as_attachment=True, download_name=f"{base}.hfta-project.zip")
     if not res: return err("Run the evaluation first (step 4).")
     gr = {t["name"]: guy_rows(proj, t) for t in proj["towers"] if (t.get("guys") or {}).get("levels")}
     if kind == "xlsx":

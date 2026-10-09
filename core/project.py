@@ -4,7 +4,8 @@ from __future__ import annotations
 import json, re, time, uuid
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent / "projects"
+import os
+ROOT = Path(os.environ.get("PROJECTS_DIR") or Path(__file__).resolve().parent.parent / "projects")
 SOILS = {"Very poor soil": (0.001, 5), "Sandy, dry soil": (0.002, 10), "Poor soil": (0.002, 13), "Average soil": (0.005, 13),
          "Good soil": (0.010, 14), "Very good soil": (0.030, 20), "Fresh water": (0.001, 81), "Salt water": (5.000, 80)}
 
@@ -42,7 +43,7 @@ def save(pslug, p: dict):
     d = path(pslug); d.mkdir(parents=True, exist_ok=True)
     (d / "project.json").write_text(json.dumps(p, indent=1))
 def list_projects():
-    ROOT.mkdir(exist_ok=True)
+    ROOT.mkdir(parents=True, exist_ok=True)
     return sorted([d.name for d in ROOT.iterdir() if (d / "project.json").exists()])
 def site_dir(pslug, site_id): return path(pslug) / "sites" / site_id
 def prn_dir(pslug): return path(pslug) / "prn"

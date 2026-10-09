@@ -56,6 +56,34 @@ The app runs locally; nothing is sent to a server.
 Projects are stored in `projects/<name>/` (project.json, terrain, .PRN files, results).
 The previous single-page optimiser (multi-antenna height search, tribander trade-off matrix) is still at `/classic`.
 
+**With Docker (any system, no compiler needed):**
+```
+docker build -t hfta-planner .
+docker run -p 5055:5055 -v hfta-data:/data hfta-planner
+```
+Then open http://localhost:5055. Projects are kept in the Docker volume `hfta-data`. The image builds the OpenHFTA
+core at a pinned commit and checks it against the original HFTA during the build.
+
+## Hosted test copy (Railway)
+1. Push this folder to a private GitHub repository.
+2. Railway: New project → Deploy from GitHub repo. Railway finds the `Dockerfile`.
+3. Add a volume mounted at `/data` (projects are stored there).
+4. Variables: `APP_PASSWORD` (required on the internet; the browser asks for it, any user name) and
+   `HFTA_WORKERS` (number of vCPUs of the service).
+5. Settings → Networking → Generate domain.
+
+**Moving a project:** Report → "Project with files (zip)" on one copy, then "Open project zip" on the other.
+The zip holds the terrain and .PRN files; results are recomputed. The ARRL .PRN files are copyright: keep such
+zips and any hosted copy private.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `PORT` | web port | 5000 (`python app.py`), 5055 (container); Railway sets it |
+| `APP_PASSWORD` | password for the browser | none |
+| `PROJECTS_DIR` | where projects are stored | `./projects` (`/data/projects` in the container) |
+| `HFTA_WORKERS` | calculation processes | number of CPUs |
+| `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
+
 ## Limits
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data
   must resolve features of about 1/8 wavelength.
