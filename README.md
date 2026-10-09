@@ -10,14 +10,13 @@ The arithmetic is limited to:
 - the weighted mean over a target's headings (e.g. 44°, 52°, 60° for Europe), and
 - the best of a tower's stack-switch settings (whole stack, pairs, single antennas).
 
-Anything HFTA cannot do is a separate, labelled **layer**, switched off by default:
+Antennas are entered as HFTA enters them: for each band, the number of elements (Dipole, 2-6 or 8). No brand
+models. Two checks are added as notes only; they never change a number:
 
-| Layer | What it adds | Default |
-|---|---|---|
-| Maker gain | manufacturer free-space gain minus HFTA's generic type (e.g. 7-el entered as 6-el) | off |
-| Guy and ice check | geometry check of turning antennas against guy wires (not a FOM) | separate panel |
-
-The top bar shows **Pure HFTA** while no layer is on.
+| Check | What it shows |
+|---|---|
+| Spacing warnings | Stack spacing in wavelengths (HFTA has no mutual coupling, so close stacks look too good) and the gap between antennas on different bands. Red = too close, amber = close. Limits can be changed per project (default: red below 0.30 wavelength, amber below 0.40; gap red below 10 ft, amber below 15 ft). |
+| Guy and ice check | Turning antennas against guy wires, with guy sag and element droop under radial ice. |
 
 ## Workflow (five steps)
 1. **Sites**: one or more tower positions on the property. Terrain from MicroDEM .PRO files, K6TU one-degree
@@ -25,10 +24,12 @@ The top bar shows **Pure HFTA** while no layer is on.
    USGS 3DEP 1 m LiDAR works). Compare the sites' profiles and ground slope side by side.
 2. **Targets**: a path (e.g. Europe 52°), its ARRL elevation-angle file (.PRN), headings and bands.
    The ARRL .PRN files come with the ARRL Antenna Book and are not included.
-3. **Towers**: stacks of antennas from the library (generic HFTA types and JK Antennas models), the targets each
+3. **Towers**: stacks of antennas (height and elements per band, as in HFTA), with spacing warnings, the targets each
    tower serves (this sets the directions, because HFTA treats the antennas as facing the azimuth of the terrain
    file), stack switching, and an optional guy and ice check (Phillystran or EHS, radial ice, element droop).
-   A height scan finds good heights for one antenna.
+   A height scan finds good heights for one antenna. **Best compromise for one tower** searches the stack heights
+   for the best weighted result over all chosen targets (for example six regions), within spacing, gap, height and
+   guy limits, and shows the loss against each target's own best layout.
 4. **Compare**: all sites × towers × targets × bands. Click any value to see the HFTA runs behind it, the elevation
    pattern with the arrival angles, and the exact inputs to type into HFTA.
 5. **Report**: HTML report, Excel workbook (results built from the run log with live formulas), CSV, the

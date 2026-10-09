@@ -29,17 +29,18 @@ def cell_rows(proj, res, layers_on):
     for c in res["cells"]:
         best = c["options"][c["best"]] if c.get("best") is not None else None
         out.append({"site": S[c["site"]], "tower": TW[c["tower"]], "target": TN[c["target"]], "band_m": c["band"], "freq_mhz": c["freq"],
-                    "antennas": " / ".join(f'{a["model"]} {a["h"]:g}' for a in c["antennas"]),
+                    "antennas": " / ".join(f'{a["h"]:g} ft' for a in c["antennas"]),
+                    "hfta_type": c.get("hfta_type", ""),
                     "switch_setting": " / ".join(f"{h:g}" for h in best["heights"]) if best else "",
-                    "hfta_fom_db": c.get("hfta_fom"), "layer_maker_gain_db": c.get("layers", {}).get("jk_gain"),
-"with_layers_on_db": total(c, layers_on) if not c["issues"] else None,
+                    "hfta_fom_db": c.get("hfta_fom"),
+                    "spacing_warning": "; ".join(f'{w["level"].upper()}: {w["text"]}' for w in c.get("spacing", [])),
                     "issues": "; ".join(c["issues"])})
     return out
 
 RECIPE = """# Reproducing these results in the original HFTA
 
 Every Figure of Merit (FOM) in this study is either one HFTA run or simple arithmetic on HFTA runs.
-Nothing else is hidden in the numbers. Items marked *layer* are additions beyond HFTA and are off unless stated.
+Nothing else is hidden in the numbers. Spacing warnings and the guy check are notes only; they never change a number.
 
 ## Files in this pack
 - `terrain/<site>/` : the terrain profiles (.PRO) exactly as used.
@@ -135,7 +136,7 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
     # Combination (per heading use)
     wc = wb.create_sheet("Combination")
     wc["A1"] = "How each result is built: one row per heading of each switch setting. FOM is looked up from Runs."; wc["A1"].font = BOLD
-    hdr(wc, 3, ["Setting key", "Cell key", "Heading (deg)", "Terrain file heading", "Weight", "Run key", "Run FOM (dB)", "Weight x FOM"])
+    hdr(wc, 3, ["Setting key", "Cell key", "Heading (deg)", "Terrain file heading", "Weight", "Run key", "Run FOM (dB)", "Weight x FOM", "Weight used"])
     r = 4; opt_rows = []
     for ci, c in enumerate(res["cells"]):
         if c["issues"]: continue
@@ -145,8 +146,8 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
             for a in o["az"]:
                 put(wc, r, 1, okey); put(wc, r, 2, f"C{ci}"); put(wc, r, 3, a["az"]); put(wc, r, 4, a["file_az"]); put(wc, r, 5, a["weight"], BLUE)
                 put(wc, r, 6, f'{a["run"]}|{tg["prn"]}|{c["band"]}')
-                put(wc, r, 7, f'=IFERROR(INDEX(Runs!$R$4:$R${nr},MATCH(F{r},Runs!$A$4:$A${nr},0)),"")', None, "0.00")
-                put(wc, r, 8, f'=IF(G{r}="","",E{r}*G{r})', None, "0.00"); r += 1
+                put(wc, r, 7, f'=IFERROR(IF(INDEX(Runs!$R$4:$R${nr},MATCH(F{r},Runs!$A$4:$A${nr},0))="","",INDEX(Runs!$R$4:$R${nr},MATCH(F{r},Runs!$A$4:$A${nr},0))),"")', None, "0.00")
+                put(wc, r, 8, f'=IF(G{r}="","",E{r}*G{r})', None, "0.00"); put(wc, r, 9, f'=IF(G{r}="",0,E{r})'); r += 1
     nc = r - 1
     # Settings
     ws_ = wb.create_sheet("Settings")
@@ -155,27 +156,27 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
     for i, (okey, ckey, c, o, oi) in enumerate(opt_rows, 4):
         put(ws_, i, 1, okey); put(ws_, i, 2, ckey); put(ws_, i, 3, S[c["site"]]); put(ws_, i, 4, TW[c["tower"]]); put(ws_, i, 5, TN[c["target"]])
         put(ws_, i, 6, c["band"]); put(ws_, i, 7, " / ".join(f"{h:g}" for h in o["heights"]))
-        put(ws_, i, 8, f'=IFERROR(SUMIFS(Combination!$H$4:$H${nc},Combination!$A$4:$A${nc},A{i})/SUMIFS(Combination!$E$4:$E${nc},Combination!$A$4:$A${nc},A{i},Combination!$G$4:$G${nc},"<>"),"")', None, "0.00")
+        put(ws_, i, 8, f'=IFERROR(SUMIFS(Combination!$H$4:$H${nc},Combination!$A$4:$A${nc},A{i})/SUMIFS(Combination!$I$4:$I${nc},Combination!$A$4:$A${nc},A{i}),"")', None, "0.00")
     ns = 3 + len(opt_rows)
     # Results
     wres = wb.create_sheet("Results", 0)
-    wres["A1"] = f"{proj['name']}: results (FOM, dB). HFTA column = original HFTA. Layer columns are additions beyond HFTA."; wres["A1"].font = F(bold=True, size=12)
-    wres["A2"] = "Layers switched on in this export: " + (", ".join(k for k, v in layers_on.items() if v) or "none (pure HFTA)"); wres["A2"].font = ITAL
-    hdr(wres, 4, ["Cell key", "Site", "Tower", "Target", "Band (m)", "Freq (MHz)", "Antennas (model, height ft)", "HFTA FOM (dB)",
-                  "Layer: maker gain (dB)", "With layers on (dB)", "Note"])
+    wres["A1"] = f"{proj['name']}: results (FOM, dB). Every FOM is an original-HFTA result."; wres["A1"].font = F(bold=True, size=12)
+    wres["A2"] = "Spacing warning: RED = too close, AMBER = close. HFTA has no mutual coupling; a warning never changes the FOM."; wres["A2"].font = ITAL
+    hdr(wres, 4, ["Cell key", "Site", "Tower", "Target", "Band (m)", "Freq (MHz)", "Antenna heights (ft)", "HFTA type", "HFTA FOM (dB)",
+                  "Spacing warning", "Note"])
     for i, (ci, c) in enumerate([(ci, c) for ci, c in enumerate(res["cells"])], 5):
         put(wres, i, 1, f"C{ci}"); put(wres, i, 2, S[c["site"]]); put(wres, i, 3, TW[c["tower"]]); put(wres, i, 4, TN[c["target"]])
-        put(wres, i, 5, c["band"]); put(wres, i, 6, c["freq"]); put(wres, i, 7, " / ".join(f'{a["model"]} {a["h"]:g}' for a in c["antennas"]))
+        put(wres, i, 5, c["band"]); put(wres, i, 6, c["freq"]); put(wres, i, 7, " / ".join(f'{a["h"]:g}' for a in c["antennas"]))
+        put(wres, i, 8, c.get("hfta_type", ""))
+        sp = c.get("spacing", [])
+        put(wres, i, 10, "; ".join(f'{w["level"].upper()}: {w["text"]}' for w in sp),
+            F(color="B33A3A", bold=True) if any(w["level"] == "red" for w in sp) else F(color="B26B00") if sp else None)
         if c["issues"]:
             put(wres, i, 11, "; ".join(c["issues"])); continue
-        put(wres, i, 8, f'=_xlfn.MAXIFS(Settings!$H$4:$H${ns},Settings!$B$4:$B${ns},A{i})', BOLD, "0.00")
-        lj = c["layers"].get("jk_gain")
-        put(wres, i, 9, lj, BLUE, "0.00")
-        on_j = 1 if layers_on.get("jk_gain") else 0
-        put(wres, i, 10, f"=H{i}+{on_j}*N(I{i})", None, "0.00")
+        put(wres, i, 9, f'=_xlfn.MAXIFS(Settings!$H$4:$H${ns},Settings!$B$4:$B${ns},A{i})', BOLD, "0.00")
     for ws in (wres, wr, wc, ws_):
         for j in range(1, 20): ws.column_dimensions[L(j)].width = 14
-    wres.column_dimensions["G"].width = 46; wres.column_dimensions["K"].width = 50; wres.freeze_panes = "B5"
+    wres.column_dimensions["G"].width = 24; wres.column_dimensions["J"].width = 70; wres.column_dimensions["K"].width = 50; wres.freeze_panes = "B5"
     # Sites
     wsi = wb.create_sheet("Sites")
     hdr(wsi, 1, ["Site", "Latitude", "Longitude", "Terrain source", "Profiles", "Notes"])
@@ -193,11 +194,14 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
         for j, v in enumerate([t["name"], t["prn"], t["heading"], ", ".join(map(str, t["offsets"])), ", ".join(map(str, t["weights"])), ", ".join(t["bands"])], 1):
             put(wi, r, j, v)
         r += 1
-    r += 1; hdr(wi, r, ["Tower", "Serves targets", "Switching", "Antenna", "Height (ft)"]); r += 1
+    sp = st.get("spacing") or {}
+    r += 1; wi.cell(r, 1, "Spacing warnings").font = BOLD
+    wi.cell(r, 2, f'stack: red below {sp.get("red_wl")} wavelength, amber below {sp.get("amber_wl")}; gap between antennas on different bands: red below {sp.get("gap_red_ft")} ft, amber below {sp.get("gap_amber_ft")} ft'); r += 1
+    r += 1; hdr(wi, r, ["Tower", "Serves targets", "Switching", "Antenna (band and elements, as entered in HFTA)", "Height (ft)", "Turning radius (ft)", "Droop (ft)"]); r += 1
     for t in proj["towers"]:
         for a in sorted(t["antennas"], key=lambda a: -a["h"]):
             serves = ", ".join(TN[x] for x in t.get("targets") or TN) 
-            for j, v in enumerate([t["name"], serves, t.get("switching"), a["model"], a["h"]], 1): put(wi, r, j, v)
+            for j, v in enumerate([t["name"], serves, t.get("switching"), A.describe(a), a["h"], a.get("turning_radius"), a.get("droop")], 1): put(wi, r, j, v)
             r += 1
     for j in range(1, 7): wi.column_dimensions[L(j)].width = 22
     if guy_rows:
@@ -210,4 +214,21 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
                 for j, v in enumerate([tname, g["name"], g["h"], g["turning_radius"], g["clearance"], g["limit"]], 1): put(wg, r, j, v)
                 r += 1
         for j, w in zip(range(1, 7), (20, 22, 11, 14, 13, 60)): wg.column_dimensions[L(j)].width = w
+    from . import spacing as SP
+    from .evaluate import band_freq
+    wsp = wb.create_sheet("Spacing check")
+    wsp["A1"] = "Spacing warnings (not part of HFTA; they never change a FOM). RED = too close, AMBER = close. Limits: see Inputs."; wsp["A1"].font = BOLD
+    hdr(wsp, 3, ["Tower", "Level", "Kind", "Band (m)", "Heights (ft)", "Spacing (ft)", "Spacing (wavelength)", "Warning"])
+    r = 4
+    for t in proj["towers"]:
+        ws_l = SP.check(t["antennas"], lambda bd: band_freq(proj, bd), st["spacing"])
+        if not ws_l:
+            for j, v in enumerate([t["name"], "OK", "", "", "", "", "", "No spacing warnings"], 1): put(wsp, r, j, v)
+            r += 1
+        for w in ws_l:
+            for j, v in enumerate([t["name"], w["level"].upper(), "stack" if w["kind"] == "stack" else "gap between bands", w["band"] or "",
+                                   " / ".join(f"{h:g}" for h in w["heights"]), w["ft"], w["wl"], w["text"]], 1):
+                put(wsp, r, j, v, F(color="B33A3A", bold=True) if (j == 2 and w["level"] == "red") else F(color="B26B00") if j == 2 else None)
+            r += 1
+    for j, wd in zip(range(1, 9), (22, 9, 18, 9, 14, 11, 12, 100)): wsp.column_dimensions[L(j)].width = wd
     b = io.BytesIO(); wb.save(b); return b.getvalue()

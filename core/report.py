@@ -14,6 +14,7 @@ h3{font-size:16px;margin:18px 0 6px}.mute{color:var(--mute)}.chip{display:inline
 table{border-collapse:collapse;width:100%;margin:6px 0 14px;font-size:14px;font-variant-numeric:tabular-nums}
 th,td{border:1px solid var(--line);padding:4px 8px;text-align:left}th{background:#f3f6f9}td.n{text-align:right}
 td.best{font-weight:700;color:var(--good)}td.bad{color:var(--bad);font-weight:600}.wrap{overflow-x:auto}
+.sp.red,.warnl .red b{color:#b33a3a}.sp.amber,.warnl .amber b{color:#b26b00}.warnl{margin:4px 0 12px;padding-left:18px}.warnl li{margin:2px 0}
 .note{border-left:4px solid var(--accent);background:#f5f9fc;padding:8px 12px;margin:10px 0}
 svg{max-width:100%;height:auto}@media print{h2{break-after:avoid}table{break-inside:avoid}}
 """
@@ -37,10 +38,12 @@ def _svg_bars(groups, series, values, title):
 
 def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     e = html.escape; S = {s["id"]: s for s in proj["sites"]}; TW = {t["id"]: t for t in proj["towers"]}; TG = {t["id"]: t for t in proj["targets"]}
-    on = [k for k, v in layers_on.items() if v]
-    lay_txt = "Pure HFTA: every number can be reproduced in the original HFTA." if not on else \
-        "Layers beyond HFTA are ON in this report: " + ", ".join({"jk_gain": "maker gain"}.get(k, k) for k in on) + ". The HFTA-only value is shown beside each total."
-    st = proj["settings"]; o = []
+    from . import spacing as SP
+    from .evaluate import band_freq
+    on = []
+    lay_txt = ("Pure HFTA: every number can be reproduced in the original HFTA. Spacing warnings and the guy check are notes only; "
+               "they never change a number.")
+    st = proj["settings"]; o = []; spr = st["spacing"]
     o.append(f"<main><h1>{e(proj['name'])}</h1><p class=mute>HFTA Stack Planner report, {datetime.date.today()}. "
              f"Results computed {e(res['stamp'])} from {res['n_runs']} HFTA runs.</p><div class=note>{e(lay_txt)}</div>")
     o.append("<h2>Inputs</h2><h3>Sites</h3><table><tr><th>Site</th><th>Position</th><th>Terrain source</th><th>Profiles</th><th>Notes</th></tr>")
@@ -55,12 +58,19 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     o.append("</table><h3>Towers</h3>")
     for t in proj["towers"]:
         serves = ", ".join(TG[x]["name"] for x in t.get("targets") or TG)
-        o.append(f"<p><b>{e(t['name'])}</b> <span class=chip>serves: {e(serves)}</span><span class=chip>switching: {e(t.get('switching', 'stackmatch'))}</span></p><table><tr><th>Height (ft)</th><th>Antenna</th><th>Bands (HFTA type)</th></tr>")
+        o.append(f"<p><b>{e(t['name'])}</b> <span class=chip>serves: {e(serves)}</span><span class=chip>switching: {e(t.get('switching', 'stackmatch'))}</span></p><table><tr><th>Height (ft)</th><th>Bands and HFTA type</th></tr>")
         for a in sorted(t["antennas"], key=lambda a: -a["h"]):
-            m = a["model"]; bands = A.bands_of(m, t.get("bands"))
-            btxt = ", ".join(f"{b} m ({A.hfta_type(m, b)})" for b in bands)
-            o.append(f"<tr><td class=n>{a['h']:g}</td><td>{e(m)}</td><td>{btxt}</td></tr>")
+            btxt = ", ".join(f"{b} m ({A.hfta_type(a, b)})" for b in A.bands_of(a))
+            o.append(f"<tr><td class=n>{a['h']:g}</td><td>{btxt}</td></tr>")
         o.append("</table>")
+        wl = SP.check(t["antennas"], lambda b: band_freq(proj, b), spr)
+        if wl:
+            o.append("<ul class=warnl>" + "".join(f"<li class={w['level']}><b>{'TOO CLOSE' if w['level'] == 'red' else 'CLOSE'}</b> {e(w['text'])}</li>" for w in wl) + "</ul>")
+        else:
+            o.append("<p class=mute>Spacing: no warnings.</p>")
+    o.append(f"<p class=mute>Spacing warnings (HFTA has no mutual coupling): stack spacing red below {spr['red_wl']} wavelength, amber below {spr['amber_wl']}; "
+             f"gap between antennas on different bands red below {spr['gap_red_ft']:g} ft, amber below {spr['gap_amber_ft']:g} ft. "
+             "NEC-2 check: 0.22 wavelength lost 2.2 dB of stacking gain, 0.43 wavelength lost 0.7 dB.</p>")
     o.append(f"<p class=mute>Ground: {e(st['soil'])} (dielectric {st['epsr']}, conductivity {st['sigma']} S/m). Diffraction {'on' if st['diffraction'] else 'off'}.</p>")
     # comparison
     o.append("<h2>Comparison</h2><p>FOM in dB, higher is better. Differences of 0.3 dB or less are not significant. "
@@ -85,9 +95,13 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
                 v = total(c, layers_on); values[lab][b] = v
                 bo = c["options"][c["best"]]["heights"]; cls = "n best" if best[b] is not None and abs(v - best[b]) < 0.005 else "n"
                 extra = f"<br><span class=mute>HFTA {c['hfta_fom']:.2f}</span>" if on else ""
+                sw = SP.worst(c.get("spacing", []))
+                if sw:
+                    tip = e(" | ".join(w["text"] for w in c["spacing"]))
+                    extra += f" <span class='sp {sw}' title='{tip}'>&#9888;</span>"
                 o.append(f"<td class='{cls}'>{v:.2f}{extra}</td><td class=mute>{' / '.join(f'{h:g}' for h in bo)}</td>")
             o.append("</tr>")
-        o.append("</table></div>")
+        o.append("</table></div><p class=mute>&#9888; = spacing warning on that band (see Towers above).</p>")
         if bands and series:
             o.append(_svg_bars(bands, series, values, f"{t['name']}: FOM by band"))
     if guy_rows:

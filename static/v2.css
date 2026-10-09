@@ -54,3 +54,8 @@ pre.code{font:12px/1.4 var(--mono);background:var(--soft);padding:8px;border-rad
 .bandbox{display:flex;gap:6px;flex-wrap:wrap}.bandbox label{display:flex;gap:3px;align-items:center;font-size:12.5px}
 @media (max-width:760px){.layout{grid-template-columns:1fr}.rail{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.step{grid-template-columns:24px auto}.step small{display:none}.classic{display:none}main{padding:14px 16px}.grid2{grid-template-columns:1fr}}
 
+/* spacing warnings */
+.warnl{margin:6px 0 0;padding-left:18px;font-size:13px}.warnl li{margin:2px 0}
+.warnl li.red b,.sp.red{color:var(--bad)}.warnl li.amber b,.sp.amber{color:var(--warn)}
+.sp{font-weight:700;cursor:help}
+select.el{min-width:64px}

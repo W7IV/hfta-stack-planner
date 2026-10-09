@@ -28,10 +28,8 @@ function bind(el, obj, key, after, num) {
   el.addEventListener("change", () => { obj[key] = num ? (el.value === "" ? null : Number(el.value)) : (el.type === "checkbox" ? el.checked : el.value); save(); after && after(); });
 }
 function status() {
-  const p = P(), on = Object.entries(p.settings.layers || {}).filter(([k, v]) => v && k === "jk_gain").map(([k]) => k);
-  const b = $("#hftaBadge"); b.className = "badge " + (on.length ? "layer" : "pure");
-  b.textContent = on.length ? "Layers on: " + on.map(k => ({ jk_gain: "maker gain" }[k] || k)).join(", ") : "Pure HFTA";
-  b.title = on.length ? "Some numbers include additions beyond HFTA. The HFTA value is always shown beside them." : "Every number shown can be reproduced in the original HFTA";
+  const p = P(), b = $("#hftaBadge"); b.className = "badge pure"; b.textContent = "Pure HFTA";
+  b.title = "Every number shown can be reproduced in the original HFTA";
   const ready = p.sites.filter(s => (S.site_files[s.id] || {}).n).length;
   $("#st-sites").textContent = `${ready}/${p.sites.length} with terrain`;
   $("#st-targets").textContent = `${p.targets.length} targets, ${S.prns.length} .PRN`;
@@ -207,18 +205,49 @@ function rTargets() {
 }
 
 /* ---------------------------------------------------------------- 3. Towers */
-function bandsText(model) {
-  const m = META.library[model]; if (!m) return "";
-  if (m.bands === "any") return `any band (${m.hfta_type})`;
-  return Object.entries(m.bands).sort((a, b) => META.bands.indexOf(a[0]) - META.bands.indexOf(b[0])).map(([b, x]) => `${b} m: ${x.hfta_type}`).join(", ");
+/* Antennas as HFTA sees them: per band, the number of elements (1 = dipole). */
+const elName = n => n === 1 ? "Dipole" : `${n}-el`;
+const elOf = a => Object.fromEntries(Object.entries(a.el || {}).filter(([, n]) => n));
+const bandsOf = a => META.bands.filter(b => elOf(a)[b]);
+function describe(a) {
+  const e = elOf(a), bs = bandsOf(a); if (!bs.length) return "no bands";
+  return new Set(bs.map(b => e[b])).size === 1 ? `${bs.join("/")} m ${elName(e[bs[0]])}` : bs.map(b => `${b} m ${elName(e[b])}`).join(", ");
+}
+function towerBands(extra = []) {
+  const p = P(), set = new Set([...p.targets.flatMap(t => t.bands), ...extra.flatMap(a => bandsOf(a))]);
+  return META.bands.filter(b => set.has(b));
+}
+const elSelect = (attr, b, n) => `<select class="s el" ${attr} title="${b} m: elements (HFTA type)"><option value="">–</option>${META.elements.map(k => `<option value="${k}" ${k === n ? "selected" : ""}>${elName(k)}</option>`).join("")}</select>`;
+/* Spacing warnings: the same rules as core/spacing.py. HFTA has no mutual coupling; warnings never change a number. */
+function spacingCheck(ants) {
+  const r = P().settings.spacing || META.spacing_defaults, out = [], lam = b => 983.571 / (Number(P().settings.band_freq?.[b]) || META.band_freq[b]);
+  for (const b of META.bands) {
+    const hs = ants.filter(a => elOf(a)[b]).map(a => Number(a.h)).sort((x, y) => x - y);
+    for (let k = 1; k < hs.length; k++) {
+      const ft = hs[k] - hs[k - 1], wl = ft / lam(b), lvl = wl < r.red_wl ? "red" : wl < r.amber_wl ? "amber" : null;
+      if (lvl) out.push({ level: lvl, kind: "stack", text: `${b} m: antennas at ${hs[k - 1]} and ${hs[k]} ft are ${ft} ft = ${wl.toFixed(2)} wavelength apart. ${lvl === "red" ? "Too close: HFTA overstates the stacking gain by 1 dB or more." : "Close: HFTA overstates the stacking gain, probably by 0.5-1 dB."}` });
+    }
+  }
+  for (let i = 0; i < ants.length; i++) for (let j = i + 1; j < ants.length; j++) {
+    const a = ants[i], c = ants[j]; if (bandsOf(a).some(b => elOf(c)[b])) continue;
+    const gap = Math.abs(a.h - c.h), lvl = gap < r.gap_red_ft ? "red" : gap < r.gap_amber_ft ? "amber" : null;
+    const [lo, hi] = a.h <= c.h ? [a, c] : [c, a];
+    if (lvl) out.push({ level: lvl, kind: "gap", text: `${describe(lo)} at ${lo.h} ft and ${describe(hi)} at ${hi.h} ft are only ${gap} ft apart. ${lvl === "red" ? "Too close" : "Close"}: interaction likely, not modelled by HFTA.` });
+  }
+  return out.sort((x, y) => (x.level === "red" ? 0 : 1) - (y.level === "red" ? 0 : 1));
+}
+const worstOf = w => w.some(x => x.level === "red") ? "red" : w.length ? "amber" : null;
+function warnList(w, okText = "Spacing: no warnings.") {
+  if (!w.length) return `<p class="small mute" style="margin:6px 0 0">${okText}</p>`;
+  return `<ul class="warnl">${w.map(x => `<li class="${x.level}"><b>${x.level === "red" ? "TOO CLOSE" : "CLOSE"}</b> ${esc(x.text)}</li>`).join("")}</ul>`;
 }
 function towerSvg(t) {
   const H = Math.max(t.height_ft || 0, ...t.antennas.map(a => a.h), 50) * 1.08, W = 150, Ht = 300, y = h => Ht - 10 - h / H * (Ht - 30);
   let s = `<svg viewBox="0 0 ${W} ${Ht}" class="tower-fig" role="img" aria-label="Tower drawing"><line x1="40" y1="${y(0)}" x2="40" y2="${y(t.height_ft || H / 1.08)}" stroke="${css("--ink")}" stroke-width="3"/>`;
   for (const g of (t.guys?.levels || [])) s += `<line x1="40" y1="${y(g.h)}" x2="${W - 4}" y2="${y(Math.max(0, g.h * (1 - 100 / g.r)))}" stroke="${css("--mute")}" stroke-dasharray="3 3"/>`;
   for (const a of t.antennas) {
-    const m = META.library[a.model] || {}, w = Math.min(90, (m.turning_radius_ft || 20) * 1.6);
-    const col = m.bands && m.bands["40"] ? "#d9822b" : m.bands && m.bands["80"] ? "#8e44ad" : "#2c7a4b";
+    const e = elOf(a), w = Math.min(90, (a.turning_radius || 20) * 1.6);
+    const col = e["80"] || e["160"] ? "#8e44ad" : e["40"] || e["30"] ? "#d9822b" : "#2c7a4b";
     s += `<line x1="40" y1="${y(a.h)}" x2="${40 + w}" y2="${y(a.h)}" stroke="${col}" stroke-width="4"/><text x="34" y="${y(a.h) + 4}" font-size="10" text-anchor="end" fill="${css("--ink")}">${a.h}</text>`;
   }
   return s + `<text x="40" y="${Ht - 0}" font-size="10" text-anchor="middle" fill="${css("--mute")}">ft</text></svg>`;
@@ -227,12 +256,14 @@ function rTowers() {
   const p = P(), el = $("#p-towers");
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
   HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.</p>
-  <div id="towerCards"></div><button id="addTw">Add tower</button><div id="compCard"></div><div id="scanCard"></div>`;
-  const box = $("#towerCards"), models = Object.keys(META.library);
+  <div id="spcCard"></div><div id="towerCards"></div><button id="addTw">Add tower</button><div id="compCard"></div><div id="scanCard"></div>`;
+  const box = $("#towerCards");
+  spacingCard();
   p.towers.forEach((t, i) => {
     t.guys = t.guys || { levels: [], ice_in: 1.0, margin_ft: 2.0 };
-    const c = document.createElement("div"); c.className = "card";
-    c.innerHTML = `<h2><input class="w" data-k="name" value="${esc(t.name)}"></h2>
+    const c = document.createElement("div"); c.className = "card"; const tb = towerBands(t.antennas);
+    const sw = worstOf(spacingCheck(t.antennas));
+    c.innerHTML = `<h2><input class="w" data-k="name" value="${esc(t.name)}">${sw ? ` <span class="chip ${sw === "red" ? "bad" : "warn"}">${sw === "red" ? "Spacing too close" : "Spacing close"}</span>` : ""}</h2>
       <div class="split"><div class="figwrap">${towerSvg(t)}</div><div>
       <div class="row"><label>Tower height (ft)<input type="number" data-k="height_ft" value="${t.height_ft ?? ""}"></label>
         <label>Switching<select data-k="switching">
@@ -240,25 +271,44 @@ function rTowers() {
           <option value="stackmatch" ${(t.switching || "stackmatch") === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option>
           <option value="all" ${t.switching === "all" ? "selected" : ""}>Every combination</option></select></label></div>
       <div class="row" style="margin-top:8px"><span class="small mute">Serves:</span>${p.targets.map(g => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-tg="${g.id}" ${!t.targets || t.targets.includes(g.id) ? "checked" : ""}>${esc(g.name)}</label>`).join("")}</div>
-      <div class="tbl" style="margin-top:8px"><table><tr><th>Antenna</th><th class="n">Height (ft)</th><th>Bands and HFTA type</th><th></th></tr>
-        ${t.antennas.map((a, j) => `<tr><td><select data-am="${j}">${models.map(m => `<option ${m === a.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></td>
-          <td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td><td class="small">${esc(bandsText(a.model))}</td>
+      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n" title="Only for the guy check">Turning radius (ft)</th><th class="n" title="Only for the guy check">Element droop (ft)</th><th></th></tr>
+        ${t.antennas.map((a, j) => `<tr><td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td>
+          ${tb.map(b => `<td>${elSelect(`data-ae="${j}" data-band="${b}"`, b, elOf(a)[b])}</td>`).join("")}
+          <td class="n"><input type="number" class="s" step="0.5" data-atr="${j}" value="${a.turning_radius ?? ""}" placeholder="–"></td>
+          <td class="n"><input type="number" class="s" step="0.5" data-adr="${j}" value="${a.droop ?? ""}" placeholder="–"></td>
           <td><button class="danger small" data-ad="${j}">Remove</button></td></tr>`).join("")}</table></div>
+      <p class="small mute" style="margin:4px 0 0">Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.</p>
+      ${warnList(spacingCheck(t.antennas))}
       <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button><button class="danger" data-del>Delete tower</button></div>
       ${guyBlock(t)}</div></div>`;
     $$("[data-k]", c).forEach(inp => bind(inp, t, inp.dataset.k, () => rTowers(), inp.type === "number"));
     $$("[data-tg]", c).forEach(cb => cb.onchange = () => { t.targets = $$("[data-tg]", c).filter(x => x.checked).map(x => x.dataset.tg); save(); });
-    $$("[data-am]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.am].model = s.value; save(); rTowers(); });
+    $$("[data-ae]", c).forEach(s => s.onchange = () => { const a = t.antennas[s.dataset.ae]; a.el = a.el || {}; if (s.value) a.el[s.dataset.band] = Number(s.value); else delete a.el[s.dataset.band]; save(); rTowers(); });
+    $$("[data-atr]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.atr].turning_radius = s.value === "" ? null : Number(s.value); save(); });
+    $$("[data-adr]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.adr].droop = s.value === "" ? null : Number(s.value); save(); });
     $$("[data-ah]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.ah].h = Number(s.value); save(); rTowers(); });
     $$("[data-ad]", c).forEach(b => b.onclick = () => { t.antennas.splice(Number(b.dataset.ad), 1); save(); rTowers(); });
-    $("[data-add]", c).onclick = () => { t.antennas.push({ model: "JK Big-Tri", h: 60 }); save(); rTowers(); };
+    $("[data-add]", c).onclick = () => { const last = t.antennas[t.antennas.length - 1]; t.antennas.push({ h: last ? last.h + 30 : 60, el: last ? { ...last.el } : { "20": 4, "15": 4, "10": 4 }, turning_radius: last?.turning_radius ?? null, droop: last?.droop ?? null }); save(); rTowers(); };
     $("[data-del]", c).onclick = () => { p.towers.splice(i, 1); save(true).then(rTowers); };
     wireGuys(c, t);
     box.appendChild(c);
   });
   compCard();
-  $("#addTw").onclick = () => { p.towers.push({ id: uid("w"), name: `Tower ${p.towers.length + 1}`, switching: "stackmatch", height_ft: 100, antennas: [{ model: "JK Big-Tri", h: 60 }], guys: { levels: [], ice_in: 1.0, margin_ft: 2.0 } }); save(true).then(rTowers); };
+  $("#addTw").onclick = () => { p.towers.push({ id: uid("w"), name: `Tower ${p.towers.length + 1}`, switching: "stackmatch", height_ft: 100, antennas: [{ h: 60, el: { "20": 4, "15": 4, "10": 4 }, turning_radius: null, droop: null }], guys: { levels: [], ice_in: 1.0, margin_ft: 2.0 } }); save(true).then(rTowers); };
   scanCard();
+}
+function spacingCard() {
+  const r = P().settings.spacing = { ...META.spacing_defaults, ...(P().settings.spacing || {}) };
+  $("#spcCard").innerHTML = `<div class="card"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
+  <p class="small mute">HFTA has no mutual coupling: it gives a stack its full stacking gain at any spacing. Close antennas lose part of it.
+  NEC-2 check on 40 m: 0.22 wavelength lost 2.2 dB, 0.43 wavelength lost 0.7 dB. HFTA also ignores interaction between antennas on different bands.
+  Warnings never change a number.</p>
+  <div class="row"><label>Stack: too close below (wavelength)<input type="number" step="0.05" data-sr="red_wl" value="${r.red_wl}"></label>
+  <label>Stack: close below (wavelength)<input type="number" step="0.05" data-sr="amber_wl" value="${r.amber_wl}"></label>
+  <label>Other bands: too close below (ft)<input type="number" step="1" data-sr="gap_red_ft" value="${r.gap_red_ft}"></label>
+  <label>Other bands: close below (ft)<input type="number" step="1" data-sr="gap_amber_ft" value="${r.gap_amber_ft}"></label>
+  <span class="small mute">Wavelength on 40 m ≈ ${(983.571 / META.band_freq["40"]).toFixed(0)} ft, 20 m ≈ ${(983.571 / META.band_freq["20"]).toFixed(0)} ft.</span></div></div>`;
+  $$("[data-sr]").forEach(inp => inp.onchange = () => { r[inp.dataset.sr] = Number(inp.value); save(); rTowers(); });
 }
 function guyBlock(t) {
   const g = t.guys, wires = Object.keys(META.wires);
@@ -299,17 +349,16 @@ function scanCard() {
     <p class="small mute">FOM of a single antenna against height, for one site, target and band. Useful to find good heights before building a stack.</p>
     <div class="row"><label>Site<select id="scSite">${p.sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>
     <label>Target<select id="scTg">${p.targets.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
-    <label>Antenna<select id="scModel">${Object.keys(META.library).map(m => `<option>${esc(m)}</option>`).join("")}</select></label>
+    <label>Antenna type<select id="scEl">${META.elements.map(k => `<option value="${k}" ${k === 4 ? "selected" : ""}>${elName(k)}</option>`).join("")}</select></label>
     <label>Band<select id="scBand">${META.bands.map(b => `<option ${b === "20" ? "selected" : ""}>${b}</option>`).join("")}</select></label>
     <label>From (ft)<input type="number" id="scLo" value="30"></label><label>To (ft)<input type="number" id="scHi" value="150"></label><label>Step (ft)<input type="number" id="scSt" value="5"></label>
     <button id="scGo">Scan</button></div><div class="prog" hidden id="scProg"><i></i></div><div id="scPlot" class="plot" hidden></div></div>`;
   $("#scGo").onclick = async () => {
-    const body = { site: $("#scSite").value, target: $("#scTg").value, model: $("#scModel").value, band: $("#scBand").value, lo: $("#scLo").value, hi: $("#scHi").value, step: $("#scSt").value };
-    const m = META.library[body.model]; if (m.bands !== "any" && !m.bands[body.band]) return toast(`${body.model} has no ${body.band} m elements`);
+    const body = { site: $("#scSite").value, target: $("#scTg").value, elements: Number($("#scEl").value), band: $("#scBand").value, lo: $("#scLo").value, hi: $("#scHi").value, step: $("#scSt").value };
     const { job } = await api("POST", `/api/v2/p/${SLUG}/scan`, body); const r = await poll(job, $("#scProg"));
     if (!r) return; $("#scPlot").hidden = false;
     Plotly.react("scPlot", [{ x: r.rows.map(x => x.h), y: r.rows.map(x => x.fom), mode: "lines+markers", line: { color: PAL[0] } }],
-      plotLayout({ title: { text: `${body.model} (${r.type}), ${body.band} m, ${$("#scTg").selectedOptions[0].text}`, font: { size: 13 } }, xaxis: { title: "height (ft)", gridcolor: css("--line") }, yaxis: { title: "FOM (dB)", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+      plotLayout({ title: { text: `${r.type}, ${body.band} m, ${$("#scTg").selectedOptions[0].text}`, font: { size: 13 } }, xaxis: { title: "height (ft)", gridcolor: css("--line") }, yaxis: { title: "FOM (dB)", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
   };
 }
 async function poll(job, bar) {
@@ -326,17 +375,15 @@ async function poll(job, bar) {
 /* ---------------------------------------------------------------- 4. Compare */
 let CMP = { target: null, ref: null, delta: false };
 async function rCompare() {
-  const p = P(), el = $("#p-compare"), L = p.settings.layers;
+  const p = P(), el = $("#p-compare"); status();
   el.innerHTML = `<h1>Compare</h1><p class="lead">Every value is an HFTA Figure of Merit (dB, higher is better). Click a value to see the HFTA runs behind it and how to reproduce it.
     Differences of 0.3 dB or less are not significant.</p>
   <div class="grid2"><div class="card"><h2>Run</h2><p class="small mute" id="runInfo">${S.has_results ? "Last run " + esc(S.results_stamp) + "." : "Not run yet."}
     Runs already computed with the same inputs are reused.</p><div class="row"><button id="evalBtn">Evaluate</button></div><div class="prog" hidden id="evProg"><i></i></div></div>
-  <div class="card"><h2>Layers beyond HFTA <span class="chip">off by default</span></h2>
-    <label style="display:flex;gap:6px;align-items:flex-start"><input type="checkbox" id="lyJk" ${L.jk_gain ? "checked" : ""}><span>Maker gain: manufacturer free-space gain minus the HFTA generic type
-      (e.g. Big-Tri 7-el on 10 m, which HFTA can only enter as 6-el).</span></label>
-    <p class="small mute">With a layer on, the HFTA value stays visible beside each total, and exports mark the layer.</p></div></div>
+  <div class="card"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
+    <p class="small">A <span class="sp red">&#9888;</span> or <span class="sp amber">&#9888;</span> beside a value: the antennas on that band are too close or close
+    (set the limits in step 3). HFTA has no mutual coupling, so the value is probably optimistic. The value itself is still the pure HFTA result.</p></div></div>
   <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="cmpPlot" class="plot"></div></div>`;
-  $("#lyJk").onchange = e => { L.jk_gain = e.target.checked; save(true).then(rCompare); };
   $("#evalBtn").onclick = async () => {
     await save(true); const bad = checkReady(); if (bad) return toast(bad, 5000);
     const { job } = await api("POST", `/api/v2/p/${SLUG}/evaluate`); const r = await poll(job, $("#evProg"));
@@ -354,7 +401,7 @@ function checkReady() {
   return null;
 }
 function matrix() {
-  const p = P(), on = !!p.settings.layers.jk_gain;
+  const p = P();
   const tg = p.targets.filter(t => RES.cells.some(c => c.target === t.id)); if (!CMP.target || !tg.some(t => t.id === CMP.target)) CMP.target = tg[0]?.id;
   const site = id => p.sites.find(s => s.id === id)?.name ?? id, tower = id => p.towers.find(t => t.id === id)?.name ?? id;
   const cells = RES.cells.filter(c => c.target === CMP.target);
@@ -365,7 +412,7 @@ function matrix() {
     <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpDelta" ${CMP.delta ? "checked" : ""}> Show differences from the reference row</label>`;
   $("#cmpTg").onchange = e => { CMP.target = e.target.value; matrix(); };
   $("#cmpDelta").onchange = e => { CMP.delta = e.target.checked; matrix(); };
-  const val = c => c ? (on ? c.total : c.hfta) : null;
+  const val = c => c ? c.hfta : null;
   const get = (row, b) => cells.find(c => c.site + "|" + c.tower === row && c.band === b);
   const best = Object.fromEntries(bands.map(b => [b, Math.max(...rows.map(r => val(get(r, b)) ?? -1e9))]));
   let h = `<tr><th>Ref.</th><th>Site</th><th>Tower</th>${bands.map(b => `<th class="n">${b} m</th><th class="small mute">switch (ft)</th>`).join("")}</tr>`;
@@ -378,7 +425,7 @@ function matrix() {
       if (c.issues.length) { h += `<td class="small neg" colspan="2">${esc(c.issues[0])}</td>`; continue; }
       let shown = fmt(v), cls = "n cell" + (Math.abs(v - best[b]) < 0.005 ? " best" : "");
       if (CMP.delta && r !== CMP.ref) { const rv = val(get(CMP.ref, b)); shown = rv === null ? "–" : (v - rv >= 0 ? "+" : "") + fmt(v - rv); }
-      let sub = on ? `<br><span class="small mute">HFTA ${fmt(c.hfta)}</span>` : "";
+      let sub = c.spacing ? ` <span class="sp ${c.spacing}" title="${esc(c.spacing_text.join("\n"))}">&#9888;</span>` : "";
       h += `<td class="${cls}" data-i="${c.i}" title="Show the HFTA runs">${shown}${sub}</td><td class="small mute">${(c.use || []).join(" / ")}</td>`;
     }
     h += "</tr>";
@@ -395,7 +442,8 @@ async function cellDrawer(i) {
   const site = p.sites.find(s => s.id === c.site)?.name, tower = p.towers.find(t => t.id === c.tower)?.name, tgt = p.targets.find(t => t.id === c.target);
   const st = p.settings, best = c.options[c.best];
   let h = `<h2>${esc(site)} · ${esc(tower)} · ${esc(tgt.name)} · ${c.band} m</h2>
-    <p><b>HFTA FOM ${fmt(c.hfta_fom)} dB</b> with antennas at ${best.heights.join(" / ")} ft. Layer: maker gain ${fmt(c.layers.jk_gain)} dB (not included unless switched on).</p>
+    <p><b>HFTA FOM ${fmt(c.hfta_fom)} dB</b> with antennas at ${best.heights.join(" / ")} ft. </p>
+    ${(c.spacing || []).length ? `<h3>Spacing warnings</h3>${warnList(c.spacing)}<p class="small mute">HFTA has no mutual coupling. The FOM above is the pure HFTA value and is probably optimistic.</p>` : ""}
     <h3>Switch settings</h3><div class="tbl"><table><tr><th>Antennas in use (ft)</th>${c.options[0].az.map(a => `<th class="n">${a.az}°</th>`).join("")}<th class="n">Weighted mean</th></tr>
     ${c.options.map((o, k) => `<tr><td>${o.heights.join(" / ")}${k === c.best ? ' <span class="chip good">best</span>' : ""}</td>${o.az.map(a => `<td class="n">${fmt(a.fom)}</td>`).join("")}<td class="n"><b>${fmt(o.score)}</b></td></tr>`).join("")}</table></div>
     <p class="small mute">Weights: ${c.options[0].az.map(a => a.weight).join(", ")}. Mean = Σ(weight × FOM) ÷ Σ weight. Best setting = highest mean.</p>
@@ -417,9 +465,9 @@ async function cellDrawer(i) {
 
 /* ---------------------------------------------------------------- 5. Report */
 function rReport() {
-  const p = P(), on = p.settings.layers.jk_gain ? ["maker gain"] : [];
+  const p = P();
   const ex = (k, t, d) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && k !== "project" ? "disabled" : ""}>Download</button></div>`;
-  $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">${on.length ? `Layers beyond HFTA are on (${on.join(", ")}). Exports show the HFTA value and each layer in separate columns.` : "No layers are on: every exported number is a pure HFTA result."}</p>
+  $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">Every exported number is a pure HFTA result. Spacing warnings and the guy check are included as notes; they never change a number.</p>
   ${S.has_results ? "" : `<div class="note">Run the evaluation in step 4 first.</div>`}
   <div class="exports">
     ${ex("html", "Report (HTML)", "One self-contained page to read, print or send: inputs, comparison tables, charts, guy check, and how to reproduce.")}
@@ -458,12 +506,12 @@ init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not
 function compForm() {
   const p = P();
   p.settings.compromise = p.settings.compromise || { site: p.sites[0]?.id, weights: {}, switching: "stackmatch", min_gap: 15, max_height: 160, guys_from_tower: "",
-    groups: [{ model: "JK Big-Tri", count: 3, lo: 20, hi: 130, step: 5, min_spacing: 30, equal_tol: 10 },
-             { model: "JK 404C", count: 2, lo: 40, hi: 160, step: 5, min_spacing: 50, equal_tol: "" }] };
+    groups: [{ name: "Tribanders", el: { "20": 4, "15": 4, "10": 4 }, count: 3, lo: 20, hi: 130, step: 5, min_spacing: 30, equal_tol: 10, turning_radius: null, droop: null },
+             { name: "40 m Yagis", el: { "40": 3 }, count: 2, lo: 40, hi: 160, step: 5, min_spacing: 60, equal_tol: "", turning_radius: null, droop: null }] };
   return p.settings.compromise;
 }
 function compCard() {
-  const p = P(), f = compForm(), models = Object.keys(META.library); if (!p.sites.length || !p.targets.length) { $("#compCard").innerHTML = ""; return; }
+  const p = P(), f = compForm(), tb = towerBands(f.groups); if (!p.sites.length || !p.targets.length) { $("#compCard").innerHTML = ""; return; }
   const guyTowers = p.towers.filter(t => (t.guys?.levels || []).length);
   $("#compCard").innerHTML = `<div class="card" style="margin-top:14px"><h2>Best compromise for one tower <span class="chip good">HFTA</span></h2>
   <p class="small mute">Searches the heights of one tower for the best result over all ticked targets together. For each target and band the best stack-switch setting is used,
@@ -477,22 +525,26 @@ function compCard() {
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
     <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
   <h3 class="small" style="margin:12px 0 4px">Antenna groups (each group has its own bands)</h3>
-  <div class="tbl"><table><tr><th>Antenna</th><th class="n">Count</th><th class="n">From (ft)</th><th class="n">To (ft)</th><th class="n">Step</th><th class="n">Min spacing</th><th class="n">Equal ± (ft)</th><th></th></tr>
-  ${f.groups.map((g, j) => `<tr><td><select data-gm="${j}">${models.map(m => `<option ${m === g.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select></td>
-    ${["count", "lo", "hi", "step", "min_spacing", "equal_tol"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : ""}></td>`).join("")}
+  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n">From (ft)</th><th class="n">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
+  ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"></td>
+    ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
+    ${["count", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
+  <p class="small mute" style="margin:4px 0 0">Elements per band as in HFTA. Turning radius and droop are needed only with the guy check.</p>
+  ${warnList(compFormWarnings(f), "Spacing rules: no warnings.")}
   <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Find best compromise</button></div>
   <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
   const sv = () => save();
   $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
-  $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); };
+  $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
   $("#cmGuy").onchange = e => { f.guys_from_tower = e.target.value; sv(); };
   $$("[data-ct]").forEach(cb => cb.onchange = () => { f.weights[cb.dataset.ct] = cb.checked ? Number($(`[data-cw="${cb.dataset.ct}"]`).value || 1) : 0; sv(); });
   $$("[data-cw]").forEach(inp => inp.onchange = () => { f.weights[inp.dataset.cw] = Number(inp.value); $(`[data-ct="${inp.dataset.cw}"]`).checked = Number(inp.value) > 0; sv(); });
-  $$("[data-gm]").forEach(sel => sel.onchange = () => { f.groups[sel.dataset.gm].model = sel.value; sv(); });
-  $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? "" : Number(inp.value); sv(); });
+  $$("[data-gn]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gn].name = inp.value; sv(); });
+  $$("[data-ge]").forEach(sel => sel.onchange = () => { const g = f.groups[sel.dataset.ge]; g.el = g.el || {}; if (sel.value) g.el[sel.dataset.band] = Number(sel.value); else delete g.el[sel.dataset.band]; sv(); compCard(); });
+  $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? (["turning_radius", "droop"].includes(inp.dataset.key) ? null : "") : Number(inp.value); sv(); compCard(); });
   $$("[data-gx]").forEach(b => b.onclick = () => { f.groups.splice(Number(b.dataset.gx), 1); sv(); compCard(); });
-  $("#cmAddG").onclick = () => { f.groups.push({ model: "JK Big-Tri", count: 2, lo: 30, hi: 120, step: 5, min_spacing: 30, equal_tol: "" }); sv(); compCard(); };
+  $("#cmAddG").onclick = () => { f.groups.push({ name: "", el: {}, count: 1, lo: 30, hi: 120, step: 5, min_spacing: 30, equal_tol: "", turning_radius: null, droop: null }); sv(); compCard(); };
   $("#cmGo").onclick = async () => {
     await save(true);
     const targets = p.targets.filter(t => f.weights[t.id] !== 0).map(t => t.id);
@@ -503,18 +555,32 @@ function compCard() {
   };
   api("GET", `/api/v2/p/${SLUG}/compromise`).then(r => { if (r && r.rows) compResult(r); });
 }
+function compFormWarnings(f) {
+  const r = P().settings.spacing || META.spacing_defaults, out = [];
+  for (const g of f.groups) {
+    const bs = bandsOf(g); if (!bs.length || Number(g.count) < 2 || g.min_spacing === "") continue;
+    const b = bs[0], lam = 983.571 / (Number(P().settings.band_freq?.[b]) || META.band_freq[b]), wl = Number(g.min_spacing) / lam;
+    const lvl = wl < r.red_wl ? "red" : wl < r.amber_wl ? "amber" : null;
+    if (lvl) out.push({ level: lvl, text: `${g.name || describe(g)}: minimum spacing ${g.min_spacing} ft = ${wl.toFixed(2)} wavelength on ${b} m. The search may pick stacks that are ${lvl === "red" ? "too close" : "close"}; HFTA will overstate their stacking gain. Raise it to ${Math.ceil(r.amber_wl * lam)} ft or more to avoid this.` });
+  }
+  if (f.groups.length > 1 && Number(f.min_gap) < r.gap_amber_ft) out.push({ level: Number(f.min_gap) < r.gap_red_ft ? "red" : "amber", text: `Minimum gap between groups ${f.min_gap} ft is below ${r.gap_amber_ft} ft: antennas on different bands may interact; HFTA does not model this.` });
+  return out;
+}
 function compResult(r) {
-  const p = P(), lay = l => l.map((g, i) => `${r.groups[i].model.replace("JK ", "")} ${g.join(" / ")}`).join("; ");
-  $("#cmOut").innerHTML = `<p class="small mute" style="margin-top:10px">${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
+  const p = P(), lay = l => l.map((g, i) => `${r.groups[i].name || r.groups[i].model} ${g.join(" / ")}`).join("; ");
+  $("#cmOut").innerHTML = `<p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
+    ${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
-  <div class="tbl"><table><tr><th>#</th><th>Layout</th><th class="n">Overall</th>${r.targets.map(t => `<th class="n">${esc(t.name)} <span class="mute">(w ${r.weights[t.id]})</span></th>`).join("")}<th></th></tr>
-  ${r.rows.map((x, k) => `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}</td><td class="n"><b>${fmt(x.overall)}</b></td>
+  <div class="tbl"><table><tr><th>#</th><th>Layout</th><th>Spacing</th><th class="n">Overall</th>${r.targets.map(t => `<th class="n">${esc(t.name)} <span class="mute">(w ${r.weights[t.id]})</span></th>`).join("")}<th></th></tr>
+  ${r.rows.map((x, k) => { const sw = worstOf(x.spacing || []); return `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}</td>
+    <td>${sw ? `<span class="chip ${sw === "red" ? "bad" : "warn"}" title="${esc((x.spacing || []).map(w => w.text).join("\n"))}">${sw === "red" ? "Too close" : "Close"}</span>` : `<span class="small mute">OK</span>`}</td>
+    <td class="n"><b>${fmt(x.overall)}</b></td>
     ${r.targets.map(t => `<td class="n">${fmt(x.targets[t.id])}<br><span class="small ${x.loss[t.id] < -1 ? "neg" : x.loss[t.id] < -0.3 ? "amb" : "mute"}">${x.loss[t.id] >= 0 ? "best" : fmt(x.loss[t.id])}</span></td>`).join("")}
-    <td><button class="ghost small" data-apply="${k}">Use as tower</button></td></tr>`).join("")}
-  <tr><td></td><td class="mute">Best for each target alone</td><td></td>${r.targets.map(t => `<td class="n mute">${fmt(r.own_best[t.id])}<br><span class="small">${esc(lay(r.own_layout[t.id]))}</span></td>`).join("")}<td></td></tr></table></div>`;
+    <td><button class="ghost small" data-apply="${k}">Use as tower</button></td></tr>`; }).join("")}
+  <tr><td></td><td class="mute">Best for each target alone</td><td></td><td></td>${r.targets.map(t => `<td class="n mute">${fmt(r.own_best[t.id])}<br><span class="small">${esc(lay(r.own_layout[t.id]))}</span></td>`).join("")}<td></td></tr></table></div>`;
   $$("[data-apply]").forEach(b => b.onclick = async () => {
     const x = r.rows[Number(b.dataset.apply)], f = compForm();
-    const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ model: r.groups[i].model, h })));
+    const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ h, el: { ...r.groups[i].el }, turning_radius: r.groups[i].turning_radius ?? null, droop: r.groups[i].droop ?? null })));
     const g = p.towers.find(t => t.id === f.guys_from_tower);
     p.towers.push({ id: uid("w"), name: `Compromise ${lay(x.layout)}`.slice(0, 60), switching: f.switching, height_ft: f.max_height, targets: r.targets.map(t => t.id),
       antennas: ants, guys: g ? JSON.parse(JSON.stringify(g.guys)) : { levels: [], ice_in: 1.0, margin_ft: 2.0 } });

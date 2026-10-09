@@ -4,13 +4,13 @@ import io, json, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
-from core import antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM
+from core import antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP
 
 bp = Blueprint("v2", __name__)
 CTX = {}   # set by app.py: pool(), JOBS
 
 def err(msg, code=400): return jsonify({"error": msg}), code
-def layers(proj): return proj["settings"].get("layers", {})
+def layers(proj): return {}   # no layers beyond HFTA in this version
 def results_path(slug): return P.path(slug) / "results.json"
 def load_results(slug):
     p = results_path(slug); return json.loads(p.read_text()) if p.exists() else None
@@ -21,7 +21,7 @@ def index():
 
 @bp.get("/api/v2/meta")
 def meta():
-    return jsonify({"library": A.public_library(), "bands": A.BANDS, "band_freq": A.BAND_FREQ, "soils": P.SOILS,
+    return jsonify({"elements": A.ELEMENTS, "types": {str(k): v for k, v in A.TYPE.items()}, "spacing_defaults": P.SPACING_DEFAULTS, "bands": A.BANDS, "band_freq": A.BAND_FREQ, "soils": P.SOILS,
                     "wires": {k: {"lb_ft": v[0], "dia_in": v[1], "tension": v[2]} for k, v in G.WIRES.items()},
                     "projects": P.list_projects()})
 
@@ -59,7 +59,7 @@ def put_project(slug):
     for s in proj.get("sites", []): s.setdefault("id", P.new_id("s"))
     for t in proj.get("targets", []): t.setdefault("id", P.new_id("t"))
     for t in proj.get("towers", []): t.setdefault("id", P.new_id("w"))
-    P.save(slug, proj); return jsonify(state(slug))
+    P.save(slug, P.upgrade(proj)); return jsonify(state(slug))
 
 @bp.post("/api/v2/p/<slug>/sites/<sid>/import")
 def site_import(slug, sid):
@@ -129,7 +129,7 @@ def prn_get(slug, name):
 def _run_eval(job, slug):
     try:
         proj = P.load(slug); cells, runs, _ = EV.plan(proj, slug)
-        old = load_results(slug) or {}; pats = {k: v for k, v in old.get("patterns", {}).items() if k in runs}
+        old = load_results(slug) or {}; pats = {k: v for k, v in old.get("patterns", {}).items() if k in runs and all(x == x for x in v)}
         todo = [(rid, spec, str(P.site_dir(slug, spec["site"]))) for rid, spec in runs.items() if rid not in pats]
         job.update(phase="HFTA runs", done=0, total=len(todo))
         for rid, pat in CTX["pool"]().map(EV.run_one, todo, chunksize=4):
@@ -159,9 +159,9 @@ def results(slug):
     for i, c in enumerate(res["cells"]):
         best = c["options"][c["best"]] if c.get("best") is not None else None
         slim.append({"i": i, "site": c["site"], "tower": c["tower"], "target": c["target"], "band": c["band"], "freq": c["freq"],
-                     "hfta": c.get("hfta_fom"), "layers": c.get("layers", {}), "total": EV.total(c, on) if not c["issues"] else None,
+                     "hfta": c.get("hfta_fom"), "spacing": SP.worst(c.get("spacing", [])), "spacing_text": [w["text"] for w in c.get("spacing", [])],
                      "use": best["heights"] if best else None, "n_options": len(c["options"]), "issues": c["issues"]})
-    return jsonify({"stamp": res["stamp"], "cells": slim, "n_runs": res["n_runs"], "layers_on": on})
+    return jsonify({"stamp": res["stamp"], "cells": slim, "n_runs": res["n_runs"]})
 
 @bp.get("/api/v2/p/<slug>/cell/<int:i>")
 def cell(slug, i):
@@ -179,7 +179,7 @@ def cell(slug, i):
 def _run_scan(job, slug, body):
     try:
         proj = P.load(slug); s = proj["settings"]; site = body["site"]; tg = next(t for t in proj["targets"] if t["id"] == body["target"])
-        band = body["band"]; freq = EV.band_freq(proj, band); t = A.hfta_type(body["model"], band)
+        band = body["band"]; freq = EV.band_freq(proj, band); t = A.hfta_type(int(body["elements"]))
         idx = TR.profile_index(P.site_dir(slug, site)); hs = [float(x) for x in range(int(body["lo"]), int(body["hi"]) + 1, int(body["step"]))]
         jobs = []
         for h in hs:
@@ -235,9 +235,7 @@ def compromise_last(slug):
 def guy_rows(proj, tower):
     ants = []
     for a in tower["antennas"]:
-        m = A.LIBRARY[a["model"]]
-        ants.append({"name": a["model"], "h": a["h"], "turning_radius": a.get("turning_radius") or m["turning_radius_ft"],
-                     "droop": a.get("droop") if a.get("droop") is not None else m["droop_ft"]})
+        ants.append({"name": A.describe(a), "h": a["h"], "turning_radius": a.get("turning_radius") or None, "droop": a.get("droop") or 0.0})
     g = tower.get("guys") or {}
     return G.check(ants, g.get("levels", []), float(g.get("ice_in", 1.0)), float(g.get("margin_ft", 2.0)), float(g.get("density", 56)))
 

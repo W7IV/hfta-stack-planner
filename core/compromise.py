@@ -12,7 +12,7 @@ from __future__ import annotations
 import itertools, math
 import numpy as np
 import engine
-from . import antennas as A, terrain as TR, project as P, guys as G
+from . import antennas as A, terrain as TR, project as P, guys as G, spacing as SP
 from .evaluate import switch_options, target_azimuths, band_freq, run_one
 
 RUN_BUDGET = 25000   # unique HFTA runs per search stage before the height grid is coarsened
@@ -27,7 +27,7 @@ def _rules(g, rules):
 
 def group_candidates(g, step, rules, allowed):
     rules = _rules(g, rules)
-    hs = [h for h in _axis(g["lo"], g["hi"], step) if h <= rules["max_height"] and allowed(g["model"], h)]
+    hs = [h for h in _axis(g["lo"], g["hi"], step) if h <= rules["max_height"] and allowed(g, h)]
     out = []
     for c in itertools.combinations(hs, g["count"]):
         gaps = [b - a for a, b in zip(c, c[1:])]
@@ -42,7 +42,7 @@ def refine(cands_top, g, step, coarse, rules, allowed):
     for c in cands_top:
         axes = [[h + d for d in _axis(-coarse / 2, coarse / 2, step)] for h in c]
         for combo in itertools.product(*axes):
-            if any(h < g["lo"] or h > g["hi"] or h > rules["max_height"] or not allowed(g["model"], h) for h in combo): continue
+            if any(h < g["lo"] or h > g["hi"] or h > rules["max_height"] or not allowed(g, h) for h in combo): continue
             if any(b <= a for a, b in zip(combo, combo[1:])): continue
             gaps = [b - a for a, b in zip(combo, combo[1:])]
             if gaps and min(gaps) < rules["min_spacing"] - 1e-9: continue
@@ -110,24 +110,31 @@ def search(proj, slug, body, pool, job):
     mode = body.get("switching", "stackmatch")
     all_bands = {b for t in targets for b in t["bands"]}
     groups = []
-    for g in body["groups"]:
-        g = {**g, "count": int(g["count"]), "lo": float(g["lo"]), "hi": float(g["hi"]), "step": float(g["step"])}
-        g["bands"] = [b for b in A.bands_of(g["model"], g.get("bands")) if b in all_bands]
-        if not g["bands"]: raise ValueError(f"{g['model']}: none of its bands is used by the chosen targets")
+    for j, g in enumerate(body["groups"]):
+        el = {b: int(n) for b, n in (g.get("el") or {}).items() if n}
+        g = {**g, "count": int(g["count"]), "lo": float(g["lo"]), "hi": float(g["hi"]), "step": float(g["step"]), "el": el}
+        g["ant"] = {"el": el}
+        g["name"] = (g.get("name") or "").strip() or A.describe(g["ant"])
+        for b in el: A.hfta_type(el[b])          # raises for an element count HFTA does not have
+        g["bands"] = [b for b in A.bands_of(g["ant"]) if b in all_bands]
+        if not g["bands"]: raise ValueError(f"{g['name']}: none of its bands is used by the chosen targets")
         if not 1 <= g["count"] <= 4: raise ValueError("A group can have 1 to 4 antennas (HFTA limit per band)")
         groups.append(g)
     for a, b in itertools.combinations(groups, 2):
-        if set(a["bands"]) & set(b["bands"]): raise ValueError(f"{a['model']} and {b['model']} share a band; HFTA needs one antenna type per band")
+        if set(a["bands"]) & set(b["bands"]): raise ValueError(f"{a['name']} and {b['name']} share a band; HFTA needs one antenna type per band")
     # guy limits (optional)
-    allowed = lambda m, h: True
+    allowed = lambda g, h: True
     tw = next((t for t in proj["towers"] if t["id"] == body.get("guys_from_tower")), None)
     if tw and (tw.get("guys") or {}).get("levels"):
         gp = tw["guys"]
-        def allowed(m, h, _c={}):
-            k = (m, h)
+        for g in groups:
+            if g.get("turning_radius") in (None, ""):
+                raise ValueError(f"{g['name']}: enter the turning radius (and element droop) to use the guy check")
+        def allowed(g, h, _c={}):
+            k = (g["name"], h)
             if k not in _c:
-                lib = A.LIBRARY[m]; r = G.check([{"name": m, "h": h, "turning_radius": lib["turning_radius_ft"], "droop": lib["droop_ft"]}],
-                                               gp["levels"], float(gp.get("ice_in", 1.0)), float(gp.get("margin_ft", 2.0)))[0]
+                r = G.check([{"name": g["name"], "h": h, "turning_radius": float(g["turning_radius"]), "droop": float(g.get("droop") or 0)}],
+                            gp["levels"], float(gp.get("ice_in", 1.0)), float(gp.get("margin_ft", 2.0)))[0]
                 _c[k] = r["clearance"] is None or r["clearance"] >= 0
             return _c[k]
     sc = Scorer(proj, slug, body["site"], targets, pool, job)
@@ -135,18 +142,18 @@ def search(proj, slug, body, pool, job):
     per_group = []
     for gi, g in enumerate(groups):
         step = g["step"]; cands = group_candidates(g, step, rules, allowed); coarse = None
-        while cands and len(sc.needed(g["model"], g["bands"], cands, mode)) > RUN_BUDGET:
+        while cands and len(sc.needed(g["ant"], g["bands"], cands, mode)) > RUN_BUDGET:
             coarse = (coarse or step) * 2; cands = group_candidates(g, coarse, rules, allowed)
-        if not cands: raise ValueError(f"No heights fit the rules for {g['model']} (spacing, height limits or guys)")
-        sc.compute(sc.needed(g["model"], g["bands"], cands, mode), f"{g['model']}: {'coarse ' if coarse else ''}search, {len(cands)} layouts")
-        scored = {c: sc.score(g["model"], g["bands"], c, mode) for c in cands}
+        if not cands: raise ValueError(f"No heights fit the rules for {g['name']} (spacing, height limits or guys)")
+        sc.compute(sc.needed(g["ant"], g["bands"], cands, mode), f"{g['name']}: {'coarse ' if coarse else ''}search, {len(cands)} layouts")
+        scored = {c: sc.score(g["ant"], g["bands"], c, mode) for c in cands}
         if coarse:
             def gscore(s): return sum(weights[t] * np.mean([v[0] for v in s[t].values()]) for t in s if s[t]) / sum(weights[t] for t in s if s[t])
             top = sorted(scored, key=lambda c: -gscore(scored[c]))[:6]
             fine = [c for c in refine(top, g, step, coarse, rules, allowed) if c not in scored]
             if fine:
-                sc.compute(sc.needed(g["model"], g["bands"], fine, mode), f"{g['model']}: fine search, {len(fine)} layouts")
-                for c in fine: scored[c] = sc.score(g["model"], g["bands"], c, mode)
+                sc.compute(sc.needed(g["ant"], g["bands"], fine, mode), f"{g['name']}: fine search, {len(fine)} layouts")
+                for c in fine: scored[c] = sc.score(g["ant"], g["bands"], c, mode)
         per_group.append(scored)
     # combine groups
     def tscore(parts):
@@ -190,6 +197,11 @@ def search(proj, slug, body, pool, job):
         own_best[tid] = round(best[0], 3) if best else None; own_layout[tid] = best[1] if best else []
     for r in rows:
         r["loss"] = {t: (None if v is None or own_best[t] is None else round(v - own_best[t], 2)) for t, v in r["targets"].items()}
-    return {"groups": [{"model": g["model"], "count": g["count"], "bands": g["bands"]} for g in groups], "weights": weights,
+    spr = proj["settings"]["spacing"]
+    for r in rows[: int(body.get("top", 25))]:
+        ants = [{"h": h, "el": groups[gi]["el"]} for gi, c in enumerate(r["layout"]) for h in c]
+        r["spacing"] = SP.check(ants, lambda b: band_freq(proj, b), spr)
+    return {"groups": [{"name": g["name"], "el": g["el"], "count": g["count"], "bands": g["bands"], "turning_radius": g.get("turning_radius"),
+                        "droop": g.get("droop")} for g in groups], "weights": weights, "spacing_rules": spr,
             "own_best": own_best, "own_layout": own_layout, "rows": rows[: int(body.get("top", 25))], "evaluated": len(rows), "runs": len(sc.pat),
             "targets": [{"id": t["id"], "name": t["name"]} for t in targets]}
