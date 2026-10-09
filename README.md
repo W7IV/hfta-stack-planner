@@ -15,7 +15,7 @@ Anything HFTA cannot do is a separate, labelled **layer**, switched off by defau
 | Layer | What it adds | Default |
 |---|---|---|
 | Maker gain | manufacturer free-space gain minus HFTA's generic type (e.g. 7-el entered as 6-el) | off |
-| Beam loss | loss of a fixed antenna off its heading | off |
+| Beam loss | loss of a fixed antenna off its heading (HFTA treats an antenna as facing the azimuth of its terrain file) | off |
 | Guy and ice check | geometry check of antennas against guy wires (not a FOM) | separate tab |
 
 The top bar shows **Pure HFTA** while no layer is on.

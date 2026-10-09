@@ -226,7 +226,7 @@ function towerSvg(t) {
 function rTowers() {
   const p = P(), el = $("#p-towers");
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
-  Rotating towers point at each target. Fixed towers point one way; the optional beam-loss layer then accounts for targets off that heading.</p>
+  HFTA treats each antenna as facing the azimuth of the terrain file it is given. Rotating towers use the headings of each target. A fixed tower should only serve targets near its heading; new fixed towers do so by default (within ±60°).</p>
   <div id="towerCards"></div><button id="addTw">Add tower</button><div id="scanCard"></div>`;
   const box = $("#towerCards"), models = Object.keys(META.library);
   p.towers.forEach((t, i) => {
@@ -386,7 +386,7 @@ function matrix() {
       let shown = fmt(v), cls = "n cell" + (Math.abs(v - best[b]) < 0.005 ? " best" : "");
       if (CMP.delta && r !== CMP.ref) { const rv = val(get(CMP.ref, b)); shown = rv === null ? "–" : (v - rv >= 0 ? "+" : "") + fmt(v - rv); }
       let sub = on ? `<br><span class="small mute">HFTA ${fmt(c.hfta)}</span>` : "";
-      if (c.off_heading && !P().settings.layers.beam_loss) { sub += `<br><span class="chip warn" title="Fixed antennas point ${c.off_heading}° away from this target. Pure HFTA does not know where an antenna points. Switch on the beam-loss layer, or untick this target for the tower.">${c.off_heading}° off heading</span>`; cls += " off"; }
+      if (c.off_heading && !P().settings.layers.beam_loss) { sub += `<br><span class="chip warn" title="The terrain files of this target are ${c.off_heading}° away from where this fixed tower points. HFTA treats the antenna as facing the azimuth of its terrain file, so this value describes the antenna turned toward the target, not the fixed tower. Untick the target for this tower, or switch on the beam-loss layer.">${c.off_heading}° off heading</span>`; cls += " off"; }
       h += `<td class="${cls}" data-i="${c.i}" title="Show the HFTA runs">${shown}${sub}</td><td class="small mute">${(c.use || []).join(" / ")}</td>`;
     }
     h += "</tr>";

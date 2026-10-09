@@ -86,7 +86,7 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
                 bo = c["options"][c["best"]]["heights"]; cls = "n best" if best[b] is not None and abs(v - best[b]) < 0.005 else "n"
                 extra = f"<br><span class=mute>HFTA {c['hfta_fom']:.2f}</span>" if on else ""
                 if c.get("off_heading") and not layers_on.get("beam_loss"):
-                    extra += f"<br><span class=mute>fixed: {c['off_heading']}° off heading</span>"
+                    extra += f"<br><span class=mute>terrain files {c['off_heading']}° off the fixed heading: value is for the antenna turned toward the target</span>"
                 o.append(f"<td class='{cls}'>{v:.2f}{extra}</td><td class=mute>{' / '.join(f'{h:g}' for h in bo)}</td>")
             o.append("</tr>")
         o.append("</table></div>")
