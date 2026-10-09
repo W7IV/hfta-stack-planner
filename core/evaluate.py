@@ -84,8 +84,8 @@ def run_one(args):
                          spec["sigma"], spec["epsr"], spec["diffraction"])
     pat = np.asarray(pat, dtype=float); bad = ~np.isfinite(pat)
     if bad.any() and (~bad).sum() >= 2:
-        # Known fault in the calculation core: a few angles can come back as NaN on some profiles (seen at 19-20 deg,
-        # 28 MHz, low antenna). Fill them by straight-line interpolation from the neighbouring angles.
+        # Known fault in the calculation core: a few angles can come back as NaN on some profiles (seen at 19.5-20.5 deg,
+        # 28 MHz, one antenna height, diffraction on; reported to OpenHFTA). Fill them by straight-line interpolation from the neighbouring angles.
         x = np.arange(len(pat)); pat[bad] = np.interp(x[bad], x[~bad], pat[~bad])
     return rid, [round(float(x), 3) for x in pat]
 

@@ -39,6 +39,8 @@ def cell_rows(proj, res, layers_on):
 
 RECIPE = """# Reproducing these results in the original HFTA
 
+Calculations by OpenHFTA (RioDXGroup, https://github.com/RioDXGroup/openhfta), used unchanged. HFTA by R. Dean Straw, N6BV, published with The ARRL Antenna Book. ARRL elevation-angle files are copyright ARRL and supplied by the user. Not affiliated with or endorsed by ARRL or the OpenHFTA authors.
+
 Every Figure of Merit (FOM) in this study is either one HFTA run or simple arithmetic on HFTA runs.
 Nothing else is hidden in the numbers. Spacing warnings and the guy check are notes only; they never change a number.
 

@@ -469,6 +469,8 @@ function rReport() {
   const ex = (k, t, d) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && !["project", "bundle"].includes(k) ? "disabled" : ""}>Download</button></div>`;
   $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">Every exported number is a pure HFTA result. Spacing warnings and the guy check are included as notes; they never change a number.</p>
   ${S.has_results ? "" : `<div class="note">Run the evaluation in step 4 first.</div>`}
+  <p class="small mute">Calculations by OpenHFTA (RioDXGroup, github.com/RioDXGroup/openhfta), used unchanged. HFTA by R. Dean Straw, N6BV, published with
+  <i>The ARRL Antenna Book</i>. ARRL elevation-angle files are copyright ARRL and are supplied by the user. Not affiliated with or endorsed by ARRL or the OpenHFTA authors.</p>
   <div class="exports">
     ${ex("html", "Report (HTML)", "One self-contained page to read, print or send: inputs, comparison tables, charts, guy check, and how to reproduce.")}
     ${ex("xlsx", "Workbook (Excel)", "Results, every HFTA run, and the combination of runs as live formulas, so each number can be traced.")}

@@ -118,5 +118,6 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     o.append("<h2>How to reproduce in HFTA</h2><p>Each FOM above is either one HFTA run or arithmetic on HFTA runs: the weighted mean over the target's "
              "headings, and the best of the tower's switch settings. Export the <b>HFTA replay pack</b> from the planner: it holds every terrain and "
              "elevation file used, every run with its exact HFTA inputs and FOM, the expected elevation pattern of each run (HFTA OUT.PRN layout), and "
-             "the step-by-step combination of runs into each result.</p></main>")
+             "the step-by-step combination of runs into each result.</p>"
+             "<p class=mute>Calculations by OpenHFTA (RioDXGroup, https://github.com/RioDXGroup/openhfta), used unchanged. HFTA by R. Dean Straw, N6BV, published with The ARRL Antenna Book. ARRL elevation-angle files are copyright ARRL and supplied by the user. Not affiliated with or endorsed by ARRL or the OpenHFTA authors.</p></main>")
     return f"<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>{e(proj['name'])} - HFTA study</title><style>{CSS}</style></head><body>{''.join(o)}</body></html>"

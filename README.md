@@ -4,6 +4,15 @@ A local web application around **OpenHFTA**, the open-source port of N6BV's HFTA
 It compares tower sites, antenna stacks and switch settings over real terrain, and every number it reports can be
 reproduced in the original HFTA.
 
+## Credits
+- **Calculations:** [OpenHFTA](https://github.com/RioDXGroup/openhfta) by RioDXGroup (BSD Zero Clause licence).
+  This planner does not include or change OpenHFTA: the Dockerfile downloads it at a fixed commit, builds it, and
+  calls it unchanged. Thanks to its authors.
+- **HFTA:** written by R. Dean Straw, N6BV (Silent Key), and published by ARRL with *The ARRL Antenna Book*.
+  This planner follows HFTA's method so that every result can be checked in HFTA.
+- **Elevation-angle (.PRN) files:** copyright ARRL. They are not included; users supply their own.
+- Not affiliated with or endorsed by ARRL or the OpenHFTA authors.
+
 ## The rule
 **Every Figure of Merit (FOM) shown is one HFTA run, or simple arithmetic on HFTA runs.**
 The arithmetic is limited to:
