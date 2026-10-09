@@ -78,6 +78,7 @@ function rSites() {
         <button data-act="import">Import .PRO or .zip</button><input type="file" multiple accept=".pro,.PRO,.zip" hidden data-file>
         <button class="ghost" data-act="dem">Generate from DEM file</button>
         <button class="ghost" data-act="flat">Flat ground</button>
+        ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
         <button class="danger" data-act="del">Delete site</button></div>
       <p class="small mute" style="margin:8px 0 0">K6TU sells HFTA-ready one-degree terrain sets: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
@@ -93,6 +94,7 @@ function rSites() {
       catch (e) { toast(e.message, 5000); }
     };
     $("[data-act=flat]", c).onclick = async () => { await api("POST", `/api/v2/p/${SLUG}/sites/${s.id}/flat`); s.terrain = { source: "Flat ground" }; await save(true); rSites(); };
+    const dl = $("[data-act=download]", c); if (dl) dl.onclick = () => { window.location.href = `/api/v2/p/${SLUG}/sites/${s.id}/download`; };
     const clr = $("[data-act=clear]", c); if (clr) clr.onclick = async () => { await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/files`); s.terrain = { source: "" }; await save(true); rSites(); };
     $("[data-act=del]", c).onclick = async () => { p.sites.splice(i, 1); await save(true); rSites(); };
     $("[data-act=dem]", c).onclick = () => demDialog(s);

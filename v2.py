@@ -127,6 +127,23 @@ def site_dem(slug, sid):
         return err(f"DEM: {e}")
     return jsonify(out)
 
+@bp.get("/api/v2/p/<slug>/sites/<sid>/download")
+def site_download(slug, sid):
+    import zipfile
+    d = P.site_dir(slug, sid)
+    files = sorted(p for p in d.glob("*") if p.suffix.lower() == ".pro")
+    if not files:
+        return err("No terrain profiles for this site.")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in files:
+            z.write(p, p.name)
+    buf.seek(0)
+    proj = P.load(slug)
+    site = next((s for s in proj.get("sites", []) if s["id"] == sid), None)
+    name = P.slug(site["name"] if site else sid)
+    return send_file(buf, as_attachment=True, download_name=f"{name}-terrain.zip")
+
 @bp.delete("/api/v2/p/<slug>/sites/<sid>/files")
 def site_clear(slug, sid):
     d = P.site_dir(slug, sid)
