@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="{{ url_for('static', filename='plotly.min.js') }}"></script>
+</head>
+<body>
+<header>
+  <h1>HFTA Stack Planner</h1>
+  <span class="sub">Terrain analysis with the OpenHFTA core &middot; dedicated to N6BV</span>
+</header>
+
+<main>
+<aside id="inputs">
+
+  <section>
+    <h2>Station</h2>
+    <div class="grid2">
+      <label>Units
+        <select id="units"><option value="ft">feet</option><option value="m">metres</option></select>
+      </label>
+      <label>Ground
+        <select id="soil">
+          {% for s in soils %}<option {% if s=='Average soil' %}selected{% endif %}>{{ s }}</option>{% endfor %}
+          <option>Custom</option>
+        </select>
+      </label>
+      <label class="custom-soil" hidden>Conductivity (S/m)<input id="sigma" type="number" step="0.001" value="0.005"></label>
+      <label class="custom-soil" hidden>Permittivity<input id="epsr" type="number" step="1" value="13"></label>
+      <label>Maximum tower height<input id="max_tower" type="number" step="1" placeholder="no limit"></label>
+      <label>Move tower back<input id="move_tower" type="number" step="1" value="0"></label>
+      <label class="check"><input id="diffraction" type="checkbox" checked> Diffraction</label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Bands <small>same physical heights on every band</small></h2>
+    <div class="presets">
+      <button class="ghost small" data-preset="single">Single band (20 m)</button>
+      <button class="ghost small" data-preset="tri">Tribander 20-15-10</button>
+    </div>
+    <table class="tbl bands">
+      <thead><tr><th>On</th><th>MHz</th><th>Elements</th><th>Boom</th><th>Weight</th><th></th></tr></thead>
+      <tbody id="band-rows"></tbody>
+    </table>
+    <button id="add-band" class="ghost small">+ Add band</button>
+    <p class="hint">Elements and boom are per band. On a tribander, give the elements and the electrical boom length that are active on each band. Boom length is for information only: the calculation core does not use it.</p>
+    <p id="band-warning" class="warn" hidden></p>
+  </section>
+
+  <section>
+    <h2>Paths <small>terrain profile + arrival angles</small></h2>
+    <div id="paths"></div>
+    <button id="add-path" class="ghost small">+ Add path</button>
+  </section>
+
+  <section>
+    <h2>Azimuth sector <small>several profiles around one heading</small></h2>
+    <label class="check inline"><input id="sec-on" type="checkbox"> Use an azimuth sector</label>
+    <div id="sector" hidden>
+      <label class="file">Terrain profiles (.PRO, one per azimuth)<input id="sec-pro" type="file" accept=".pro,.PRO,.txt" multiple></label>
+      <span id="sec-pro-info" class="info"></span>
+      <label class="file">Arrival angles (.PRN)<input id="sec-prn" type="file" accept=".prn,.PRN,.txt"></label>
+      <span id="sec-prn-info" class="info"></span>
+      <div class="grid2">
+        <label>Centre (° true)<input id="sec-centre" type="number" step="0.5" value="50"></label>
+        <label>Either side (°)<input id="sec-spread" type="number" step="0.5" value="10"></label>
+        <label>Step (°)<input id="sec-step" type="number" step="0.5" value="2.5"></label>
+        <label>Sector weight<input id="sec-weight" type="number" step="0.1" min="0" value="1"></label>
+        <label>Weighting
+          <select id="sec-mode"><option value="equal">Equal</option><option value="taper">Taper (centre highest)</option>
+            <option value="stations">Contest stations (file)</option></select>
+        </label>
+        <label class="sec-st">Band in file<select id="sec-band"></select></label>
+      </div>
+      <label class="file sec-st">Station bearings (bearings_*.json from contest-intel)<input id="sec-json" type="file" accept=".json"></label>
+      <span id="sec-json-info" class="info sec-st"></span>
+      <p class="hint">The azimuth is read from each file name (for example <code>site-52.50.PRO</code>). Each azimuth becomes a path. More azimuths take longer: 9 azimuths x 3 bands is 27 times one path.</p>
+      <div id="sec-preview" class="info"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Antennas <small>1 = lowest</small></h2>
+    <div class="row-inline">
+      <label>Number
+        <select id="n_ant"><option>1</option><option selected>2</option><option>3</option><option>4</option></select>
+      </label>
+    </div>
+    <table class="tbl ants">
+      <thead><tr><th>#</th><th>Height</th><th>Phase</th><th>Vary</th><th>Min</th><th>Max</th></tr></thead>
+      <tbody id="ant-rows"></tbody>
+    </table>
+    <p class="hint">Height is used for analysis. In the free search, ticked antennas vary between Min and Max; unticked antennas stay at their height.</p>
+  </section>
+
+  <section>
+    <h2>Spacing and search</h2>
+    <div class="grid2">
+      <label>Minimum spacing (λ)<input id="min_spacing_lambda" type="number" step="0.05" min="0" value="0.5"></label>
+      <label>Equivalent<output id="min_spacing_eq" class="out">—</output></label>
+      <label>Search
+        <select id="mode">
+          <option value="free">Free spacing</option>
+          <option value="equal">Equal spacing</option>
+          <option value="both" selected>Compare both</option>
+        </select>
+      </label>
+      <label>Step<input id="step" type="number" step="0.5" value="5"></label>
+      <label class="eq">Spacing min<input id="spacing_min" type="number" step="1" value="30"></label>
+      <label class="eq">Spacing max<input id="spacing_max" type="number" step="1" value="70"></label>
+    </div>
+    <p class="hint">Minimum spacing uses the wavelength of the lowest enabled band. Equal spacing searches the bottom height (Min/Max of antenna 1) and one spacing for all antennas.</p>
+  </section>
+
+  <div class="actions">
+    <button id="run-analyse">Analyse stack</button>
+    <button id="run-optimise" class="secondary">Optimise heights</button>
+  </div>
+</aside>
+
+<section id="results">
+  <div id="status" class="status" hidden></div>
+  <div id="progress" hidden>
+    <div class="bar"><div id="progress-fill"></div></div>
+    <div class="progress-row"><span id="progress-text"></span><button id="cancel" class="ghost small">Cancel</button></div>
+  </div>
+
+  <div id="empty" class="empty">
+    <p>Set the bands, then load a terrain profile (.PRO) and an ARRL arrival-angle file (.PRN) for each path.</p>
+    <p><b>Analyse stack</b> shows the pattern and Figure of Merit (FOM) of the stack, each antenna alone and each sub-group, on every band.</p>
+    <p><b>Optimise heights</b> searches heights for the best FOM. With several bands, use the band weights to choose the best compromise.</p>
+  </div>
+
+  <div id="opt" hidden>
+    <div class="card" id="weights-card">
+      <h3>Band weights <small>move to re-rank all results &middot; no new calculation</small></h3>
+      <div id="weights"></div>
+    </div>
+    <div id="opt-summary" class="card summary"></div>
+    <div class="card" id="compare-card" hidden>
+      <h3>Equal spacing against free spacing</h3>
+      <div id="compare"></div>
+    </div>
+    <div class="card">
+      <h3>Trade-off matrix <small>FOM dB per band &middot; Δ is the loss against the best result for that band</small></h3>
+      <div class="row-inline"><label>Show
+        <select id="matrix-src"><option value="all">All searches</option><option value="free">Free spacing</option><option value="equal">Equal spacing</option></select>
+      </label></div>
+      <div id="matrix"></div>
+    </div>
+    <div class="card" id="map-card" hidden>
+      <h3 id="map-title">FOM map</h3>
+      <div class="row-inline">
+        <label>Colour by<select id="map-by"></select></label>
+        <label>Search<select id="map-src"></select></label>
+      </div>
+      <div id="map-plot" class="plot"></div>
+    </div>
+  </div>
+
+  <div id="out" hidden>
+    <h2 class="section-title" id="detail-title">Stack detail</h2>
+    <div class="path-tabs" id="path-tabs"></div>
+    <div class="card">
+      <h3>Elevation pattern and arrival angles <small>one plot per band</small></h3>
+      <label class="check inline"><input id="show-groups" type="checkbox"> Show all sub-groups (otherwise single antennas and full stack)</label>
+      <div id="pattern-plots" class="plots-grid"></div>
+    </div>
+    <div class="card">
+      <h3>Figure of Merit by band <small>dB &middot; Δ is the change against the best single antenna on that band</small></h3>
+      <div id="fom-table"></div>
+    </div>
+    <div class="card" id="az-card" hidden>
+      <h3>FOM against azimuth <small>full stack, each band</small></h3>
+      <div id="az-plot" class="plot small"></div>
+    </div>
+    <div class="card">
+      <h3>Geometry</h3>
+      <div id="geometry"></div>
+    </div>
+    <div class="card">
+      <h3>Terrain profile</h3>
+      <div id="terrain-plot" class="plot small"></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<template id="path-tpl">
+  <div class="path">
+    <div class="path-head">
+      <input class="p-name" placeholder="Path name (e.g. Europe)">
+      <label class="w">Weight<input class="p-weight" type="number" step="0.1" min="0" value="1"></label>
+      <button class="ghost small p-del" title="Remove path">&times;</button>
+    </div>
+    <label class="file">Terrain (.PRO)<input class="p-pro" type="file" accept=".pro,.PRO,.txt"></label>
+    <span class="p-pro-info info"></span>
+    <label class="file">Arrival angles (.PRN)<input class="p-prn" type="file" accept=".prn,.PRN,.txt"></label>
+    <span class="p-prn-info info"></span>
+  </div>
+</template>
+
+<script>window.ANT_TYPES = {{ antenna_types|tojson }};</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
