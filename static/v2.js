@@ -81,6 +81,7 @@ function rSites() {
         <button class="ghost" data-act="flat">Flat ground</button>
         ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
+        <button class="ghost" data-act="move" title="New site at a distance and bearing from this one, to test how sensitive the result is to the exact position (as HFTA's move-the-tower check)">Copy, moved…</button>
         <button class="danger" data-act="del">Delete site</button></div>
       <p class="small mute" style="margin:8px 0 0">K6TU sells HFTA-ready one-degree terrain sets: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
       MicroDEM makes .PRO files from free elevation data. A DEM file is processed on this computer only.</p>`;
@@ -99,6 +100,7 @@ function rSites() {
     const clr = $("[data-act=clear]", c); if (clr) clr.onclick = async () => { await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/files`); s.terrain = { source: "" }; await save(true); rSites(); };
     $("[data-act=del]", c).onclick = async () => { p.sites.splice(i, 1); await save(true); rSites(); };
     $("[data-act=dem]", c).onclick = () => demDialog(s);
+    $("[data-act=move]", c).onclick = () => moveDialog(s);
     const autoBtn = $("[data-act=auto]", c);
     if (autoBtn) autoBtn.onclick = async () => {
       /* Read the inputs directly: a value typed but not yet committed (no change event) is still used. */
@@ -117,6 +119,34 @@ function rSites() {
     box.appendChild(c);
   });
   siteCompare();
+}
+function moveDialog(s) {
+  if (s.lat == null || s.lon == null) { toast("Enter latitude and longitude for this site first.", 4000); return; }
+  modal(`<h2>Copy site, moved</h2>
+  <p class="small mute">Makes a new site at the given distance and bearing from "${esc(s.name)}", then fetches its terrain online (USGS, United States only).
+  Use it to see how much the result changes when the tower moves, as with HFTA's move-the-tower check.</p>
+  <form id="mvForm" class="row">
+    <label>Distance (ft)<input type="number" name="dist" value="100" min="1" required></label>
+    <label>Bearing (° true)<input type="number" name="brg" value="${P().targets[0]?.heading ?? 0}" min="0" max="360" required></label>
+    <label style="flex:1">New site name<input name="name" value="${esc(s.name)} +100 ft" style="width:100%"></label>
+    <div style="width:100%;display:flex;gap:8px;margin-top:8px"><button type="submit">Create and fetch terrain</button><button type="button" class="ghost" id="mvCancel">Cancel</button></div></form>`);
+  $("#mvCancel").onclick = closeModal;
+  const nm = $("#mvForm [name=name]"), dist = $("#mvForm [name=dist]"), brg = $("#mvForm [name=brg]");
+  const auto = () => { nm.value = `${s.name} +${dist.value} ft at ${brg.value}°`; }; dist.oninput = brg.oninput = auto; auto();
+  $("#mvForm").onsubmit = async e => {
+    e.preventDefault(); const d = Number(dist.value) * 0.3048, b = Number(brg.value) * Math.PI / 180, R = 6371008.8;
+    const p1 = s.lat * Math.PI / 180, l1 = s.lon * Math.PI / 180;
+    const p2 = Math.asin(Math.sin(p1) * Math.cos(d / R) + Math.cos(p1) * Math.sin(d / R) * Math.cos(b));
+    const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(d / R) * Math.cos(p1), Math.cos(d / R) - Math.sin(p1) * Math.sin(p2));
+    const ns = { id: uid("s"), name: nm.value.trim() || `${s.name} moved`, lat: Math.round(p2 * 180 / Math.PI * 1e6) / 1e6, lon: Math.round(l2 * 180 / Math.PI * 1e6) / 1e6, notes: `Copy of ${s.name}, ${dist.value} ft at ${brg.value}°`, terrain: { source: "" } };
+    P().sites.push(ns); closeModal(); await save(true);
+    const btn = e.target.querySelector("button[type=submit]"); btn.disabled = true;
+    try {
+      const r = await api("POST", `/api/v2/p/${SLUG}/sites/${ns.id}/auto`, { lat: ns.lat, lon: ns.lon, prefix: ns.name, az_step: 1, spacing_m: 30, length_m: 4410 });
+      ns.terrain = { source: r.source || "USGS 3DEP (online)" }; toast(`${ns.name}: ${r.written} profiles. Ground ${r.ground_elevation_m} m.`, 6000); await save(true);
+    } catch (err) { toast(`${ns.name} created; terrain not fetched: ${err.message}`, 8000); }
+    rSites();
+  };
 }
 function demDialog(s) {
   modal(`<h2>Generate terrain profiles from a DEM file</h2>
