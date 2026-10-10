@@ -648,7 +648,7 @@ function compCard() {
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
     <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
   <h3 class="small" style="margin:12px 0 4px">Antenna groups (each group has its own bands)</h3>
-  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n">From (ft)</th><th class="n">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
+  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n">From (ft)</th><th class="n" title="Highest height searched for this group (also capped by Max height above)">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
   ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"></td>
     ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
     ${["count", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
@@ -706,6 +706,8 @@ function compResult(r) {
   ${r.curves?.length ? `<h3 class="small" style="margin:14px 0 4px">Score against height, by group</h3>
   <p class="small mute" style="margin:0 0 6px">Why a height was chosen. Solid line = overall (weighted over targets); thin lines = each target. For a stack, the best layout with its top antenna at that height.
   Rules between groups (gap, order, guys) can move the chosen height away from a group's own peak.</p>
+  <p class="small" style="margin:0 0 6px"><b>Heights searched:</b> ${r.curves.map(c => `${esc(c.name)} ${Math.min(...c.heights)}–${Math.max(...c.heights)} ft`).join("; ")}.
+  The limit for each group is its own To (ft), capped by Max height. Heights outside this range were not calculated.</p>
   <div class="row" style="align-items:center"><label>Group<select id="cmCurveSel">${r.curves.map((c, i) => `<option value="${i}">${esc(c.name)}</option>`).join("")}</select></label></div>
   <div id="cmCurve" class="plot sm"></div>` : ""}`;
   if (r.curves?.length) {
