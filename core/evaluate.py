@@ -40,10 +40,15 @@ def plan(proj, pslug):
     """Build the list of result cells and the unique HFTA runs they need."""
     s = proj["settings"]; cells, runs = [], {}
     bands_all = sorted({b for t in proj["targets"] for b in t["bands"]}, key=lambda b: A.BANDS.index(b))
+    site_ids = {x["id"] for x in proj["sites"]}
     for site in proj["sites"]:
         sdir = P.site_dir(pslug, site["id"]); idx = TR.profile_index(sdir)
         if not idx: continue
         for tower in proj["towers"]:
+            # A tower with a location is evaluated at that site only. No location (or a site that no longer
+            # exists) means every site, for comparing sites.
+            if tower.get("site") in site_ids and tower["site"] != site["id"]:
+                continue
             warns = SP.check(tower["antennas"], lambda b: band_freq(proj, b), s["spacing"])
             for target in proj["targets"]:
                 if tower.get("targets") and target["id"] not in tower["targets"]:

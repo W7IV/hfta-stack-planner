@@ -299,17 +299,22 @@ function towerSvg(t) {
 function rTowers() {
   const p = P(), el = $("#p-towers");
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
-  HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.</p>
+  HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.
+  Location: pick the site (from the Sites page) where this tower stands, or leave "Every site" to try the tower at all sites and compare them.</p>
   <div id="spcCard"></div><div id="towerCards"></div><button id="addTw">Add tower</button><div id="compCard"></div><div id="scanCard"></div>`;
   const box = $("#towerCards");
   spacingCard();
   p.towers.forEach((t, i) => {
     t.guys = t.guys || { levels: [], ice_in: 1.0, margin_ft: 2.0 };
     const c = document.createElement("div"); c.className = "card"; const tb = towerBands(t.antennas);
-    const sw = worstOf(spacingCheck(t.antennas));
-    c.innerHTML = `<h2><input class="w" data-k="name" value="${esc(t.name)}">${sw ? ` <span class="chip ${sw === "red" ? "bad" : "warn"}">${sw === "red" ? "Spacing too close" : "Spacing close"}</span>` : ""}</h2>
+    const sw = worstOf(spacingCheck(t.antennas)), site = p.sites.find(s => s.id === t.site);
+    const schip = site ? `<span class="chip ${(S.site_files[site.id] || {}).n ? "good" : "warn"}">at ${esc(site.name)}${(S.site_files[site.id] || {}).n ? "" : " (no terrain)"}</span>` : `<span class="chip">every site</span>`;
+    c.innerHTML = `<h2><input class="w" data-k="name" value="${esc(t.name)}"> ${schip}${sw ? ` <span class="chip ${sw === "red" ? "bad" : "warn"}">${sw === "red" ? "Spacing too close" : "Spacing close"}</span>` : ""}</h2>
       <div class="split"><div class="figwrap">${towerSvg(t)}</div><div>
-      <div class="row"><label>Tower height (ft)<input type="number" data-k="height_ft" value="${t.height_ft ?? ""}"></label>
+      <div class="row"><label>Location<select data-k="site">
+          <option value="" ${!t.site ? "selected" : ""}>Every site (compare sites)</option>
+          ${p.sites.map(s => `<option value="${s.id}" ${t.site === s.id ? "selected" : ""}>${esc(s.name)}${(S.site_files[s.id] || {}).n ? "" : " (no terrain)"}</option>`).join("")}</select></label>
+        <label>Tower height (ft)<input type="number" data-k="height_ft" value="${t.height_ft ?? ""}"></label>
         <label>Switching<select data-k="switching">
           <option value="full" ${t.switching === "full" ? "selected" : ""}>Whole stack only</option>
           <option value="stackmatch" ${(t.switching || "stackmatch") === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option>
