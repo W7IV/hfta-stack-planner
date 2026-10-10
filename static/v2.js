@@ -359,7 +359,9 @@ function rTowers() {
           <td><button class="danger small" data-ad="${j}">Remove</button></td></tr>`).join("")}</table></div>
       <p class="small mute" style="margin:4px 0 0">Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.</p>
       ${warnList(spacingCheck(t.antennas))}
-      <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button><button class="danger" data-del>Delete tower</button></div>
+      <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>
+        <button class="ghost" data-copy title="Make a copy of this tower (same antennas, guys and targets) at another site">Copy to…</button>
+        <button class="danger" data-del>Delete tower</button></div>
       ${guyBlock(t)}</div></div>`;
     $$("[data-k]", c).forEach(inp => bind(inp, t, inp.dataset.k, () => rTowers(), inp.type === "number"));
     $$("[data-tg]", c).forEach(cb => cb.onchange = () => { t.targets = $$("[data-tg]", c).filter(x => x.checked).map(x => x.dataset.tg); save(); });
@@ -370,6 +372,7 @@ function rTowers() {
     $$("[data-ad]", c).forEach(b => b.onclick = () => { t.antennas.splice(Number(b.dataset.ad), 1); save(); rTowers(); });
     $("[data-add]", c).onclick = () => { const last = t.antennas[t.antennas.length - 1]; t.antennas.push({ h: last ? last.h + 30 : 60, el: last ? { ...last.el } : { "20": 4, "15": 4, "10": 4 }, turning_radius: last?.turning_radius ?? null, droop: last?.droop ?? null }); save(); rTowers(); };
     $("[data-del]", c).onclick = () => { p.towers.splice(i, 1); save(true).then(rTowers); };
+    $("[data-copy]", c).onclick = () => copyTowerDialog(t, i);
     wireGuys(c, t);
     box.appendChild(c);
   });
@@ -389,6 +392,26 @@ function spacingCard() {
   <label>Other bands: close below (ft)<input type="number" step="1" data-sr="gap_amber_ft" value="${r.gap_amber_ft}"></label>
   <span class="small mute">Wavelength on 40 m ≈ ${(983.571 / META.band_freq["40"]).toFixed(0)} ft, 20 m ≈ ${(983.571 / META.band_freq["20"]).toFixed(0)} ft.</span></div></div>`;
   $$("[data-sr]").forEach(inp => inp.onchange = () => { r[inp.dataset.sr] = Number(inp.value); save(); rTowers(); });
+}
+function copyTowerDialog(t, i) {
+  /* Like HFTA's copy: the same stack at another site, as a separate tower you can then change on its own. */
+  const p = P(), sites = p.sites.filter(s => s.id !== t.site);
+  modal(`<h2>Copy "${esc(t.name)}" to another site</h2>
+  <p class="small mute">The copy has the same antennas, guys and targets. It is a separate tower: change heights or antennas on either one without affecting the other.
+  To try one tower design at every site without copies, set its Location to "Every site" instead.</p>
+  <form id="cpForm" class="row">
+    <label>Site<select name="site">${sites.map(s => `<option value="${s.id}">${esc(s.name)}${(S.site_files[s.id] || {}).n ? "" : " (no terrain)"}</option>`).join("")}
+      <option value="">Every site (compare sites)</option></select></label>
+    <label style="flex:1">Name of the copy<input name="name" style="width:100%"></label>
+    <div style="width:100%;display:flex;gap:8px;margin-top:8px"><button type="submit">Copy</button><button type="button" class="ghost" id="cpCancel">Cancel</button></div></form>`);
+  $("#cpCancel").onclick = closeModal;
+  const sel = $("#cpForm [name=site]"), nm = $("#cpForm [name=name]");
+  const auto = () => { const s = p.sites.find(x => x.id === sel.value); nm.value = s ? `${t.name} at ${s.name}` : `${t.name} (every site)`; }; sel.onchange = auto; auto();
+  $("#cpForm").onsubmit = e => {
+    e.preventDefault();
+    const copy = JSON.parse(JSON.stringify(t)); copy.id = uid("w"); copy.site = sel.value || null; copy.name = nm.value.trim() || `${t.name} copy`;
+    p.towers.splice(i + 1, 0, copy); closeModal(); save(true).then(rTowers);
+  };
 }
 function guyBlock(t) {
   const g = t.guys, wires = Object.keys(META.wires);
