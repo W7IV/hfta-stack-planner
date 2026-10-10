@@ -1,13 +1,14 @@
 """
-Terrain profiles for candidate tower sites. Three sources:
+Terrain profiles for candidate tower sites. Four sources:
   1. MicroDEM .PRO files (the classic HFTA workflow): one file per azimuth.
   2. K6TU terrain sets (https://www.k6tu.net): HFTA-ready .PRO files, typically one per degree.
   3. Generated here from a DEM file (GeoTIFF or ESRI ASCII grid) on the user's own computer.
+  4. Fetched automatically from USGS 3DEP (US coverage) given only lat/lon.
 Imported files are stored unchanged under the site folder, so the replay pack points to the same files the user
 would load into HFTA. Generated files use the HFTA .PRO format: first line 'meters', then 'distance elevation'.
 """
 from __future__ import annotations
-import io, math, re, zipfile
+import io, math, re, urllib.request, zipfile
 from pathlib import Path
 import numpy as np
 import engine
@@ -181,3 +182,34 @@ def write_flat(out_dir: Path, prefix: str = "FLAT"):
     body = "meters\n" + "".join(f"{d:12.0f} {0.0:8.1f}\n" for d in range(0, 4410, 30))
     for az in range(0, 360, 1):
         (out_dir / f"{prefix}-AZI-{az}.00.PRO").write_text(body)
+
+# ---------------- USGS 3DEP online fetch ----------------
+_3DEP_URL = (
+    "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage"
+    "?bbox={west},{south},{east},{north}&bboxSR=4326&size=1024,1024"
+    "&format=tiff&pixelType=F32&noDataInterpretation=esriNoDataMatchAny"
+    "&interpolation=%2BRSP_BilinearInterpolation&f=image"
+)
+
+def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
+                           az_step: float = 1.0, spacing_m: float = 30.0, length_m: float = 4410.0) -> dict:
+    """Download a GeoTIFF patch from USGS 3DEP (US coverage, no auth) centred on lat/lon, then
+    call generate_from_dem. The temporary DEM file is deleted after use.
+    Raises ValueError for non-US locations (the service returns a blank or error tile)."""
+    buf_lat = 0.06
+    buf_lon = buf_lat / max(0.15, math.cos(math.radians(lat)))
+    west, east = lon - buf_lon, lon + buf_lon
+    south, north = lat - buf_lat, lat + buf_lat
+    url = _3DEP_URL.format(west=west, south=south, east=east, north=north)
+    tmp = out_dir.parent / "dem_fetch.tif"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "hfta-stack-planner/1.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            tmp.write_bytes(resp.read())
+        dem = DEM(tmp, crs="geographic")
+        result = generate_from_dem(dem, lat, lon, out_dir, prefix, az_step, spacing_m, length_m)
+        result["source"] = "USGS 3DEP (online)"
+        return result
+    finally:
+        if tmp.exists():
+            tmp.unlink()

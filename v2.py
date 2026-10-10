@@ -127,6 +127,26 @@ def site_dem(slug, sid):
         return err(f"DEM: {e}")
     return jsonify(out)
 
+@bp.post("/api/v2/p/<slug>/sites/<sid>/auto")
+def site_auto(slug, sid):
+    """Fetch a DEM patch from USGS 3DEP and generate terrain profiles. Body: {lat, lon, prefix?, az_step?, spacing_m?, length_m?}."""
+    body = request.get_json() or {}
+    lat, lon = body.get("lat"), body.get("lon")
+    if lat is None or lon is None:
+        return err("lat and lon are required.")
+    try:
+        out = TR.fetch_dem_and_generate(
+            float(lat), float(lon),
+            P.site_dir(slug, sid),
+            P.slug(body.get("prefix") or "SITE"),
+            float(body.get("az_step", 1)),
+            float(body.get("spacing_m", 30)),
+            float(body.get("length_m", 4410)),
+        )
+    except Exception as e:  # noqa: BLE001
+        return err(f"Auto terrain: {e}")
+    return jsonify(out)
+
 @bp.get("/api/v2/p/<slug>/sites/<sid>/download")
 def site_download(slug, sid):
     import zipfile

@@ -77,6 +77,7 @@ function rSites() {
         <label>Source of the files you import<select data-src><option>MicroDEM .PRO</option><option>K6TU terrain set</option><option>Other .PRO files</option></select></label>
         <button data-act="import">Import .PRO or .zip</button><input type="file" multiple accept=".pro,.PRO,.zip" hidden data-file>
         <button class="ghost" data-act="dem">Generate from DEM file</button>
+        <button class="ghost" data-act="auto" ${s.lat && s.lon ? "" : "disabled title='Enter lat/lon above first'"}>Fetch terrain online</button>
         <button class="ghost" data-act="flat">Flat ground</button>
         ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
@@ -98,6 +99,18 @@ function rSites() {
     const clr = $("[data-act=clear]", c); if (clr) clr.onclick = async () => { await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/files`); s.terrain = { source: "" }; await save(true); rSites(); };
     $("[data-act=del]", c).onclick = async () => { p.sites.splice(i, 1); await save(true); rSites(); };
     $("[data-act=dem]", c).onclick = () => demDialog(s);
+    const autoBtn = $("[data-act=auto]", c);
+    if (autoBtn) autoBtn.onclick = async () => {
+      if (!s.lat || !s.lon) { toast("Enter latitude and longitude for this site first.", 4000); return; }
+      autoBtn.disabled = true; autoBtn.textContent = "Fetching…";
+      try {
+        const r = await api("POST", `/api/v2/p/${SLUG}/sites/${s.id}/auto`,
+          { lat: s.lat, lon: s.lon, prefix: s.name, az_step: 1, spacing_m: 30, length_m: 4410 });
+        s.terrain = { source: r.source || "USGS 3DEP (online)" };
+        toast(`${r.written} profiles written. Ground ${r.ground_elevation_m} m.${r.short_azimuths?.length ? ` ${r.short_azimuths.length} cut short at DEM edge.` : ""}`, 6000);
+        await save(true); rSites();
+      } catch (e) { toast(e.message, 6000); autoBtn.disabled = false; autoBtn.textContent = "Fetch terrain online"; }
+    };
     box.appendChild(c);
   });
   siteCompare();
