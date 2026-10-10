@@ -212,7 +212,7 @@ function offsetsFrom(spread, step) {
 }
 function rTargets() {
   const p = P(), el = $("#p-targets");
-  p.targets.forEach(t => { if (/^south asia$/i.test(t.name || "")) { t.name = "Asia"; save(); } });
+
   el.innerHTML = `<h1>Targets</h1><p class="lead">A target is a path you want to work, for example Europe at 52°. Each target uses one ARRL elevation-angle file (.PRN)
   and one or more headings around its bearing. The result is the weighted mean of the FOM at those headings, exactly as you would average several HFTA runs.</p>
   <div class="card"><h2>Elevation-angle files (.PRN)</h2>
@@ -601,6 +601,8 @@ function rReport() {
 async function openProject(slug) {
   SLUG = slug; S = await api("GET", `/api/v2/p/${slug}`);
   try { localStorage.setItem("hfta-project", slug); } catch (e) { /* storage unavailable */ }
+  /* Target called "South Asia" (the ARRL file's own wording) becomes "Asia", once, whichever page opens first. */
+  if (P().targets.some(t => /^south asia$/i.test(t.name || ""))) { P().targets.forEach(t => { if (/^south asia$/i.test(t.name || "")) t.name = "Asia"; }); await save(true); }
   render();
 }
 async function init() {
@@ -757,7 +759,8 @@ function compFormWarnings(f) {
   return out;
 }
 function compResult(r) {
-  const p = P(), lay = l => l.map((g, i) => `${r.groups[i].name || r.groups[i].model} ${g.join(" / ")}`).join("; ");
+  const p = P(); r.targets.forEach(t => { const cur = p.targets.find(x => x.id === t.id); if (cur) t.name = cur.name; });
+  const lay = l => l.map((g, i) => `${r.groups[i].name || r.groups[i].model} ${g.join(" / ")}`).join("; ");
   $("#cmOut").innerHTML = `<p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
     ${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
