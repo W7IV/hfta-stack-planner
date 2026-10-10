@@ -501,7 +501,7 @@ async function poll(job, bar) {
 }
 
 /* ---------------------------------------------------------------- 4. Compare */
-let CMP = { target: null, ref: null, delta: false };
+let CMP = { target: null, ref: null, delta: false, hide: new Set() };
 async function rCompare() {
   const p = P(), el = $("#p-compare"); status();
   el.innerHTML = `<h1>Compare</h1><p class="lead">Every value is an HFTA Figure of Merit (dB, higher is better). Click a value to see the HFTA runs behind it and how to reproduce it.
@@ -537,13 +537,16 @@ function matrix() {
   const tg = p.targets.filter(t => RES.cells.some(c => c.target === t.id));
   if (!CMP.target || (CMP.target !== WORLD && !tg.some(t => t.id === CMP.target))) CMP.target = tg[0]?.id;
   const site = id => p.sites.find(s => s.id === id)?.name ?? id, tower = id => p.towers.find(t => t.id === id)?.name ?? id;
-  const cells = RES.cells.filter(c => c.target === CMP.target);
+  const cells = RES.cells.filter(c => c.target === CMP.target && !CMP.hide.has(c.tower));
   const bands = META.bands.filter(b => cells.some(c => c.band === b));
   const rows = [...new Set(cells.map(c => c.site + "|" + c.tower))];
   if (!CMP.ref || !rows.includes(CMP.ref)) CMP.ref = rows[0];
   $("#cmpCtl").innerHTML = `<div style="width:100%"><span class="small mute">Target shown:</span>
       <div class="tgtabs"><button class="${CMP.target === WORLD ? "" : "ghost"}" data-cmptg="${WORLD}" title="Every target together: weighted mean of the FOM over all targets, per band. For one tower that must work everywhere">Worldwide</button>${tg.map(t => `<button class="${t.id === CMP.target ? "" : "ghost"}" data-cmptg="${t.id}" title="Results for paths to ${esc(t.name)}, bearing ${t.heading}°">${esc(t.name)} <span class="small">${t.heading}°</span></button>`).join("")}</div></div>
-    <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpDelta" ${CMP.delta ? "checked" : ""}> Show differences from the reference row</label>`;
+    <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpDelta" ${CMP.delta ? "checked" : ""}> Show differences from the reference row</label>
+    <div style="width:100%"><span class="small mute">Towers shown:</span> ${[...new Set(RES.cells.map(c => c.tower))].map(id => `<label style="flex-direction:row;align-items:center;gap:4px;display:inline-flex;margin-right:10px">
+      <input type="checkbox" data-cmpshow="${id}" ${CMP.hide.has(id) ? "" : "checked"} title="Show or hide this tower's rows. Hiding changes nothing in the project">${esc(tower(id))}</label>`).join("")}</div>`;
+  $$("[data-cmpshow]").forEach(cb => cb.onchange = () => { cb.checked ? CMP.hide.delete(cb.dataset.cmpshow) : CMP.hide.add(cb.dataset.cmpshow); matrix(); });
   $$("[data-cmptg]").forEach(b => b.onclick = () => { CMP.target = b.dataset.cmptg; matrix(); });
   $("#cmpDelta").onchange = e => { CMP.delta = e.target.checked; matrix(); };
   if (CMP.target === WORLD) return worldwide(tg, site, tower);
@@ -578,10 +581,11 @@ const WORLD = "__world__";
 function worldwide(tg, site, tower) {
   const p = P(), W = p.settings.compromise?.weights || {}, wt = t => W[t.id] ?? 1;
   const used = tg.filter(t => wt(t) > 0);
-  const cells = RES.cells.filter(c => used.some(t => t.id === c.target) && !c.issues.length && c.hfta !== null);
+  const cells = RES.cells.filter(c => used.some(t => t.id === c.target) && !c.issues.length && c.hfta !== null && !CMP.hide.has(c.tower));
   const bands = META.bands.filter(b => cells.some(c => c.band === b));
-  const rows = [...new Set(RES.cells.map(c => c.site + "|" + c.tower))];
+  const rows = [...new Set(RES.cells.filter(c => !CMP.hide.has(c.tower)).map(c => c.site + "|" + c.tower))];
   if (!CMP.ref || !rows.includes(CMP.ref)) CMP.ref = rows[0];
+  if (!rows.length) { $("#cmpTbl").innerHTML = `<tr><td class="mute">No tower ticked.</td></tr>`; Plotly.purge("cmpPlot"); return; }
   const cellOf = (r, b) => {
     let num = 0, den = 0, n = 0, warn = null;
     for (const t of used) {
