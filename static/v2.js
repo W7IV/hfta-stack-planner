@@ -198,8 +198,10 @@ function rTargets() {
   $$("[data-prv]").forEach(b => b.onclick = async () => {
     const d = await api("GET", `/api/v2/p/${SLUG}/prn/${encodeURIComponent(b.dataset.prv)}`);
     const tr = d.columns.slice(1).map((c, j) => ({ x: d.rows.map(r => r[0]), y: d.rows.map(r => r[j + 1]), name: c, mode: "lines", line: { color: PAL[j % 8] } }));
-    /* Title: file name plus the heading written on line 1 of the file, shown unchanged. */
-    Plotly.react("prnPlot", tr, plotLayout({ title: { text: `${esc(b.dataset.prv)} — ${esc(d.title)}`, font: { size: 13 } },
+    /* Title: region from the ARRL file name (W1-MA-EU.PRN -> Europe). Files that do not follow that pattern show their own first line. */
+    const REGION = { AF: "Africa", AS: "Asia", EU: "Europe", JA: "Japan", OC: "Oceania", SA: "South America", US: "USA" };
+    const m = /-([A-Z]{2})\.PRN$/i.exec(b.dataset.prv), region = m && REGION[m[1].toUpperCase()];
+    Plotly.react("prnPlot", tr, plotLayout({ title: { text: region ? `${region} (${esc(b.dataset.prv)})` : esc(d.title), font: { size: 13 } },
       margin: { l: 50, r: 16, t: 28, b: 80 }, legend: { orientation: "h", y: -0.4 },
       xaxis: { title: { text: "Elevation angle (°)", standoff: 6 }, gridcolor: css("--line") }, yaxis: { title: "% of openings", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
   });
