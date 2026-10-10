@@ -519,6 +519,10 @@ async function rCompare() {
   };
   RES = await api("GET", `/api/v2/p/${SLUG}/results`);
   if (!RES.cells.length) { $("#cmpTbl").innerHTML = `<tr><td class="mute">No results yet. Press Evaluate.</td></tr>`; return; }
+  /* The table shows the last evaluation. Say which towers it does not include, so a new tower is not silently missing. */
+  const inRun = new Set(RES.cells.map(c => c.tower)), missing = p.towers.filter(t => !inRun.has(t.id));
+  if (missing.length) $("#runInfo").insertAdjacentHTML("afterend", `<div class="note"><b>Not in the last run:</b> ${missing.map(t => esc(t.name)).join(", ")}.
+    Press Evaluate to include ${missing.length > 1 ? "them" : "it"}. A tower is also left out if none of its bands is used by the targets it serves.</div>`);
   matrix();
 }
 function checkReady() {
@@ -642,6 +646,91 @@ async function init() {
   await openProject(SLUG);
 }
 init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not start: ${esc(e.message)}</p>`; });
+
+/* ---------------------------------------------------------------- hover help */
+const TIPS = [
+  // Sites
+  ["#soil", "Ground type under and in front of the tower. Sets the two values beside it."],
+  ["#epsr", "Dielectric constant of the ground (HFTA input). 13 = average soil."],
+  ["#sigma", "Ground conductivity in siemens per metre (HFTA input). 0.005 = average soil."],
+  ["#diff", "HFTA's diffraction model over hill tops. Leave on unless you are comparing with an old HFTA run made without it."],
+  ["[data-k=lat]", "Latitude in decimal degrees, north positive. Example: 43.67214"],
+  ["[data-k=lon]", "Longitude in decimal degrees, west negative. Example: -71.99089"],
+  ["[data-src]", "Where the imported files came from. Shown on the site card and in the report."],
+  ["[data-act=import]", "Load .PRO terrain files, or a .zip of them. The azimuth must be in each file name."],
+  ["[data-act=dem]", "Make one profile per degree from an elevation file on this computer (GeoTIFF or ESRI ASCII grid)."],
+  ["[data-act=flat]", "Flat ground in every direction. A reference: shows what the terrain adds or takes away."],
+  ["[data-act=download]", "Download this site's .PRO files as a .zip, to load them into HFTA itself."],
+  ["[data-act=clear]", "Delete this site's terrain files. The site and its position stay."],
+  ["[data-act=del]", "Delete this site and its terrain files."],
+  ["#addSite", "Another possible tower position."],
+  ["#cmpAz", "Compass direction for the profile plot."],
+  // Targets
+  ["#prnBtn", "ARRL elevation-angle files (.PRN), one per path. They come with the ARRL Antenna Book."],
+  ["[data-k=prn]", "Elevation-angle file for this path. It says how often openings arrive at each angle, per band."],
+  ["[data-k=heading]", "Great-circle bearing from your site to the target, degrees true."],
+  ["[data-sp]", "Also judge the target this many degrees either side of the bearing. 0 = bearing only."],
+  ["[data-st]", "Step between the headings inside the spread."],
+  ["[data-w]", "Weights of the headings, e.g. 1, 2, 1 to count the centre twice. Empty = equal."],
+  ["[data-b]", "Bands evaluated for this target. Antennas on unticked bands are not run for it."],
+  ["#addTg", "Another region or path."],
+  // Towers
+  ["[data-k=site]", "Where this tower stands. Every site = try the same tower at all sites to compare positions."],
+  ["[data-k=height_ft]", "Height of the tower itself. Used for the drawing and the guy check, not by HFTA."],
+  ["[data-k=switching]", "Which parts of each stack HFTA may select per target and band: the whole stack only, a stack switch (all, pairs, singles), or every combination."],
+  ["[data-tg]", "Targets this tower is judged on. A fixed tower should serve only the targets it points at."],
+  ["[data-ah]", "Height of this antenna above the tower base, feet."],
+  ["[data-ae]", "Elements on this band (HFTA generic Yagi). Empty = the antenna does not work on this band."],
+  ["[data-atr]", "Distance from the mast to the furthest element tip. Used only by the guy check."],
+  ["[data-adr]", "How far the element tips hang below the boom. Used only by the guy check."],
+  ["[data-ad]", "Remove this antenna."],
+  ["[data-add]", "Add an antenna above the top one, same type."],
+  ["[data-copy]", "The same tower, as a separate copy, at another site."],
+  ["[data-gh]", "Height where this guy level is attached to the tower."],
+  ["[data-gr]", "Distance from the tower base to the guy anchor."],
+  ["[data-gw]", "Guy material. Sets weight and diameter for the sag and ice load."],
+  ["[data-gt]", "Tension when installed, pounds. Typically 10% of breaking strength."],
+  ["[data-gi]", "Radial ice on guys and elements. Use the value your engineer gives for the site."],
+  ["[data-gm]", "Extra clearance kept free for hardware and movement, feet."],
+  ["[data-gadd]", "Another guy level."],
+  ["[data-rohn]", "Fill the guy table with the Rohn 65G 160 ft standard layout."],
+  ["[data-gcheck]", "Check every turning antenna against every guy, with ice and droop."],
+  // Stack Designer
+  ["#cmSite", "Terrain used for the search."],
+  ["#cmSw", "Stack switching assumed for every band, as on the tower."],
+  ["#cmMax", "Highest height any antenna may have. The only limit you need."],
+  ["#cmGap", "Smallest distance between antennas of different groups."],
+  ["#cmOrder", "Force the groups in list order: first group on top, or at the bottom."],
+  ["#cmGuy", "Reject heights where an antenna would touch an iced guy of this tower."],
+  ["[data-ct]", "Include this target in the search."],
+  ["[data-cw]", "Weight of this target in the overall score. 2 = counts twice; 0 = left out."],
+  ["[data-gn]", "Name used in the results."],
+  ["[data-ge]", "Elements on this band. Several bands in one row = one multiband antenna."],
+  ["[data-gf][data-key=count]", "How many antennas of this kind."],
+  ["[data-gf][data-key=step]", "Height step of the search, feet. Smaller = slower and finer."],
+  ["[data-gf][data-key=min_spacing]", "Smallest distance between two antennas of this group."],
+  ["[data-gf][data-key=equal_tol]", "Keep the gaps inside the stack equal within this many feet. Empty = any spacing."],
+  ["[data-gf][data-key=turning_radius]", "Distance from the mast to the furthest element tip. Needed for the guy check."],
+  ["[data-gf][data-key=droop]", "How far the element tips hang below the boom. Needed for the guy check."],
+  ["[data-gx]", "Remove this group."],
+  ["#cmAddG", "Another kind of antenna."],
+  ["#cmGo", "Run the search. Large searches take minutes; progress is shown."],
+  ["[data-apply]", "Add this layout to the Towers page, at the Designer's site."],
+  ["#cmCurveSel", "Group shown in the chart."],
+  // Height scan
+  ["#scSite", "Terrain used for the scan."], ["#scTg", "Target for the scan."], ["#scEl", "Elements of the single antenna."],
+  ["#scBand", "Band of the scan."], ["#scLo", "Lowest height scanned."], ["#scHi", "Highest height scanned."], ["#scSt", "Step between heights."],
+  // Compare
+  ["#evalBtn", "Run HFTA for every tower at its site, every target and band. Runs already done with the same inputs are reused."],
+  ["#cmpTg", "Target shown in the table."],
+  ["#cmpDelta", "Show each value as the difference from the reference row."],
+  // Top bar
+  ["#newProj", "Start an empty project."], ["#openProj", "Open a project saved with 'Project with files'."], ["#helpBtn", "How to use the planner."],
+];
+function applyTips(root = document) {
+  for (const [sel, tip] of TIPS) for (const el of root.querySelectorAll(sel)) if (!el.title) el.title = tip;
+}
+new MutationObserver(() => applyTips()).observe(document.documentElement, { childList: true, subtree: true });
 
 /* ---------------------------------------------------------------- help */
 function showHelp() {
@@ -813,8 +902,8 @@ function compResult(r) {
     const x = r.rows[Number(b.dataset.apply)], f = compForm();
     const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ h, el: { ...r.groups[i].el }, turning_radius: r.groups[i].turning_radius ?? null, droop: r.groups[i].droop ?? null })));
     const g = p.towers.find(t => t.id === f.guys_from_tower);
-    p.towers.push({ id: uid("w"), name: `Stack ${lay(x.layout)}`.slice(0, 60), switching: f.switching, height_ft: f.max_height, targets: r.targets.map(t => t.id),
+    p.towers.push({ id: uid("w"), name: `Stack ${lay(x.layout)}`.slice(0, 60), site: f.site || null, switching: f.switching, height_ft: Math.max(...x.layout.flat()), targets: r.targets.map(t => t.id),
       antennas: ants, guys: g ? JSON.parse(JSON.stringify(g.guys)) : { levels: [], ice_in: 1.0, margin_ft: 2.0 } });
-    await save(true); toast("Added as a new tower. Run Compare to see the HFTA runs behind it."); rTowers();
+    await save(true); toast("Added as a new tower at the Designer's site. In Compare, press Evaluate to include it.", 6000); rTowers();
   });
 }
