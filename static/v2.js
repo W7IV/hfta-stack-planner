@@ -252,6 +252,24 @@ async function siteCompare() {
 /* ---------------------------------------------------------------- 2. Targets */
 /* Region from an ARRL file name: W1-MA-EU.PRN -> Europe. Null for other names. */
 const REGION = { AF: "Africa", AS: "Asia", EU: "Europe", JA: "Japan", OC: "Oceania", SA: "South America", US: "USA" };
+/* Reference point for each ARRL region: the great-circle bearing is taken from the site to this point.
+   The exact points N6BV used are not published in the files; these are central cities of each region. */
+const REGION_POINT = {
+  AF: { lat: -26.2, lon: 28.0, where: "Johannesburg (southern Africa)" }, AS: { lat: 21.0, lon: 78.0, where: "central India (south Asia)" },
+  EU: { lat: 50.0, lon: 10.0, where: "central Germany" }, JA: { lat: 35.7, lon: 139.7, where: "Tokyo" },
+  OC: { lat: -33.9, lon: 151.2, where: "Sydney" }, SA: { lat: -23.5, lon: -46.6, where: "São Paulo" }, US: { lat: 39.0, lon: -98.0, where: "central USA" } };
+function regionCode(file) { const m = /-([A-Z]{2})\.PRN$/i.exec(file || ""); return m && REGION_POINT[m[1].toUpperCase()] ? m[1].toUpperCase() : null; }
+function bearingTo(la1, lo1, la2, lo2) {
+  const r = Math.PI / 180, p1 = la1 * r, p2 = la2 * r, dl = (lo2 - lo1) * r;
+  const b = Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl)) / r;
+  return Math.round((b + 360) % 360);
+}
+/* Site used for bearings: the first site with a position. Sites on one property are a few km apart at most, which changes no bearing. */
+function homeSite() { return P().sites.find(s => s.lat != null && s.lon != null && s.lat !== "" && s.lon !== ""); }
+function computedBearing(t) {
+  const c = regionCode(t.prn), h = homeSite(); if (!c || !h) return null;
+  const q = REGION_POINT[c]; return { deg: bearingTo(Number(h.lat), Number(h.lon), q.lat, q.lon), where: q.where, site: h.name };
+}
 function regionOf(file) { const m = /-([A-Z]{2})\.PRN$/i.exec(file || ""); return m ? REGION[m[1].toUpperCase()] || null : null; }
 function offsetsFrom(spread, step) {
   if (!spread || !step) return [0]; const o = []; for (let x = -spread; x <= spread + 1e-9; x += step) o.push(Math.round(x * 100) / 100); return o;
@@ -271,7 +289,10 @@ function rTargets() {
       ${S.prns.map(f => `<tr><td>${esc(f)}</td><td><button class="ghost small" data-prv="${esc(f)}">View</button></td></tr>`).join("") || `<tr><td class="mute">No files yet.</td><td></td></tr>`}</table></div>
       <div><div id="prnPlot" class="plot sm"></div></div></div></div>
   <div class="card"><h2>Targets</h2><div class="tbl"><table id="tgTbl"></table></div>
-    <div class="row" style="margin-top:10px"><button id="addTg">Add target</button></div>
+    <div class="row" style="margin-top:10px"><button id="addTg">Add target</button>
+      <button class="ghost" id="tgBrg" title="Set every target's bearing from the site position to the reference point of its ARRL region">Bearings from site position</button></div>
+    <p class="small mute" style="margin:6px 0 0">${homeSite() ? `Bearings are computed from <b>${esc(homeSite().name)}</b> (${homeSite().lat}, ${homeSite().lon}) to a reference point in each region (shown under the bearing).
+      Choosing a .PRN file sets the bearing; you can still type your own.` : "Enter a latitude and longitude on the Sites page and the bearings can be computed for you."}</p>
     <p class="small mute">Headings: the bearing ± spread in steps (e.g. ±8° in 8° steps gives three headings). Weights are equal unless you type them, e.g. "1, 2, 1".
     Weights from contest logs are not part of this release.</p></div>`;
   $("#prnBtn").onclick = () => $("#prnIn").click();
@@ -302,13 +323,15 @@ function rTargets() {
     const spread = t.offsets.length > 1 ? Math.max(...t.offsets) : 0, step = t.offsets.length > 1 ? Math.abs(t.offsets[1] - t.offsets[0]) : 0;
     tr.innerHTML = `<td><input class="w" data-k="name" value="${esc(t.name)}"></td>
       <td><select data-k="prn">${["", ...S.prns].map(f => `<option ${f === t.prn ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></td>
-      <td class="n"><input type="number" data-k="heading" value="${t.heading}" min="0" max="359"></td>
+      <td class="n"><input type="number" data-k="heading" value="${t.heading}" min="0" max="359">${(() => { const c = computedBearing(t); return c ? `<br><span class="small ${c.deg === Number(t.heading) ? "mute" : "amb"}" title="Great-circle bearing from ${esc(c.site)} to ${esc(c.where)}">${c.deg === Number(t.heading) ? "to " + esc(c.where) : `computed ${c.deg}° (${esc(c.where)})`}</span>` : ""; })()}</td>
       <td class="n"><input type="number" class="s" data-sp value="${spread}" min="0"></td><td class="n"><input type="number" class="s" data-st value="${step}" min="0"></td>
       <td><input class="s" style="width:110px" data-w value="${t.weights.every(w => w === t.weights[0]) ? "" : t.weights.join(", ")}" placeholder="equal"></td>
       <td><div class="bandbox">${META.bands.filter(b => b !== "6").map(b => `<label><input type="checkbox" data-b="${b}" ${t.bands.includes(b) ? "checked" : ""}>${b}</label>`).join("")}</div></td>
       <td><button class="danger small" data-del>Delete</button></td>`;
     $$("[data-k]", tr).forEach(inp => bind(inp, t, inp.dataset.k, inp.dataset.k === "prn" ? () => {
-      const r = regionOf(t.prn); if (r && (t.name === "New target" || !t.name)) { t.name = r; $("[data-k=name]", tr).value = r; save(); }
+      const r = regionOf(t.prn); if (r && (t.name === "New target" || !t.name)) t.name = r;
+      const c = computedBearing(t); if (c) t.heading = c.deg;
+      save(); rTargets();
     } : null, inp.type === "number"));
     const reoff = () => { t.offsets = offsetsFrom(Number($("[data-sp]", tr).value), Number($("[data-st]", tr).value)); rew(); save(); };
     const rew = () => { const v = $("[data-w]", tr).value.trim(); const w = v ? v.split(/[ ,;]+/).map(Number) : [];
@@ -319,8 +342,15 @@ function rTargets() {
     tb.appendChild(tr);
   });
   const first = $("[data-prv]"); if (first) first.click();
+  $("#tgBrg").onclick = () => {
+    const ch = [];
+    p.targets.forEach(t => { const c = computedBearing(t); if (c && c.deg !== Number(t.heading)) { ch.push(`${t.name} ${t.heading}° → ${c.deg}°`); t.heading = c.deg; } });
+    if (!homeSite()) return toast("Enter the site's latitude and longitude first (Sites page).", 5000);
+    save(); rTargets(); toast(ch.length ? `Bearings changed: ${ch.join("; ")}. Run Evaluate again.` : "All bearings already match.", 8000);
+  };
   $("#addTg").onclick = () => {
-    const id = uid("t"); p.targets.push({ id, name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["20", "15", "10"] });
+    const id = uid("t"), nt = { id, name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["20", "15", "10"] };
+    nt.name = regionOf(nt.prn) || nt.name; nt.heading = computedBearing(nt)?.deg ?? 0; p.targets.push(nt);
     /* A new target is served by every tower and counts in the compromise search until the user unticks it. */
     p.towers.forEach(t => { if (Array.isArray(t.targets) && !t.targets.includes(id)) t.targets.push(id); });
     if (p.settings.compromise) p.settings.compromise.weights[id] = 1;
@@ -863,7 +893,7 @@ function showHelp() {
   <p><b>Library.</b> "Save to library" on a site or tower card keeps a named copy for all your projects (sites with their terrain files). "Add from library…" below the cards copies one into the current project.</p>
 
   <h3>2. Targets</h3>
-  <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
+  <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Choosing the file sets the bearing from your site's position to a reference point in that region (shown under the bearing); "Bearings from site position" recomputes them all. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
 
   <h3>3. Towers</h3>
   <p>A tower is a set of antennas at given heights. On each band, the antennas that work on that band form one HFTA stack.</p>
