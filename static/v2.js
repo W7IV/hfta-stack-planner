@@ -534,17 +534,19 @@ function checkReady() {
 }
 function matrix() {
   const p = P();
-  const tg = p.targets.filter(t => RES.cells.some(c => c.target === t.id)); if (!CMP.target || !tg.some(t => t.id === CMP.target)) CMP.target = tg[0]?.id;
+  const tg = p.targets.filter(t => RES.cells.some(c => c.target === t.id));
+  if (!CMP.target || (CMP.target !== WORLD && !tg.some(t => t.id === CMP.target))) CMP.target = tg[0]?.id;
   const site = id => p.sites.find(s => s.id === id)?.name ?? id, tower = id => p.towers.find(t => t.id === id)?.name ?? id;
   const cells = RES.cells.filter(c => c.target === CMP.target);
   const bands = META.bands.filter(b => cells.some(c => c.band === b));
   const rows = [...new Set(cells.map(c => c.site + "|" + c.tower))];
   if (!CMP.ref || !rows.includes(CMP.ref)) CMP.ref = rows[0];
   $("#cmpCtl").innerHTML = `<div style="width:100%"><span class="small mute">Target shown:</span>
-      <div class="tgtabs">${tg.map(t => `<button class="${t.id === CMP.target ? "" : "ghost"}" data-cmptg="${t.id}" title="Results for paths to ${esc(t.name)}, bearing ${t.heading}°">${esc(t.name)} <span class="small">${t.heading}°</span></button>`).join("")}</div></div>
+      <div class="tgtabs"><button class="${CMP.target === WORLD ? "" : "ghost"}" data-cmptg="${WORLD}" title="Every target together: weighted mean of the FOM over all targets, per band. For one tower that must work everywhere">Worldwide</button>${tg.map(t => `<button class="${t.id === CMP.target ? "" : "ghost"}" data-cmptg="${t.id}" title="Results for paths to ${esc(t.name)}, bearing ${t.heading}°">${esc(t.name)} <span class="small">${t.heading}°</span></button>`).join("")}</div></div>
     <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpDelta" ${CMP.delta ? "checked" : ""}> Show differences from the reference row</label>`;
   $$("[data-cmptg]").forEach(b => b.onclick = () => { CMP.target = b.dataset.cmptg; matrix(); });
   $("#cmpDelta").onchange = e => { CMP.delta = e.target.checked; matrix(); };
+  if (CMP.target === WORLD) return worldwide(tg, site, tower);
   const val = c => c ? c.hfta : null;
   const get = (row, b) => cells.find(c => c.site + "|" + c.tower === row && c.band === b);
   const best = Object.fromEntries(bands.map(b => [b, Math.max(...rows.map(r => val(get(r, b)) ?? -1e9))]));
@@ -569,6 +571,51 @@ function matrix() {
   const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: bands.map(b => b + " m"), y: bands.map(b => val(get(r, b))), marker: { color: PAL[k % 8] } }; });
   const all = tr.flatMap(t => t.y).filter(v => v !== null);
   Plotly.react("cmpPlot", tr, plotLayout({ barmode: "group", title: { text: "FOM by band", font: { size: 13 } }, yaxis: { title: "FOM (dB)", range: [Math.min(...all) - 2, Math.max(...all) + 1], gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+}
+const WORLD = "__world__";
+/* Worldwide view: for each site/tower and band, the weighted mean FOM over all targets (weights from the Stack Designer,
+   1 when not set; weight 0 leaves a target out). Plus an all-bands mean. Same arithmetic as the Stack Designer's Overall. */
+function worldwide(tg, site, tower) {
+  const p = P(), W = p.settings.compromise?.weights || {}, wt = t => W[t.id] ?? 1;
+  const used = tg.filter(t => wt(t) > 0);
+  const cells = RES.cells.filter(c => used.some(t => t.id === c.target) && !c.issues.length && c.hfta !== null);
+  const bands = META.bands.filter(b => cells.some(c => c.band === b));
+  const rows = [...new Set(RES.cells.map(c => c.site + "|" + c.tower))];
+  if (!CMP.ref || !rows.includes(CMP.ref)) CMP.ref = rows[0];
+  const cellOf = (r, b) => {
+    let num = 0, den = 0, n = 0, warn = null;
+    for (const t of used) {
+      const c = cells.find(x => x.site + "|" + x.tower === r && x.band === b && x.target === t.id); if (!c) continue;
+      num += wt(t) * c.hfta; den += wt(t); n++; if (c.spacing === "red" || (c.spacing && !warn)) warn = c.spacing;
+    }
+    return den ? { v: num / den, n, warn } : null;
+  };
+  const data = Object.fromEntries(rows.map(r => [r, Object.fromEntries(bands.map(b => [b, cellOf(r, b)]))]));
+  const allb = r => { const v = bands.map(b => data[r][b]?.v).filter(x => x != null); return v.length === bands.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const best = Object.fromEntries([...bands.map(b => [b, Math.max(...rows.map(r => data[r][b]?.v ?? -1e9))]), ["all", Math.max(...rows.map(r => allb(r) ?? -1e9))]]);
+  const show = (r, v, refv, key) => {
+    if (v == null) return `<td class="mute n">–</td>`;
+    const cls = "n" + (Math.abs(v - best[key]) < 0.005 ? " best" : "");
+    return `<td class="${cls}">${CMP.delta && r !== CMP.ref ? (refv == null ? "–" : (v - refv >= 0 ? "+" : "") + fmt(v - refv)) : fmt(v)}</td>`;
+  };
+  let h = `<tr><th>Ref.</th><th>Site</th><th>Tower</th>${bands.map(b => `<th class="n">${b} m</th>`).join("")}<th class="n" title="Mean over the bands, only when the tower has every band">All bands</th></tr>`;
+  for (const r of rows) {
+    const [sid, tid] = r.split("|");
+    h += `<tr><td><input type="radio" name="ref" value="${r}" ${r === CMP.ref ? "checked" : ""} aria-label="Reference row"></td><td>${esc(site(sid))}</td><td>${esc(tower(tid))}</td>`;
+    for (const b of bands) {
+      const d = data[r][b]; h += show(r, d?.v, data[CMP.ref][b]?.v, b).replace("</td>",
+        (d && d.n < used.length ? ` <span class="small mute" title="Only ${d.n} of ${used.length} targets: the tower does not serve the others">(${d.n}/${used.length})</span>` : "") +
+        (d?.warn ? ` <span class="sp ${d.warn}" title="Spacing warning on at least one target">&#9888;</span>` : "") + "</td>");
+    }
+    h += show(r, allb(r), allb(CMP.ref), "all") + "</tr>";
+  }
+  $("#cmpTbl").innerHTML = h + `<tr><td colspan="${bands.length + 4}" class="small mute">Worldwide = weighted mean of the HFTA FOM over ${used.map(t => `${esc(t.name)}${wt(t) !== 1 ? ` ×${wt(t)}` : ""}`).join(", ")}.
+    Weights come from the Stack Designer (1 if not set). "(n/N)" = the tower serves only n of the targets, so its value is not comparable with a tower that serves all of them.
+    Click a target button to see the HFTA runs behind a value.</td></tr>`;
+  $$("input[name=ref]").forEach(x => x.onchange = () => { CMP.ref = x.value; matrix(); });
+  const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: [...bands.map(b => b + " m"), "All bands"], y: [...bands.map(b => data[r][b]?.v ?? null), allb(r)], marker: { color: PAL[k % 8] } }; });
+  const all = tr.flatMap(t => t.y).filter(v => v != null);
+  Plotly.react("cmpPlot", tr, plotLayout({ barmode: "group", title: { text: "Worldwide FOM by band (weighted mean over targets)", font: { size: 13 } }, yaxis: { title: "FOM (dB)", range: [Math.min(...all) - 2, Math.max(...all) + 1], gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
 }
 async function cellDrawer(i) {
   const d = await api("GET", `/api/v2/p/${SLUG}/cell/${i}`), c = d.cell, p = P();
@@ -779,7 +826,8 @@ function showHelp() {
   <p>One antenna, one target, one band: score against height. The quickest way to answer "is 20 ft more worth it?".</p>
 
   <h3>4. Compare and 5. Report</h3>
-  <p>Compare runs HFTA for every tower at its site(s), every target and band, and shows the best stack-switch setting for each. Report exports the tables, the charts, and a replay pack: the exact .PRO files and settings, so any number can be reproduced in HFTA itself.</p>
+  <p>Compare runs HFTA for every tower at its site(s), every target and band, and shows the best stack-switch setting for each. The buttons above the table choose the target.
+  <b>Worldwide</b> shows all targets together (weighted mean, weights from the Stack Designer): the view for one tower that must work everywhere. Report exports the tables, the charts, and a replay pack: the exact .PRO files and settings, so any number can be reproduced in HFTA itself.</p>
 
   <h3>Reading the scores</h3>
   <p>FOM is HFTA's figure of merit: antenna gain at each elevation angle, weighted by how often openings arrive at that angle on that path. A difference under 0.5 dB is small. On a hill that falls away towards the target, HFTA often prefers a lower antenna than you expect: the slope already acts as height, and more height adds nulls at useful angles.</p>`;
