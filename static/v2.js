@@ -662,6 +662,7 @@ function showHelp() {
   <h3>Best compromise for one tower</h3>
   <p>Searches heights for one tower over all ticked targets at once. Groups: one row per antenna type, with how many of them (Count) and the spacing rules inside the group.</p>
   <ul>
+    <li><b>Count</b> is how many antennas of the type; <b>up to</b> lets the search also try more, so one run compares two tribanders against three.</li>
     <li><b>Max height</b> is the only limit you need. From and To are optional; use them to hold one group within a band of heights, for example when guys or a mast limit where an antenna can go.</li>
     <li><b>Min gap between groups</b>: the smallest distance between antennas of different groups.</li>
     <li><b>Group order</b>: force one group above the other when the physical layout is fixed.</li>
@@ -711,10 +712,10 @@ function compCard() {
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
     <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
   <h3 class="small" style="margin:12px 0 4px">Antenna groups (each group has its own bands)</h3>
-  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n" title="Optional lower limit for this group. Empty = from one step above ground">From (ft)</th><th class="n" title="Optional upper limit for this group. Empty = up to Max height">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
+  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n" title="Optional. Also try more antennas of this type, up to this number; the result ranks all counts together">up to</th><th class="n" title="Optional lower limit for this group. Empty = from one step above ground">From (ft)</th><th class="n" title="Optional upper limit for this group. Empty = up to Max height">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
   ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"></td>
     ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
-    ${["count", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : k === "lo" ? `placeholder="${g.step || 5}"` : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
+    ${["count", "count_max", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : k === "lo" ? `placeholder="${g.step || 5}"` : k === "count_max" ? 'placeholder="–"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
   <p class="small mute" style="margin:4px 0 0">Elements per band as in HFTA. Turning radius and droop are needed only with the guy check.</p>
   ${warnList(compFormWarnings(f), "Spacing rules: no warnings.")}
@@ -729,7 +730,7 @@ function compCard() {
   $$("[data-cw]").forEach(inp => inp.onchange = () => { f.weights[inp.dataset.cw] = Number(inp.value); $(`[data-ct="${inp.dataset.cw}"]`).checked = Number(inp.value) > 0; sv(); });
   $$("[data-gn]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gn].name = inp.value; sv(); });
   $$("[data-ge]").forEach(sel => sel.onchange = () => { const g = f.groups[sel.dataset.ge]; g.el = g.el || {}; if (sel.value) g.el[sel.dataset.band] = Number(sel.value); else delete g.el[sel.dataset.band]; sv(); compCard(); });
-  $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? (["turning_radius", "droop"].includes(inp.dataset.key) ? null : "") : Number(inp.value); sv(); compCard(); });
+  $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? (["turning_radius", "droop", "count_max"].includes(inp.dataset.key) ? null : "") : Number(inp.value); sv(); compCard(); });
   $$("[data-gx]").forEach(b => b.onclick = () => { f.groups.splice(Number(b.dataset.gx), 1); sv(); compCard(); });
   $("#cmAddG").onclick = () => { f.groups.push({ name: "", el: {}, count: 1, lo: "", hi: "", step: 5, min_spacing: 30, equal_tol: "", turning_radius: null, droop: null }); sv(); compCard(); };
   $("#cmGo").onclick = async () => {

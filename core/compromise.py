@@ -26,10 +26,13 @@ def _rules(g, rules):
     return r
 
 def group_candidates(g, step, rules, allowed):
+    """Height layouts for one group: every combination of count antennas (count .. count_max when a range is
+    given) on the height grid that keeps the group's spacing rules."""
     rules = _rules(g, rules)
     hs = [h for h in _axis(g["lo"], g["hi"], step) if h <= rules["max_height"] and allowed(g, h)]
     out = []
-    for c in itertools.combinations(hs, g["count"]):
+    counts = range(g["count"], (g.get("count_max") or g["count"]) + 1)
+    for c in (c for n in counts for c in itertools.combinations(hs, n)):
         gaps = [b - a for a, b in zip(c, c[1:])]
         if gaps and min(gaps) < rules["min_spacing"] - 1e-9: continue
         if gaps and rules.get("max_spacing") and max(gaps) > rules["max_spacing"] + 1e-9: continue
@@ -114,13 +117,15 @@ def search(proj, slug, body, pool, job):
         el = {b: int(n) for b, n in (g.get("el") or {}).items() if n}
         hi = g.get("hi"); hi = rules["max_height"] if hi in (None, "") else min(float(hi), rules["max_height"])
         step = float(g.get("step") or 5); lo = g.get("lo"); lo = step if lo in (None, "") else float(lo)
-        g = {**g, "count": int(g["count"]), "lo": lo, "hi": hi, "step": step, "el": el}
+        cm = g.get("count_max"); cm = int(cm) if cm not in (None, "") else None
+        g = {**g, "count": int(g["count"]), "count_max": cm, "lo": lo, "hi": hi, "step": step, "el": el}
         g["ant"] = {"el": el}
         g["name"] = (g.get("name") or "").strip() or A.describe(g["ant"])
         for b in el: A.hfta_type(el[b])          # raises for an element count HFTA does not have
         g["bands"] = [b for b in A.bands_of(g["ant"]) if b in all_bands]
         if not g["bands"]: raise ValueError(f"{g['name']}: none of its bands is used by the chosen targets")
         if not 1 <= g["count"] <= 4: raise ValueError("A group can have 1 to 4 antennas (HFTA limit per band)")
+        if g["count_max"] is not None and not g["count"] <= g["count_max"] <= 4: raise ValueError(f"{g['name']}: 'up to' must be between Count and 4")
         groups.append(g)
     for a, b in itertools.combinations(groups, 2):
         if set(a["bands"]) & set(b["bands"]): raise ValueError(f"{a['name']} and {b['name']} share a band; HFTA needs one antenna type per band")
