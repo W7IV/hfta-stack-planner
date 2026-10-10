@@ -716,7 +716,9 @@ function compResult(r) {
       const tr = [{ x: c.heights, y: c.overall, name: "Overall", mode: "lines+markers", line: { color: css("--ink"), width: 3 } }];
       r.targets.forEach((t, i) => tr.push({ x: c.heights, y: c.targets[t.id], name: t.name, mode: "lines", line: { color: PAL[i % 8], width: 1 } }));
       Plotly.react("cmCurve", tr, plotLayout({ title: { text: `${c.name}: HFTA score (FOM) against height`, font: { size: 13 } }, margin: { l: 50, r: 16, t: 28, b: 80 }, legend: { orientation: "h", y: -0.4 },
-        xaxis: { title: { text: "height of the (top) antenna, ft", standoff: 6 }, gridcolor: css("--line") }, yaxis: { title: "FOM", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+        /* Axis spans the user's own range (lowest From to Max height), so a search that stops early shows as an empty stretch. */
+        xaxis: { title: { text: "height of the (top) antenna, ft", standoff: 6 }, gridcolor: css("--line"), range: [Math.min(...compForm().groups.map(g => Number(g.lo) || 0)), Number(compForm().max_height)] },
+        yaxis: { title: "FOM", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
     };
     $("#cmCurveSel").onchange = draw; draw();
   }
