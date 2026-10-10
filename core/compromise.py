@@ -113,7 +113,8 @@ def search(proj, slug, body, pool, job):
     for j, g in enumerate(body["groups"]):
         el = {b: int(n) for b, n in (g.get("el") or {}).items() if n}
         hi = g.get("hi"); hi = rules["max_height"] if hi in (None, "") else min(float(hi), rules["max_height"])
-        g = {**g, "count": int(g["count"]), "lo": float(g.get("lo") or 0), "hi": hi, "step": float(g["step"]), "el": el}
+        step = float(g.get("step") or 5); lo = g.get("lo"); lo = step if lo in (None, "") else float(lo)
+        g = {**g, "count": int(g["count"]), "lo": lo, "hi": hi, "step": step, "el": el}
         g["ant"] = {"el": el}
         g["name"] = (g.get("name") or "").strip() or A.describe(g["ant"])
         for b in el: A.hfta_type(el[b])          # raises for an element count HFTA does not have
