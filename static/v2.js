@@ -285,6 +285,18 @@ function towerBands(extra = []) {
   const used = new Set(extra.flatMap(a => bandsOf(a)));
   return META.bands.filter(b => (b !== "160" && b !== "6") || used.has(b));
 }
+/* Common band sets for one antenna on one boom. Choosing one fills the element boxes of that row; adjust counts after. */
+const BANDSETS = [
+  ["", "Band set…"], ["40", "Monobander 40 m"], ["20", "Monobander 20 m"], ["15", "Monobander 15 m"], ["10", "Monobander 10 m"],
+  ["20,15,10", "Tribander 20/15/10"], ["20,17,15,12,10", "5-band 20/17/15/12/10"], ["17,12", "Duobander 17/12"],
+  ["40,30", "Duobander 40/30"], ["30,17,12", "WARC 30/17/12"], ["40,20,15,10", "4-band 40/20/15/10"]];
+const bandSetSelect = attr => `<select class="s" ${attr} title="Fill this row's bands for a common antenna. One row = one antenna at one height">${BANDSETS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`;
+function applyBandSet(el, value) {
+  if (!value) return el;
+  const keep = Object.values(el || {})[0] || 4, out = {};
+  for (const b of value.split(",")) out[b] = (el || {})[b] || keep;
+  return out;
+}
 const elSelect = (attr, b, n) => `<select class="s el" ${attr} title="${b} m: elements (HFTA type)"><option value="">–</option>${META.elements.map(k => `<option value="${k}" ${k === n ? "selected" : ""}>${elName(k)}</option>`).join("")}</select>`;
 /* Spacing warnings: the same rules as core/spacing.py. HFTA has no mutual coupling; warnings never change a number. */
 function spacingCheck(ants) {
@@ -362,13 +374,13 @@ function rTowers() {
           <option value="stackmatch" ${(t.switching || "stackmatch") === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option>
           <option value="all" ${t.switching === "all" ? "selected" : ""}>Every combination</option></select></label></div>
       <div class="row" style="margin-top:8px"><span class="small mute">Serves:</span>${p.targets.map(g => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-tg="${g.id}" ${!t.targets || t.targets.includes(g.id) ? "checked" : ""}>${esc(g.name)}</label>`).join("")}</div>
-      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n" title="Only for the guy check">Turning radius (ft)</th><th class="n" title="Only for the guy check">Element droop (ft)</th><th></th></tr>
-        ${t.antennas.map((a, j) => `<tr><td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td>
+      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th><th></th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n" title="Only for the guy check">Turning radius (ft)</th><th class="n" title="Only for the guy check">Element droop (ft)</th><th></th></tr>
+        ${t.antennas.map((a, j) => `<tr><td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td><td>${bandSetSelect(`data-aset="${j}"`)}</td>
           ${tb.map(b => `<td>${elSelect(`data-ae="${j}" data-band="${b}"`, b, elOf(a)[b])}</td>`).join("")}
           <td class="n"><input type="number" class="s" step="0.5" data-atr="${j}" value="${a.turning_radius ?? ""}" placeholder="–"></td>
           <td class="n"><input type="number" class="s" step="0.5" data-adr="${j}" value="${a.droop ?? ""}" placeholder="–"></td>
           <td><button class="danger small" data-ad="${j}">Remove</button></td></tr>`).join("")}</table></div>
-      <p class="small mute" style="margin:4px 0 0">Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.</p>
+      <p class="small mute" style="margin:4px 0 0">One row = one antenna at one height. Elements on several bands in one row = a tribander or multiband antenna; "Band set…" fills common ones. Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.</p>
       ${warnList(spacingCheck(t.antennas))}
       <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>
         <button class="ghost" data-copy title="Make a copy of this tower (same antennas, guys and targets) at another site">Copy to…</button>
@@ -376,6 +388,7 @@ function rTowers() {
       ${guyBlock(t)}</div></div>`;
     $$("[data-k]", c).forEach(inp => bind(inp, t, inp.dataset.k, () => rTowers(), inp.type === "number"));
     $$("[data-tg]", c).forEach(cb => cb.onchange = () => { t.targets = $$("[data-tg]", c).filter(x => x.checked).map(x => x.dataset.tg); save(); });
+    $$("[data-aset]", c).forEach(s => s.onchange = () => { const a = t.antennas[s.dataset.aset]; a.el = applyBandSet(elOf(a), s.value); save(); rTowers(); });
     $$("[data-ae]", c).forEach(s => s.onchange = () => { const a = t.antennas[s.dataset.ae]; a.el = a.el || {}; if (s.value) a.el[s.dataset.band] = Number(s.value); else delete a.el[s.dataset.band]; save(); rTowers(); });
     $$("[data-atr]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.atr].turning_radius = s.value === "" ? null : Number(s.value); save(); });
     $$("[data-adr]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.adr].droop = s.value === "" ? null : Number(s.value); save(); });
@@ -662,6 +675,7 @@ function showHelp() {
   <h3>Stack Designer</h3>
   <p>Searches heights for one tower over all ticked targets at once. Groups: one row per antenna type, with how many of them (Count) and the spacing rules inside the group.</p>
   <ul>
+    <li><b>One row = one kind of antenna.</b> A tribander or a 5-band is one row with elements on each of its bands; four rows for 40, 20, 15 and 10 m mean four separate monobanders.</li>
     <li><b>Count</b> is how many antennas of the type; <b>up to</b> lets the search also try more, so one run compares two tribanders against three.</li>
     <li><b>Max height</b> is the only limit you need. From and To are optional; use them to hold one group within a band of heights, for example when guys or a mast limit where an antenna can go.</li>
     <li><b>Min gap between groups</b>: the smallest distance between antennas of different groups.</li>
@@ -711,9 +725,11 @@ function compCard() {
   <h3 class="small" style="margin:12px 0 4px">Targets and weights</h3>
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
     <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
-  <h3 class="small" style="margin:12px 0 4px">Antenna groups (each group has its own bands)</h3>
+  <h3 class="small" style="margin:12px 0 4px">Antenna groups</h3>
+  <p class="small mute" style="margin:0 0 4px">One row = one kind of antenna; Count = how many of it. Elements on several bands in the same row = a tribander or multiband antenna (one boom, one height for all its bands).
+  Separate rows = separate antennas (monobanders). Use "Band set…" to fill a row for a common antenna, then adjust the element counts.</p>
   <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n" title="Optional. Also try more antennas of this type, up to this number; the result ranks all counts together">up to</th><th class="n" title="Optional lower limit for this group. Empty = from one step above ground">From (ft)</th><th class="n" title="Optional upper limit for this group. Empty = up to Max height">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
-  ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"></td>
+  ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"><br>${bandSetSelect(`data-gset="${j}"`)}</td>
     ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
     ${["count", "count_max", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : k === "lo" ? `placeholder="${g.step || 5}"` : k === "count_max" ? 'placeholder="–"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
@@ -729,6 +745,8 @@ function compCard() {
   $$("[data-ct]").forEach(cb => cb.onchange = () => { f.weights[cb.dataset.ct] = cb.checked ? Number($(`[data-cw="${cb.dataset.ct}"]`).value || 1) : 0; sv(); });
   $$("[data-cw]").forEach(inp => inp.onchange = () => { f.weights[inp.dataset.cw] = Number(inp.value); $(`[data-ct="${inp.dataset.cw}"]`).checked = Number(inp.value) > 0; sv(); });
   $$("[data-gn]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gn].name = inp.value; sv(); });
+  $$("[data-gset]").forEach(sel => sel.onchange = () => { const g = f.groups[sel.dataset.gset]; g.el = applyBandSet(g.el, sel.value);
+    if (!g.name && sel.value) g.name = sel.selectedOptions[0].text; sv(); compCard(); });
   $$("[data-ge]").forEach(sel => sel.onchange = () => { const g = f.groups[sel.dataset.ge]; g.el = g.el || {}; if (sel.value) g.el[sel.dataset.band] = Number(sel.value); else delete g.el[sel.dataset.band]; sv(); compCard(); });
   $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? (["turning_radius", "droop", "count_max"].includes(inp.dataset.key) ? null : "") : Number(inp.value); sv(); compCard(); });
   $$("[data-gx]").forEach(b => b.onclick = () => { f.groups.splice(Number(b.dataset.gx), 1); sv(); compCard(); });
