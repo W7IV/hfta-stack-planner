@@ -59,10 +59,11 @@ function rSites() {
     <label>Conductivity (S/m)<input id="sigma" type="number" step="0.001" value="${st.sigma}"></label>
     <label style="flex-direction:row;align-items:center;gap:6px"><input id="diff" type="checkbox" ${st.diffraction ? "checked" : ""}> Diffraction (HFTA default: on)</label></div></div>
   <div id="siteCards"></div>
-  <button id="addSite">Add site</button>
+  <div class="row"><button id="addSite">Add site</button><button class="ghost" id="libSite" title="Add a site saved from another project, with its terrain">Add from library…</button></div>
   <div id="siteCompare"></div>`;
   $("#soil").onchange = e => { const [s, k] = META.soils[e.target.value]; Object.assign(st, { soil: e.target.value, sigma: s, epsr: k }); save(); rSites(); };
   bind($("#epsr"), st, "epsr", null, true); bind($("#sigma"), st, "sigma", null, true); bind($("#diff"), st, "diffraction");
+  $("#libSite").onclick = () => libAddDialog("sites");
   $("#addSite").onclick = () => { p.sites.push({ id: uid("s"), name: `Site ${p.sites.length + 1}`, lat: null, lon: null, notes: "", terrain: { source: "" } }); save(true).then(rSites); };
   const box = $("#siteCards");
   p.sites.forEach((s, i) => {
@@ -81,6 +82,7 @@ function rSites() {
         <button class="ghost" data-act="flat">Flat ground</button>
         ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
+        <button class="ghost" data-act="lib" title="Save this site, with its position and terrain files, to the library shared by all your projects">Save to library</button>
         <button class="ghost" data-act="move" title="New site at a distance and bearing from this one, to test how sensitive the result is to the exact position (as HFTA's move-the-tower check)">Copy, moved…</button>
         <button class="danger" data-act="del">Delete site</button></div>
       <p class="small mute" style="margin:8px 0 0">K6TU sells HFTA-ready one-degree terrain sets: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
@@ -101,6 +103,7 @@ function rSites() {
     $("[data-act=del]", c).onclick = async () => { p.sites.splice(i, 1); await save(true); rSites(); };
     $("[data-act=dem]", c).onclick = () => demDialog(s);
     $("[data-act=move]", c).onclick = () => moveDialog(s);
+    $("[data-act=lib]", c).onclick = () => libSaveDialog("sites", s);
     const autoBtn = $("[data-act=auto]", c);
     if (autoBtn) autoBtn.onclick = async () => {
       /* Read the inputs directly: a value typed but not yet committed (no change event) is still used. */
@@ -119,6 +122,49 @@ function rSites() {
     box.appendChild(c);
   });
   siteCompare();
+}
+/* ---------------------------------------------------------------- library shared by all projects */
+function libSaveDialog(kind, item) {
+  const what = kind === "sites" ? "site" : "tower", url = `/api/v2/p/${SLUG}/${kind}/${item.id}/to-library`;
+  modal(`<h2>Save ${what} to the library</h2>
+  <p class="small mute">The library is shared by all your projects on this computer. ${kind === "sites" ? "The position and the terrain files are saved." : "Antennas, guys and switching are saved. The location is not: you choose the site when you add it to a project."}
+  Later changes here do not change the saved copy.</p>
+  <form id="libForm" class="row"><label style="flex:1">Name<input name="name" value="${esc(item.name)}" style="width:100%" required></label>
+  <div style="width:100%;display:flex;gap:8px;margin-top:8px"><button type="submit">Save</button><button type="button" class="ghost" id="libCancel">Cancel</button></div>
+  <p class="small neg" id="libMsg" style="width:100%"></p></form>`);
+  $("#libCancel").onclick = closeModal;
+  let replace = false;
+  $("#libForm").onsubmit = async e => {
+    e.preventDefault(); const name = e.target.name.value.trim();
+    try { await api("POST", url, { name, replace }); closeModal(); toast(`Saved to the library as "${name}".`); }
+    catch (err) {
+      if (err.message !== "exists") return ($("#libMsg").textContent = err.message);
+      replace = true; $("#libMsg").textContent = `The library already has a ${what} called "${name}". Press Save again to replace it, or change the name.`;
+      e.target.name.oninput = () => { replace = false; $("#libMsg").textContent = ""; };
+    }
+  };
+}
+async function libAddDialog(kind) {
+  const L = await api("GET", "/api/v2/library"), items = L[kind], what = kind === "sites" ? "site" : "tower";
+  const line = x => kind === "sites"
+    ? `${x.lat ?? "–"}, ${x.lon ?? "–"} · ${x.n_profiles} profiles${x.terrain?.source ? " · " + esc(x.terrain.source) : ""}`
+    : `${(x.antennas || []).map(a => `${a.h} ft ${describe(a)}`).join("; ")}${(x.guys?.levels || []).length ? ` · ${x.guys.levels.length} guy levels` : ""}`;
+  modal(`<h2>Add a ${what} from the library</h2>
+  <p class="small mute">The ${what} is copied into this project. ${kind === "towers" ? "Set its Location on the tower card afterwards." : ""}</p>
+  ${items.length ? `<div class="tbl"><table><tr><th>Name</th><th>Details</th><th>Saved</th><th></th></tr>
+    ${items.map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="small">${line(x)}</td><td class="small mute">${esc(x.saved || "")}</td>
+      <td style="white-space:nowrap"><button class="small" data-libadd="${x.id}">Add</button> <button class="danger small" data-libdel="${x.id}" title="Remove from the library. Projects that already use it keep their copy">Remove</button></td></tr>`).join("")}</table></div>`
+    : `<p class="mute">The library has no ${what}s yet. Use "Save to library" on a ${what} card.</p>`}
+  <div style="margin-top:10px"><button class="ghost" id="libClose">Close</button></div>`);
+  $("#libClose").onclick = closeModal;
+  $$("[data-libadd]").forEach(b => b.onclick = async () => {
+    const r = await api("POST", `/api/v2/p/${SLUG}/library/${kind}/${b.dataset.libadd}`); S = r; closeModal();
+    toast(`Added "${items.find(x => x.id === b.dataset.libadd).name}".`); render();
+  });
+  $$("[data-libdel]").forEach(b => b.onclick = async () => {
+    if (b.dataset.armed) { await api("DELETE", `/api/v2/library/${kind}/${b.dataset.libdel}`); libAddDialog(kind); return; }
+    b.dataset.armed = "1"; b.textContent = "Press again to remove";
+  });
 }
 function moveDialog(s) {
   if (s.lat == null || s.lon == null) { toast("Enter latitude and longitude for this site first.", 4000); return; }
@@ -355,7 +401,7 @@ function rTowers() {
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
   HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.
   Location: pick the site (from the Sites page) where this tower stands, or leave "Every site" to try the tower at all sites and compare them.</p>
-  <div id="spcCard"></div><div id="towerCards"></div><button id="addTw">Add tower</button><div id="compCard"></div><div id="scanCard"></div>`;
+  <div id="spcCard"></div><div id="towerCards"></div><div class="row"><button id="addTw">Add tower</button><button class="ghost" id="libTw" title="Add a tower saved from another project">Add from library…</button></div><div id="compCard"></div><div id="scanCard"></div>`;
   const box = $("#towerCards");
   spacingCard();
   p.towers.forEach((t, i) => {
@@ -384,6 +430,7 @@ function rTowers() {
       ${warnList(spacingCheck(t.antennas))}
       <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>
         <button class="ghost" data-copy title="Make a copy of this tower (same antennas, guys and targets) at another site">Copy to…</button>
+        <button class="ghost" data-tlib title="Save this tower (antennas, guys, switching) to the library shared by all your projects">Save to library</button>
         <button class="danger" data-del>Delete tower</button></div>
       ${guyBlock(t)}</div></div>`;
     $$("[data-k]", c).forEach(inp => bind(inp, t, inp.dataset.k, () => rTowers(), inp.type === "number"));
@@ -397,10 +444,12 @@ function rTowers() {
     $("[data-add]", c).onclick = () => { const last = t.antennas[t.antennas.length - 1]; t.antennas.push({ h: last ? last.h + 30 : 60, el: last ? { ...last.el } : { "20": 4, "15": 4, "10": 4 }, turning_radius: last?.turning_radius ?? null, droop: last?.droop ?? null }); save(); rTowers(); };
     $("[data-del]", c).onclick = () => { p.towers.splice(i, 1); save(true).then(rTowers); };
     $("[data-copy]", c).onclick = () => copyTowerDialog(t, i);
+    $("[data-tlib]", c).onclick = () => libSaveDialog("towers", t);
     wireGuys(c, t);
     box.appendChild(c);
   });
   compCard();
+  $("#libTw").onclick = () => libAddDialog("towers");
   $("#addTw").onclick = () => { p.towers.push({ id: uid("w"), name: `Tower ${p.towers.length + 1}`, switching: "stackmatch", height_ft: 100, antennas: [{ h: 60, el: { "20": 4, "15": 4, "10": 4 }, turning_radius: null, droop: null }], guys: { levels: [], ice_in: 1.0, margin_ft: 2.0 } }); save(true).then(rTowers); };
   scanCard();
 }
@@ -798,6 +847,8 @@ function showHelp() {
     <li><b>Flat ground</b>: no terrain, for a reference run.</li>
   </ul>
   <p>Add two or more sites to compare positions. <b>Copy, moved…</b> makes a second site a set distance away, to see how much the result depends on the exact position (HFTA's move-the-tower check).</p>
+
+  <p><b>Library.</b> "Save to library" on a site or tower card keeps a named copy for all your projects (sites with their terrain files). "Add from library…" below the cards copies one into the current project.</p>
 
   <h3>2. Targets</h3>
   <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>

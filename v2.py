@@ -4,7 +4,7 @@ import io, json, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
-from core import antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP
+from core import library as LB, antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP
 
 bp = Blueprint("v2", __name__)
 CTX = {}   # set by app.py: pool(), JOBS
@@ -106,6 +106,54 @@ def put_project(slug):
     for t in proj.get("targets", []): t.setdefault("id", P.new_id("t"))
     for t in proj.get("towers", []): t.setdefault("id", P.new_id("w"))
     P.save(slug, P.upgrade(proj)); return jsonify(state(slug))
+
+# ------------------------------------------------------------ library shared by all projects
+@bp.get("/api/v2/library")
+def lib_list():
+    return jsonify(LB.listing())
+
+@bp.post("/api/v2/p/<slug>/towers/<tid>/to-library")
+def lib_save_tower(slug, tid):
+    b = request.get_json() or {}; proj = P.load(slug)
+    t = next((x for x in proj["towers"] if x["id"] == tid), None)
+    if not t: return err("Tower not found", 404)
+    try: e = LB.save_tower(t, b.get("name") or t["name"], bool(b.get("replace")))
+    except FileExistsError: return err("exists", 409)
+    return jsonify(e)
+
+@bp.post("/api/v2/p/<slug>/sites/<sid>/to-library")
+def lib_save_site(slug, sid):
+    b = request.get_json() or {}; proj = P.load(slug)
+    s = next((x for x in proj["sites"] if x["id"] == sid), None)
+    if not s: return err("Site not found", 404)
+    try: e = LB.save_site(s, P.site_dir(slug, sid), b.get("name") or s["name"], bool(b.get("replace")))
+    except FileExistsError: return err("exists", 409)
+    return jsonify(e)
+
+@bp.post("/api/v2/p/<slug>/library/towers/<lid>")
+def lib_add_tower(slug, lid):
+    proj = P.load(slug)
+    try: t = LB.tower_for_project(lid)
+    except (KeyError, ValueError): return err("Not in the library", 404)
+    names = {x["name"] for x in proj["towers"]}; base = t["name"]; n = 2
+    while t["name"] in names: t["name"] = f"{base} ({n})"; n += 1
+    t["targets"] = [x["id"] for x in proj["targets"]]
+    proj["towers"].append(t); P.save(slug, proj); return jsonify(state(slug))
+
+@bp.post("/api/v2/p/<slug>/library/sites/<lid>")
+def lib_add_site(slug, lid):
+    proj = P.load(slug)
+    try: s = LB.site_into_project(lid, slug)
+    except (KeyError, ValueError): return err("Not in the library", 404)
+    names = {x["name"] for x in proj["sites"]}; base = s["name"]; n = 2
+    while s["name"] in names: s["name"] = f"{base} ({n})"; n += 1
+    proj["sites"].append(s); P.save(slug, proj); return jsonify(state(slug))
+
+@bp.delete("/api/v2/library/<kind>/<lid>")
+def lib_delete(kind, lid):
+    try: (LB.delete_tower if kind == "towers" else LB.delete_site)(lid)
+    except ValueError: return err("Bad id")
+    return jsonify(LB.listing())
 
 @bp.post("/api/v2/p/<slug>/sites/<sid>/import")
 def site_import(slug, sid):
