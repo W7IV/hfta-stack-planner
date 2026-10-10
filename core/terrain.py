@@ -188,25 +188,40 @@ _3DEP_URL = (
     "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage"
     "?bbox={west},{south},{east},{north}&bboxSR=4326&size=1024,1024"
     "&format=tiff&pixelType=F32&noDataInterpretation=esriNoDataMatchAny"
-    "&interpolation=%2BRSP_BilinearInterpolation&f=image"
+    "&interpolation=RSP_BilinearInterpolation&f=image"
 )
 
 def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
                            az_step: float = 1.0, spacing_m: float = 30.0, length_m: float = 4410.0) -> dict:
-    """Download a GeoTIFF patch from USGS 3DEP (US coverage, no auth) centred on lat/lon, then
-    call generate_from_dem. The temporary DEM file is deleted after use.
-    Raises ValueError for non-US locations (the service returns a blank or error tile)."""
-    buf_lat = 0.06
+    """Download a GeoTIFF patch from USGS 3DEP (United States incl. Alaska and Hawaii; no key needed),
+    centred on lat/lon and large enough for the profile length, then call generate_from_dem.
+    The temporary DEM file is deleted afterwards."""
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("Latitude must be -90..90 and longitude -180..180 (decimal degrees, west negative).")
+    # Half-size of the box in degrees: profile length plus a margin, converted from metres.
+    half_m = length_m * 1.25 + 500
+    buf_lat = half_m / 111_320.0
     buf_lon = buf_lat / max(0.15, math.cos(math.radians(lat)))
     west, east = lon - buf_lon, lon + buf_lon
     south, north = lat - buf_lat, lat + buf_lat
     url = _3DEP_URL.format(west=west, south=south, east=east, north=north)
-    tmp = out_dir.parent / "dem_fetch.tif"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp = out_dir.parent / f"dem_fetch-{out_dir.name}.tif"   # one temp file per site, so two sites can run at once
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "hfta-stack-planner/1.0"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            tmp.write_bytes(resp.read())
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            ctype = resp.headers.get("Content-Type", "")
+            data = resp.read()
+        if "tiff" not in ctype.lower():
+            # The service answers errors as JSON with HTTP 200.
+            msg = data[:300].decode("utf-8", "replace")
+            raise ValueError(f"USGS 3DEP did not return a DEM ({ctype}): {msg}")
+        tmp.write_bytes(data)
         dem = DEM(tmp, crs="geographic")
+        # 3DEP marks no-data with a very large negative number and the tag is not always present.
+        dem.z[dem.z < -1000] = np.nan
+        if np.isnan(dem.z).all():
+            raise ValueError("USGS 3DEP has no elevation data here. The service covers the United States only.")
         result = generate_from_dem(dem, lat, lon, out_dir, prefix, az_step, spacing_m, length_m)
         result["source"] = "USGS 3DEP (online)"
         return result
