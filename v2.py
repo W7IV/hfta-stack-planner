@@ -34,7 +34,8 @@ def create():
     slug = P.slug(name); n = 2
     while (P.path(slug) / "project.json").exists():
         slug = f"{P.slug(name)}-{n}"; n += 1
-    P.save(slug, P.default_project(name)); return jsonify({"slug": slug})
+    P.save(slug, P.default_project(name)); LB.prns_into_project(slug)   # the user's library .PRN files come with every new project
+    return jsonify({"slug": slug})
 
 # ------------------------------------------------------------ project with all its files (move between computers)
 @bp.post("/api/v2/projects/import")
@@ -148,6 +149,20 @@ def lib_add_site(slug, lid):
     names = {x["name"] for x in proj["sites"]}; base = s["name"]; n = 2
     while s["name"] in names: s["name"] = f"{base} ({n})"; n += 1
     proj["sites"].append(s); P.save(slug, proj); return jsonify(state(slug))
+
+@bp.post("/api/v2/p/<slug>/prn/to-library")
+def lib_save_prns(slug):
+    return jsonify({"saved": LB.prns_to_library(P.prn_dir(slug)), "library": LB.list_prns()})
+
+@bp.post("/api/v2/p/<slug>/library/prn")
+def lib_add_prns(slug):
+    added = LB.prns_into_project(slug); out = state(slug); out["added"] = added; return jsonify(out)
+
+@bp.delete("/api/v2/library/prn/<name>")
+def lib_delete_prn(name):
+    try: LB.delete_prn(name)
+    except ValueError as e: return err(str(e))
+    return jsonify(LB.listing())
 
 @bp.delete("/api/v2/library/<kind>/<lid>")
 def lib_delete(kind, lid):

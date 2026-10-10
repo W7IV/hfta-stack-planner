@@ -1,5 +1,7 @@
-"""Library shared by all projects: named towers (antennas, guys, switching) and named sites (position and terrain files).
-Stored in <PROJECTS_DIR>/_library/: towers.json, sites.json, and sites/<id>/*.PRO.
+"""Library shared by all projects: named towers (antennas, guys, switching), named sites (position and terrain files),
+and elevation-angle files (.PRN, copied into every new project).
+Stored in <PROJECTS_DIR>/_library/: towers.json, sites.json, sites/<id>/*.PRO, prn/*.PRN. Not part of the code repository:
+the ARRL .PRN files are the user's own copies.
 Adding an item to a project copies it, so later changes in the project do not change the library, and the reverse."""
 from __future__ import annotations
 import json, re, shutil, time
@@ -28,7 +30,7 @@ def listing() -> dict:
     for s in sites:
         d = root() / "sites" / s["id"]
         s["n_profiles"] = len([p for p in d.glob("*") if p.suffix.lower() == ".pro"]) if d.exists() else 0
-    return {"towers": _load("towers.json"), "sites": sites}
+    return {"towers": _load("towers.json"), "sites": sites, "prns": list_prns()}
 
 # ---------------- towers
 TOWER_KEYS = ("antennas", "guys", "switching", "height_ft", "design")
@@ -90,3 +92,31 @@ def delete_site(lib_id: str):
     _save("sites.json", [s for s in _load("sites.json") if s["id"] != lib_id])
     d = root() / "sites" / lib_id
     if d.exists(): shutil.rmtree(d)
+
+# ---------------- elevation-angle files (.PRN): copied into every new project
+def prn_root() -> Path:
+    d = root() / "prn"; d.mkdir(exist_ok=True); return d
+
+def list_prns() -> list:
+    return sorted(f.name for f in prn_root().iterdir() if f.is_file() and f.suffix.lower() == ".prn")
+
+def prns_to_library(src_dir: Path) -> list:
+    """Copy a project's .PRN files into the library (same name replaces)."""
+    out = []
+    if src_dir.exists():
+        for f in src_dir.iterdir():
+            if f.is_file() and f.suffix.lower() == ".prn": shutil.copy2(f, prn_root() / f.name); out.append(f.name)
+    return sorted(out)
+
+def prns_into_project(pslug: str) -> list:
+    """Copy every library .PRN file into the project, keeping files the project already has."""
+    dst = P.prn_dir(pslug); dst.mkdir(parents=True, exist_ok=True); out = []
+    for f in prn_root().iterdir():
+        if f.is_file() and f.suffix.lower() == ".prn" and not (dst / f.name).exists():
+            shutil.copy2(f, dst / f.name); out.append(f.name)
+    return sorted(out)
+
+def delete_prn(name: str):
+    if not re.fullmatch(r"[\w.\- ]+\.prn", name or "", re.I): raise ValueError("Bad file name")
+    f = prn_root() / name
+    if f.exists(): f.unlink()

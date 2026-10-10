@@ -262,8 +262,11 @@ function rTargets() {
   el.innerHTML = `<h1>Targets</h1><p class="lead">A target is a path you want to work, for example Europe at 52°. Each target uses one ARRL elevation-angle file (.PRN)
   and one or more headings around its bearing. The result is the weighted mean of the FOM at those headings, exactly as you would average several HFTA runs.</p>
   <div class="card"><h2>Elevation-angle files (.PRN)</h2>
-    <p class="small mute">The ARRL files come with the ARRL Antenna Book (e.g. W1-MA-EU.PRN). They are not included here.</p>
-    <div class="row"><button id="prnBtn">Add .PRN files</button><input type="file" id="prnIn" multiple accept=".prn,.PRN" hidden></div>
+    <p class="small mute">The ARRL files come with the ARRL Antenna Book (e.g. W1-MA-EU.PRN). They are not included in the program; add your own copies once and save them to the library.</p>
+    <div class="row"><button id="prnBtn">Add .PRN files</button><input type="file" id="prnIn" multiple accept=".prn,.PRN" hidden>
+      <button class="ghost" id="prnToLib" title="Keep a copy of these files in your library. Every new project then starts with them" ${S.prns.length ? "" : "disabled"}>Save to library</button>
+      <button class="ghost" id="prnFromLib" title="Add the library's .PRN files to this project">Add from library</button></div>
+    <p class="small mute" id="prnLibInfo" style="margin:6px 0 0"></p>
     <div class="split" style="margin-top:10px"><div class="tbl"><table><tr><th>File</th><th></th></tr>
       ${S.prns.map(f => `<tr><td>${esc(f)}</td><td><button class="ghost small" data-prv="${esc(f)}">View</button></td></tr>`).join("") || `<tr><td class="mute">No files yet.</td><td></td></tr>`}</table></div>
       <div><div id="prnPlot" class="plot sm"></div></div></div></div>
@@ -272,6 +275,14 @@ function rTargets() {
     <p class="small mute">Headings: the bearing ± spread in steps (e.g. ±8° in 8° steps gives three headings). Weights are equal unless you type them, e.g. "1, 2, 1".
     Weights from contest logs are not part of this release.</p></div>`;
   $("#prnBtn").onclick = () => $("#prnIn").click();
+  api("GET", "/api/v2/library").then(L => {
+    const el = $("#prnLibInfo"); if (!el) return;
+    el.innerHTML = L.prns.length ? `Library: ${L.prns.length} files (${L.prns.map(esc).join(", ")}). They are copied into every new project.`
+      : `Your library has no .PRN files yet. "Save to library" keeps these files for every new project. They stay on this computer and are not part of the program.`;
+  });
+  $("#prnToLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/prn/to-library`); toast(`${r.saved.length} files saved to the library. New projects will start with them.`, 5000); rTargets(); };
+  $("#prnFromLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/library/prn`); const proj = P(); S = r; S.project = proj;
+    toast(r.added.length ? `${r.added.length} files added from the library.` : "Nothing to add: the project already has every library file.", 4000); rTargets(); };
   $("#prnIn").onchange = async () => { const fd = new FormData(); [...$("#prnIn").files].forEach(x => fd.append("files", x));
     const r = await api("POST", `/api/v2/p/${SLUG}/prn`, fd, true); const bad = r.filter(x => x.error); toast(`${r.length - bad.length} added${bad.length ? `, ${bad.length} rejected: ${bad[0].error}` : ""}`, 4000);
     S = await api("GET", `/api/v2/p/${SLUG}`); rTargets(); };
