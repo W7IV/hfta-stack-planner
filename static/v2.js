@@ -680,7 +680,10 @@ function compForm() {
   p.settings.compromise = p.settings.compromise || { site: p.sites[0]?.id, weights: {}, switching: "stackmatch", min_gap: 15, max_height: 160, guys_from_tower: "",
     groups: [{ name: "Tribander", el: { "20": 4, "15": 4, "10": 4 }, count: 3, lo: "", hi: "", step: 5, min_spacing: 30, equal_tol: 10, turning_radius: null, droop: null },
              { name: "40 m Yagi", el: { "40": 3 }, count: 2, lo: "", hi: "", step: 5, min_spacing: 60, equal_tol: "", turning_radius: null, droop: null }] };
-  return p.settings.compromise;
+  const f = p.settings.compromise;
+  /* One-time clean-up for projects saved before From/To became optional: blank them, so Max height is the only limit. */
+  if (!f.range_blanked) { f.groups.forEach(g => { g.lo = ""; g.hi = ""; }); f.range_blanked = true; save(); }
+  return f;
 }
 function compCard() {
   const p = P(), f = compForm(), tb = towerBands(f.groups); if (!p.sites.length || !p.targets.length) { $("#compCard").innerHTML = ""; return; }
