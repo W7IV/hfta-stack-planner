@@ -740,7 +740,11 @@ function compFormWarnings(f) {
     const lvl = wl < r.red_wl ? "red" : wl < r.amber_wl ? "amber" : null;
     if (lvl) out.push({ level: lvl, text: `${g.name || describe(g)}: minimum spacing ${g.min_spacing} ft = ${wl.toFixed(2)} wavelength on ${b} m. The search may pick stacks that are ${lvl === "red" ? "too close" : "close"}; HFTA will overstate their stacking gain. Raise it to ${Math.ceil(r.amber_wl * lam)} ft or more to avoid this.` });
   }
-  for (const g of f.groups) if (g.hi !== "" && g.hi != null && Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but Max height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
+  for (const g of f.groups) {
+    if (g.hi === "" || g.hi == null) continue;
+    if (Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but Max height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
+    else if (Number(g.hi) < Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft, so this group is searched only up to ${g.hi} ft, not to Max height ${f.max_height} ft. Clear the To field to search the full range.` });
+  }
   if (f.groups.length > 1 && Number(f.min_gap) < r.gap_amber_ft) out.push({ level: Number(f.min_gap) < r.gap_red_ft ? "red" : "amber", text: `Minimum gap between groups ${f.min_gap} ft is below ${r.gap_amber_ft} ft: antennas on different bands may interact; HFTA does not model this.` });
   return out;
 }
