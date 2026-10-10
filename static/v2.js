@@ -540,9 +540,10 @@ function matrix() {
   const bands = META.bands.filter(b => cells.some(c => c.band === b));
   const rows = [...new Set(cells.map(c => c.site + "|" + c.tower))];
   if (!CMP.ref || !rows.includes(CMP.ref)) CMP.ref = rows[0];
-  $("#cmpCtl").innerHTML = `<label>Target<select id="cmpTg">${tg.map(t => `<option value="${t.id}" ${t.id === CMP.target ? "selected" : ""}>${esc(t.name)} (${t.heading}°)</option>`).join("")}</select></label>
+  $("#cmpCtl").innerHTML = `<div style="width:100%"><span class="small mute">Target shown:</span>
+      <div class="tgtabs">${tg.map(t => `<button class="${t.id === CMP.target ? "" : "ghost"}" data-cmptg="${t.id}" title="Results for paths to ${esc(t.name)}, bearing ${t.heading}°">${esc(t.name)} <span class="small">${t.heading}°</span></button>`).join("")}</div></div>
     <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpDelta" ${CMP.delta ? "checked" : ""}> Show differences from the reference row</label>`;
-  $("#cmpTg").onchange = e => { CMP.target = e.target.value; matrix(); };
+  $$("[data-cmptg]").forEach(b => b.onclick = () => { CMP.target = b.dataset.cmptg; matrix(); });
   $("#cmpDelta").onchange = e => { CMP.delta = e.target.checked; matrix(); };
   const val = c => c ? c.hfta : null;
   const get = (row, b) => cells.find(c => c.site + "|" + c.tower === row && c.band === b);
@@ -722,7 +723,7 @@ const TIPS = [
   ["#scBand", "Band of the scan."], ["#scLo", "Lowest height scanned."], ["#scHi", "Highest height scanned."], ["#scSt", "Step between heights."],
   // Compare
   ["#evalBtn", "Run HFTA for every tower at its site, every target and band. Runs already done with the same inputs are reused."],
-  ["#cmpTg", "Target shown in the table."],
+  ["[data-cmptg]", "Show the results for this target."],
   ["#cmpDelta", "Show each value as the difference from the reference row."],
   // Top bar
   ["#newProj", "Start an empty project."], ["#openProj", "Open a project saved with 'Project with files'."], ["#helpBtn", "How to use the planner."],

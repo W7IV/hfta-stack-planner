@@ -60,3 +60,5 @@ pre.code{font:12px/1.4 var(--mono);background:var(--soft);padding:8px;border-rad
 .warnl li.red b,.sp.red{color:var(--bad)}.warnl li.amber b,.sp.amber{color:var(--warn)}
 .sp{font-weight:700;cursor:help}
 select.el{min-width:64px}
+
+.tgtabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}.tgtabs button{padding:5px 12px}
