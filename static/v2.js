@@ -255,9 +255,11 @@ const REGION = { AF: "Africa", AS: "Asia", EU: "Europe", JA: "Japan", OC: "Ocean
 /* Reference point for each ARRL region: the great-circle bearing is taken from the site to this point.
    The exact points N6BV used are not published in the files; these are central cities of each region. */
 const REGION_POINT = {
-  AF: { lat: -26.2, lon: 28.0, where: "Johannesburg (southern Africa)" }, AS: { lat: 21.0, lon: 78.0, where: "central India (south Asia)" },
+  AF: { lat: -26.2, lon: 28.0, where: "Johannesburg (southern Africa)" },
+  AS: { lat: 13.8, lon: 100.5, where: "Bangkok, between India and China", spread: 16 },   // wide region: judged over ±16°
   EU: { lat: 50.0, lon: 10.0, where: "central Germany" }, JA: { lat: 35.7, lon: 139.7, where: "Tokyo" },
-  OC: { lat: -33.9, lon: 151.2, where: "Sydney" }, SA: { lat: -23.5, lon: -46.6, where: "São Paulo" }, US: { lat: 39.0, lon: -98.0, where: "central USA" } };
+  OC: { lat: -33.9, lon: 151.2, where: "Sydney" }, SA: { lat: -54.8, lon: -68.3, where: "Ushuaia (long axis of South America)" },
+  US: { lat: 39.0, lon: -98.0, where: "central USA" } };
 function regionCode(file) { const m = /-([A-Z]{2})\.PRN$/i.exec(file || ""); return m && REGION_POINT[m[1].toUpperCase()] ? m[1].toUpperCase() : null; }
 function bearingTo(la1, lo1, la2, lo2) {
   const r = Math.PI / 180, p1 = la1 * r, p2 = la2 * r, dl = (lo2 - lo1) * r;
@@ -331,6 +333,7 @@ function rTargets() {
     $$("[data-k]", tr).forEach(inp => bind(inp, t, inp.dataset.k, inp.dataset.k === "prn" ? () => {
       const r = regionOf(t.prn); if (r && (t.name === "New target" || !t.name)) t.name = r;
       const c = computedBearing(t); if (c) t.heading = c.deg;
+      const sp = REGION_POINT[regionCode(t.prn)]?.spread; if (sp) { t.offsets = offsetsFrom(sp, 8); t.weights = t.offsets.map(() => 1); }
       save(); rTargets();
     } : null, inp.type === "number"));
     const reoff = () => { t.offsets = offsetsFrom(Number($("[data-sp]", tr).value), Number($("[data-st]", tr).value)); rew(); save(); };
@@ -344,13 +347,19 @@ function rTargets() {
   const first = $("[data-prv]"); if (first) first.click();
   $("#tgBrg").onclick = () => {
     const ch = [];
-    p.targets.forEach(t => { const c = computedBearing(t); if (c && c.deg !== Number(t.heading)) { ch.push(`${t.name} ${t.heading}° → ${c.deg}°`); t.heading = c.deg; } });
+    p.targets.forEach(t => {
+      const c = computedBearing(t); if (c && c.deg !== Number(t.heading)) { ch.push(`${t.name} ${t.heading}° → ${c.deg}°`); t.heading = c.deg; }
+      const sp = REGION_POINT[regionCode(t.prn)]?.spread, cur = Math.max(...(t.offsets || [0]).map(Math.abs));
+      if (sp && cur < sp) { t.offsets = offsetsFrom(sp, 8); t.weights = t.offsets.map(() => 1); ch.push(`${t.name} spread ±${cur}° → ±${sp}°`); }
+    });
     if (!homeSite()) return toast("Enter the site's latitude and longitude first (Sites page).", 5000);
     save(); rTargets(); toast(ch.length ? `Bearings changed: ${ch.join("; ")}. Run Evaluate again.` : "All bearings already match.", 8000);
   };
   $("#addTg").onclick = () => {
     const id = uid("t"), nt = { id, name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["20", "15", "10"] };
-    nt.name = regionOf(nt.prn) || nt.name; nt.heading = computedBearing(nt)?.deg ?? 0; p.targets.push(nt);
+    nt.name = regionOf(nt.prn) || nt.name; nt.heading = computedBearing(nt)?.deg ?? 0;
+    const sp = REGION_POINT[regionCode(nt.prn)]?.spread; if (sp) { nt.offsets = offsetsFrom(sp, 8); nt.weights = nt.offsets.map(() => 1); }
+    p.targets.push(nt);
     /* A new target is served by every tower and counts in the compromise search until the user unticks it. */
     p.towers.forEach(t => { if (Array.isArray(t.targets) && !t.targets.includes(id)) t.targets.push(id); });
     if (p.settings.compromise) p.settings.compromise.weights[id] = 1;
