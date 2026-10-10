@@ -93,6 +93,34 @@ zips and any hosted copy private.
 | `HFTA_WORKERS` | calculation processes | number of CPUs |
 | `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
 
+## Development list
+Items waiting for the self-hosted server. Nothing here is started.
+
+1. **Docker image with VOACAP.** Add `voacapl` (open-source VOACAP command line, ITS public domain) to the
+   image next to OpenHFTA. Then the planner can make `.PRN` elevation-angle files for any site and target,
+   the way N6BV made the ARRL files: VOACAP runs over 12 months × 24 hours × low/medium/high solar activity,
+   histogram of the arrival angle of the strongest mode per band, written in the ARRL `.PRN` layout.
+   Today the `.PRN` files exist only for US origins, so a station outside the US cannot use steps 2–5.
+
+2. **Terrain for any country.** "Fetch terrain online" uses USGS 3DEP, United States only. Research notes:
+   - *SRTM* (Shuttle Radar Topography Mission, February 2000) is what MicroDEM used when HFTA was new.
+     The ARRL HFTA notes say 30 m data is enough for HF and 90 m is acceptable. SRTM covers 56°S to 60°N only:
+     Ketchikan (55°N) is inside, Anchorage, Fairbanks and most of Scandinavia north of Oslo are outside.
+     The radar measures tree tops, not the ground, as do all the global sets below.
+     NASA's own copies (Earthdata, SRTMGL1 v3, 1 arc-second, voids filled) need a free login, so they cannot be
+     fetched by one button.
+   - *AWS Terrain Tiles* (`elevation-tiles-prod` bucket, Mapzen/Tilezen) is the practical source. The `skadi`
+     folder holds 1°×1° tiles in the SRTM `.hgt` layout (3601×3601, 16-bit big-endian metres, gzip, about 25 MB),
+     no key, no account. The tiles merge SRTM worldwide, 3DEP for the US including Alaska, national open DEMs for
+     much of Europe, Canada, Australia and New Zealand, and ArcticDEM/GMTED north of 60°, so one reader covers
+     US and overseas sites and closes the SRTM gap in the north. There is no service guarantee; attribution is
+     required (Tilezen lists the sources). URL: `https://elevation-tiles-prod.s3.amazonaws.com/skadi/N55/N55W132.hgt.gz`.
+   - *Copernicus GLO-30* (TanDEM-X, 2011–2015) is the newer alternative: global including the poles, 30 m,
+     free on AWS without a key, Cloud-Optimised GeoTIFF tiles. Larger files; the existing GeoTIFF reader works.
+   - Plan: add an `.hgt` reader (about ten lines: `np.fromfile('>i2')`, 3601×3601, no-data −32768,
+     origin at the tile's south-west corner) and a second fetch route that picks Terrain Tiles for any lat/lon
+     and keeps 3DEP for the US. Profiles that cross a tile edge need the neighbouring tile.
+
 ## Limits
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data
   must resolve features of about 1/8 wavelength.
