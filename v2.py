@@ -17,7 +17,10 @@ def load_results(slug):
 
 @bp.get("/")
 def index():
-    return render_template("v2.html")
+    # Version stamp from the files' modification time, so browsers fetch new JS/CSS after an update.
+    st = Path(__file__).parent / "static"
+    v = int(max(p.stat().st_mtime for p in (st / "v2.js", st / "v2.css")))
+    return render_template("v2.html", asset_v=v)
 
 @bp.get("/api/v2/meta")
 def meta():

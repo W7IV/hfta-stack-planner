@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HFTA Stack Planner</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}?v={{ asset_v }}">
 <script src="{{ url_for('static', filename='plotly.min.js') }}"></script>
 </head>
 <body>
@@ -43,6 +43,6 @@
 <div id="drawer" class="drawer" hidden><div class="drawer-in"><button class="x" id="drawerX" aria-label="Close">×</button><div id="drawerBody"></div></div></div>
 <div id="modal" class="modal" hidden><div class="modal-in"><div id="modalBody"></div></div></div>
 <div id="toast" class="toast" hidden></div>
-<script src="{{ url_for('static', filename='v2.js') }}"></script>
+<script src="{{ url_for('static', filename='v2.js') }}?v={{ asset_v }}"></script>
 </body>
 </html>
