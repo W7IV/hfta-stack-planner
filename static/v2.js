@@ -695,7 +695,22 @@ function compResult(r) {
     <td class="n"><b>${fmt(x.overall)}</b></td>
     ${r.targets.map(t => `<td class="n">${fmt(x.targets[t.id])}<br><span class="small ${x.loss[t.id] < -1 ? "neg" : x.loss[t.id] < -0.3 ? "amb" : "mute"}">${x.loss[t.id] >= 0 ? "best" : fmt(x.loss[t.id])}</span></td>`).join("")}
     <td><button class="ghost small" data-apply="${k}">Use as tower</button></td></tr>`; }).join("")}
-  <tr><td></td><td class="mute">Best for each target alone</td><td></td><td></td>${r.targets.map(t => `<td class="n mute">${fmt(r.own_best[t.id])}<br><span class="small">${esc(lay(r.own_layout[t.id]))}</span></td>`).join("")}<td></td></tr></table></div>`;
+  <tr><td></td><td class="mute">Best for each target alone</td><td></td><td></td>${r.targets.map(t => `<td class="n mute">${fmt(r.own_best[t.id])}<br><span class="small">${esc(lay(r.own_layout[t.id]))}</span></td>`).join("")}<td></td></tr></table></div>
+  ${r.curves?.length ? `<h3 class="small" style="margin:14px 0 4px">Score against height, by group</h3>
+  <p class="small mute" style="margin:0 0 6px">Why a height was chosen. Solid line = overall (weighted over targets); thin lines = each target. For a stack, the best layout with its top antenna at that height.
+  Rules between groups (gap, order, guys) can move the chosen height away from a group's own peak.</p>
+  <div class="row" style="align-items:center"><label>Group<select id="cmCurveSel">${r.curves.map((c, i) => `<option value="${i}">${esc(c.name)}</option>`).join("")}</select></label></div>
+  <div id="cmCurve" class="plot sm"></div>` : ""}`;
+  if (r.curves?.length) {
+    const draw = () => {
+      const c = r.curves[Number($("#cmCurveSel").value)];
+      const tr = [{ x: c.heights, y: c.overall, name: "Overall", mode: "lines+markers", line: { color: css("--ink"), width: 3 } }];
+      r.targets.forEach((t, i) => tr.push({ x: c.heights, y: c.targets[t.id], name: t.name, mode: "lines", line: { color: PAL[i % 8], width: 1 } }));
+      Plotly.react("cmCurve", tr, plotLayout({ title: { text: `${c.name}: HFTA score (FOM) against height`, font: { size: 13 } }, margin: { l: 50, r: 16, t: 28, b: 80 }, legend: { orientation: "h", y: -0.4 },
+        xaxis: { title: { text: "height of the (top) antenna, ft", standoff: 6 }, gridcolor: css("--line") }, yaxis: { title: "FOM", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+    };
+    $("#cmCurveSel").onchange = draw; draw();
+  }
   $$("[data-apply]").forEach(b => b.onclick = async () => {
     const x = r.rows[Number(b.dataset.apply)], f = compForm();
     const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ h, el: { ...r.groups[i].el }, turning_radius: r.groups[i].turning_radius ?? null, droop: r.groups[i].droop ?? null })));

@@ -170,6 +170,17 @@ def search(proj, slug, body, pool, job):
     for scored in per_group:
         ranked = sorted(scored, key=lambda c: -overall(tscore([scored[c]])))
         tops.append(ranked[:60])
+    # Score of each group against height, for the chart: for one antenna, score at each height; for a stack,
+    # the best layout whose top antenna is at that height. Per target too, so the user can see why a height won.
+    curves = []
+    for g, scored in zip(groups, per_group):
+        by_top = {}
+        for c, sc_ in scored.items():
+            ts = tscore([sc_]); o = overall(ts)
+            if o == o and (max(c) not in by_top or o > by_top[max(c)][0]): by_top[max(c)] = (o, ts, list(c))
+        hs = sorted(by_top)
+        curves.append({"name": g["name"], "heights": hs, "overall": [round(by_top[h][0], 3) for h in hs],
+                       "targets": {t["id"]: [by_top[h][1][t["id"]] for h in hs] for t in targets}, "layouts": [by_top[h][2] for h in hs]})
     order = body.get("order") or "any"
     def combo_ok(combo):
         """Minimum gap between groups, and the chosen group order (every antenna of an upper group above every
@@ -210,5 +221,5 @@ def search(proj, slug, body, pool, job):
         r["spacing"] = SP.check(ants, lambda b: band_freq(proj, b), spr)
     return {"groups": [{"name": g["name"], "el": g["el"], "count": g["count"], "bands": g["bands"], "turning_radius": g.get("turning_radius"),
                         "droop": g.get("droop")} for g in groups], "weights": weights, "spacing_rules": spr,
-            "own_best": own_best, "own_layout": own_layout, "rows": rows[: int(body.get("top", 25))], "evaluated": len(rows), "runs": len(sc.pat),
+            "own_best": own_best, "own_layout": own_layout, "curves": curves, "rows": rows[: int(body.get("top", 25))], "evaluated": len(rows), "runs": len(sc.pat),
             "targets": [{"id": t["id"], "name": t["name"]} for t in targets]}
