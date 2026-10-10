@@ -270,8 +270,9 @@ function describe(a) {
   return new Set(bs.map(b => e[b])).size === 1 ? `${bs.join("/")} m ${elName(e[bs[0]])}` : bs.map(b => `${b} m ${elName(e[b])}`).join(", ");
 }
 function towerBands(extra = []) {
-  const p = P(), set = new Set([...p.targets.flatMap(t => t.bands), ...extra.flatMap(a => bandsOf(a))]);
-  return META.bands.filter(b => set.has(b));
+  /* The HF bands the ARRL elevation-angle files cover (80 to 10 m), plus 160/6 m if any antenna already uses them. */
+  const used = new Set(extra.flatMap(a => bandsOf(a)));
+  return META.bands.filter(b => (b !== "160" && b !== "6") || used.has(b));
 }
 const elSelect = (attr, b, n) => `<select class="s el" ${attr} title="${b} m: elements (HFTA type)"><option value="">–</option>${META.elements.map(k => `<option value="${k}" ${k === n ? "selected" : ""}>${elName(k)}</option>`).join("")}</select>`;
 /* Spacing warnings: the same rules as core/spacing.py. HFTA has no mutual coupling; warnings never change a number. */

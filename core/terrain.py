@@ -160,9 +160,14 @@ class DEM:
 
 def generate_from_dem(dem: DEM, lat: float, lon: float, out_dir: Path, prefix: str,
                       az_step: float = 1.0, spacing_m: float = 30.0, length_m: float = 4410.0) -> dict:
-    """Write one .PRO per azimuth. Distances 0..length in steps of spacing (at most 148 points, HFTA limit)."""
+    """Write one .PRO per azimuth. Distances 0..length in steps of spacing (at most 148 points, HFTA limit).
+    Existing .PRO files in out_dir are removed first, so the folder holds one consistent set."""
     out_dir.mkdir(parents=True, exist_ok=True)
     dist = np.arange(0, length_m + 0.1, spacing_m)[:148]
+    if np.isnan(dem.sample([lat], [lon])[0]):
+        raise ValueError("The site is outside the DEM, or the DEM has no data at the site.")
+    for p in out_dir.glob("*"):
+        if p.suffix.lower() == ".pro": p.unlink()
     written, short = [], []
     for az in np.arange(0, 360, az_step):
         la, lo = _destination(lat, lon, az, dist); z = dem.sample(la, lo)
@@ -186,10 +191,12 @@ def write_flat(out_dir: Path, prefix: str = "FLAT"):
 # ---------------- USGS 3DEP online fetch ----------------
 _3DEP_URL = (
     "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage"
-    "?bbox={west},{south},{east},{north}&bboxSR=4326&size=1024,1024"
+    "?bbox={west},{south},{east},{north}&bboxSR=4326&imageSR=4326&size=1024,1024"
     "&format=tiff&pixelType=F32&noDataInterpretation=esriNoDataMatchAny"
     "&interpolation=RSP_BilinearInterpolation&f=image"
 )
+# imageSR=4326 matters: without it the service returns the image in its own projection (metres), and the
+# lat/lon sampling then finds no data at the site.
 
 def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
                            az_step: float = 1.0, spacing_m: float = 30.0, length_m: float = 4410.0) -> dict:
@@ -219,9 +226,18 @@ def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
         tmp.write_bytes(data)
         dem = DEM(tmp, crs="geographic")
         # 3DEP marks no-data with a very large negative number and the tag is not always present.
-        dem.z[dem.z < -1000] = np.nan
+        dem.z[(dem.z < -1000) | (dem.z > 20000)] = np.nan
         if np.isnan(dem.z).all():
             raise ValueError("USGS 3DEP has no elevation data here. The service covers the United States only.")
+        # Check the returned image is where we asked for it, and say exactly what came back if not.
+        H, W = dem.z.shape; x1, y1 = dem.x0 + W * dem.dx, dem.y0 - H * dem.dy
+        if not (dem.x0 <= lon <= x1 and y1 <= lat <= dem.y0) or abs(dem.x0) > 180 or abs(dem.y0) > 90:
+            raise ValueError(f"USGS 3DEP returned an image that does not cover the site: image x {dem.x0:.5f}..{x1:.5f}, "
+                             f"y {y1:.5f}..{dem.y0:.5f}, pixel {dem.dx:.6g} x {dem.dy:.6g}; site {lat:.5f}, {lon:.5f}.")
+        z0 = float(dem.sample([lat], [lon])[0])
+        if z0 != z0:
+            raise ValueError(f"USGS 3DEP has no data at the site itself ({lat:.5f}, {lon:.5f}), only around it. "
+                             "Try a position a few metres away.")
         result = generate_from_dem(dem, lat, lon, out_dir, prefix, az_step, spacing_m, length_m)
         result["source"] = "USGS 3DEP (online)"
         return result
