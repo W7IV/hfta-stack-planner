@@ -170,19 +170,26 @@ def search(proj, slug, body, pool, job):
     for scored in per_group:
         ranked = sorted(scored, key=lambda c: -overall(tscore([scored[c]])))
         tops.append(ranked[:60])
+    order = body.get("order") or "any"
+    def combo_ok(combo):
+        """Minimum gap between groups, and the chosen group order (every antenna of an upper group above every
+        antenna of a lower group)."""
+        hs_all = [(h, gi) for gi, c in enumerate(combo) for h in c]
+        if any(abs(a - b) < rules["min_gap"] - 1e-9 for (a, ga), (b, gb) in itertools.combinations(hs_all, 2) if ga != gb): return False
+        if order in ("first_top", "first_bottom"):
+            for (c1, c2) in zip(combo, combo[1:]):
+                if order == "first_top" and min(c1) <= max(c2): return False
+                if order == "first_bottom" and max(c1) >= min(c2): return False
+        return True
     rows = []
     for combo in itertools.product(*tops):
-        hs_all = [(h, gi) for gi, c in enumerate(combo) for h in c]
-        if any(abs(a - b) < rules["min_gap"] - 1e-9 for (a, ga), (b, gb) in itertools.combinations(hs_all, 2) if ga != gb): continue
+        if not combo_ok(combo): continue
         parts = [per_group[gi][c] for gi, c in enumerate(combo)]; ts = tscore(parts)
         rows.append({"layout": [list(c) for c in combo], "overall": round(overall(ts), 3), "targets": ts,
                      "detail": {t["id"]: {b: v for p in parts for b, v in p[t["id"]].items()} for t in targets}})
-    if not rows: raise ValueError("No combination keeps the minimum gap between groups. Lower the gap or widen the height ranges.")
+    if not rows: raise ValueError("No combination keeps the minimum gap and the group order. Lower the gap, widen the height ranges, or change the order.")
     rows.sort(key=lambda r: -r["overall"])
     # best for each target alone, with the same rules (spacing, guys, gap between groups)
-    def gap_ok(combo):
-        hs_all = [(h, gi) for gi, c in enumerate(combo) for h in c]
-        return not any(abs(a - b) < rules["min_gap"] - 1e-9 for (a, ga), (b, gb) in itertools.combinations(hs_all, 2) if ga != gb)
     keep = 60 if len(per_group) <= 2 else 20
     own_best, own_layout = {}, {}
     for t in targets:
@@ -191,7 +198,7 @@ def search(proj, slug, body, pool, job):
         ranked = [sorted(scored, key=lambda c, s=scored: -gsum(s, c))[:keep] for scored in per_group]
         best = None
         for combo in itertools.product(*ranked):
-            if not gap_ok(combo): continue
+            if not combo_ok(combo): continue
             tot = sum(gsum(per_group[gi], c) for gi, c in enumerate(combo)); n = sum(len(per_group[gi][c][tid]) for gi, c in enumerate(combo))
             if n and (best is None or tot / n > best[0]): best = (tot / n, [list(c) for c in combo])
         own_best[tid] = round(best[0], 3) if best else None; own_layout[tid] = best[1] if best else []

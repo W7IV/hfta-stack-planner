@@ -619,8 +619,8 @@ init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not
 function compForm() {
   const p = P();
   p.settings.compromise = p.settings.compromise || { site: p.sites[0]?.id, weights: {}, switching: "stackmatch", min_gap: 15, max_height: 160, guys_from_tower: "",
-    groups: [{ name: "Tribanders", el: { "20": 4, "15": 4, "10": 4 }, count: 3, lo: 20, hi: 130, step: 5, min_spacing: 30, equal_tol: 10, turning_radius: null, droop: null },
-             { name: "40 m Yagis", el: { "40": 3 }, count: 2, lo: 40, hi: 160, step: 5, min_spacing: 60, equal_tol: "", turning_radius: null, droop: null }] };
+    groups: [{ name: "Tribander", el: { "20": 4, "15": 4, "10": 4 }, count: 3, lo: 20, hi: 130, step: 5, min_spacing: 30, equal_tol: 10, turning_radius: null, droop: null },
+             { name: "40 m Yagi", el: { "40": 3 }, count: 2, lo: 40, hi: 160, step: 5, min_spacing: 60, equal_tol: "", turning_radius: null, droop: null }] };
   return p.settings.compromise;
 }
 function compCard() {
@@ -633,6 +633,10 @@ function compCard() {
     <label>Switching<select id="cmSw"><option value="stackmatch" ${f.switching === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option><option value="full" ${f.switching === "full" ? "selected" : ""}>Whole stack only</option><option value="all" ${f.switching === "all" ? "selected" : ""}>Every combination</option></select></label>
     <label>Max height (ft)<input type="number" id="cmMax" value="${f.max_height}"></label>
     <label>Min gap between groups (ft)<input type="number" id="cmGap" value="${f.min_gap}"></label>
+    <label>Group order<select id="cmOrder" title="Which group is above which. The list order of the groups below is used.">
+      <option value="any" ${(f.order || "any") === "any" ? "selected" : ""}>Any (HFTA decides)</option>
+      <option value="first_top" ${f.order === "first_top" ? "selected" : ""}>As listed, first group on top</option>
+      <option value="first_bottom" ${f.order === "first_bottom" ? "selected" : ""}>As listed, first group at the bottom</option></select></label>
     <label>Respect guys of<select id="cmGuy"><option value="">no guy check</option>${guyTowers.map(t => `<option value="${t.id}" ${t.id === f.guys_from_tower ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label></div>
   <h3 class="small" style="margin:12px 0 4px">Targets and weights</h3>
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
@@ -651,6 +655,7 @@ function compCard() {
   $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
   $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
   $("#cmGuy").onchange = e => { f.guys_from_tower = e.target.value; sv(); };
+  $("#cmOrder").onchange = e => { f.order = e.target.value; sv(); };
   $$("[data-ct]").forEach(cb => cb.onchange = () => { f.weights[cb.dataset.ct] = cb.checked ? Number($(`[data-cw="${cb.dataset.ct}"]`).value || 1) : 0; sv(); });
   $$("[data-cw]").forEach(inp => inp.onchange = () => { f.weights[inp.dataset.cw] = Number(inp.value); $(`[data-ct="${inp.dataset.cw}"]`).checked = Number(inp.value) > 0; sv(); });
   $$("[data-gn]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gn].name = inp.value; sv(); });
@@ -663,7 +668,7 @@ function compCard() {
     const targets = p.targets.filter(t => f.weights[t.id] !== 0).map(t => t.id);
     if (!targets.length) return toast("Tick at least one target");
     const body = { site: f.site, targets, weights: Object.fromEntries(targets.map(t => [t, f.weights[t] ?? 1])), groups: f.groups, switching: f.switching,
-      min_gap: f.min_gap, max_height: f.max_height, guys_from_tower: f.guys_from_tower || null, min_spacing: 30, top: 25 };
+      min_gap: f.min_gap, max_height: f.max_height, guys_from_tower: f.guys_from_tower || null, order: f.order || "any", min_spacing: 30, top: 25 };
     const { job } = await api("POST", `/api/v2/p/${SLUG}/compromise`, body); const r = await poll(job, $("#cmProg")); if (r) compResult(r);
   };
   api("GET", `/api/v2/p/${SLUG}/compromise`).then(r => { if (r && r.rows) compResult(r); });
