@@ -257,7 +257,13 @@ function rTargets() {
     tb.appendChild(tr);
   });
   const first = $("[data-prv]"); if (first) first.click();
-  $("#addTg").onclick = () => { p.targets.push({ id: uid("t"), name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["20", "15", "10"] }); save(true).then(rTargets); };
+  $("#addTg").onclick = () => {
+    const id = uid("t"); p.targets.push({ id, name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["20", "15", "10"] });
+    /* A new target is served by every tower and counts in the compromise search until the user unticks it. */
+    p.towers.forEach(t => { if (Array.isArray(t.targets) && !t.targets.includes(id)) t.targets.push(id); });
+    if (p.settings.compromise) p.settings.compromise.weights[id] = 1;
+    save(true).then(rTargets);
+  };
 }
 
 /* ---------------------------------------------------------------- 3. Towers */
