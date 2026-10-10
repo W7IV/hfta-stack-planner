@@ -426,6 +426,7 @@ function rTowers() {
           <td class="n"><input type="number" class="s" step="0.5" data-atr="${j}" value="${a.turning_radius ?? ""}" placeholder="–"></td>
           <td class="n"><input type="number" class="s" step="0.5" data-adr="${j}" value="${a.droop ?? ""}" placeholder="–"></td>
           <td><button class="danger small" data-ad="${j}">Remove</button></td></tr>`).join("")}</table></div>
+      ${t.design ? `<p class="small" style="margin:4px 0"><b>Made by the Stack Designer:</b> ${esc(t.design)}</p>` : ""}
       <p class="small mute" style="margin:4px 0 0">One row = one antenna at one height. Elements on several bands in one row = a tribander or multiband antenna; "Band set…" fills common ones. Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.</p>
       ${warnList(spacingCheck(t.antennas))}
       <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>
@@ -973,7 +974,13 @@ function compFormWarnings(f) {
 function compResult(r) {
   const p = P(); r.targets.forEach(t => { const cur = p.targets.find(x => x.id === t.id); if (cur) t.name = cur.name; });
   const lay = l => l.map((g, i) => `${r.groups[i].name || r.groups[i].model} ${g.join(" / ")}`).join("; ");
-  $("#cmOut").innerHTML = `<p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
+  const q = r.request || {}, nm = id => p.sites.find(x => x.id === id)?.name || "?", tn = id => p.targets.find(x => x.id === id)?.name || "?";
+  const inputs = !r.request ? "" : `Site ${nm(q.site)}; max height ${q.max_height} ft; min gap ${q.min_gap} ft; order ${q.order || "any"}; ${q.guys_from_tower ? "guy check on" : "no guy check"}; switching ${q.switching}.
+    Targets: ${(q.targets || []).map(t => `${tn(t)}${(q.weights || {})[t] !== 1 ? " ×" + q.weights[t] : ""}`).join(", ")}.
+    Groups: ${(q.groups || []).map(g => `${esc(g.name || "?")} ×${g.count}${g.count_max ? "–" + g.count_max : ""} (${bandsOf(g).join("/")} m; ${g.lo || "–"} to ${g.hi || q.max_height} ft, step ${g.step}, spacing ≥ ${g.min_spacing})`).join("; ")}.`;
+  r.inputs_text = inputs.replace(/\s+/g, " ");
+  $("#cmOut").innerHTML = `${inputs ? `<div class="note small"><b>Inputs of this run</b> (${esc(r.stamp || "")}): ${esc(inputs)}<br>A different result after a new run means one of these changed.</div>` : ""}
+  <p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
     ${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
   <div class="tbl"><table><tr><th>#</th><th>Layout</th><th>Spacing</th><th class="n">Overall</th>${r.targets.map(t => `<th class="n">${esc(t.name)} <span class="mute">(w ${r.weights[t.id]})</span></th>`).join("")}<th></th></tr>
@@ -1006,7 +1013,7 @@ function compResult(r) {
     const x = r.rows[Number(b.dataset.apply)], f = compForm();
     const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ h, el: { ...r.groups[i].el }, turning_radius: r.groups[i].turning_radius ?? null, droop: r.groups[i].droop ?? null })));
     const g = p.towers.find(t => t.id === f.guys_from_tower);
-    p.towers.push({ id: uid("w"), name: `Stack ${lay(x.layout)}`.slice(0, 60), site: f.site || null, switching: f.switching, height_ft: Math.max(...x.layout.flat()), targets: r.targets.map(t => t.id),
+    p.towers.push({ id: uid("w"), name: `Stack ${lay(x.layout)}`.slice(0, 60), site: f.site || null, design: `Stack Designer row ${Number(b.dataset.apply) + 1}, overall ${fmt(x.overall)}. ${r.inputs_text || ""}`, switching: f.switching, height_ft: Math.max(...x.layout.flat()), targets: r.targets.map(t => t.id),
       antennas: ants, guys: g ? JSON.parse(JSON.stringify(g.guys)) : { levels: [], ice_in: 1.0, margin_ft: 2.0 } });
     await save(true); toast("Added as a new tower at the Designer's site. In Compare, press Evaluate to include it.", 6000); rTowers();
   });

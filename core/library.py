@@ -31,7 +31,7 @@ def listing() -> dict:
     return {"towers": _load("towers.json"), "sites": sites}
 
 # ---------------- towers
-TOWER_KEYS = ("antennas", "guys", "switching", "height_ft")
+TOWER_KEYS = ("antennas", "guys", "switching", "height_ft", "design")
 
 def save_tower(tower: dict, name: str, replace: bool = False) -> dict:
     """Save a copy of a project tower. Same name + replace=True overwrites the library entry of that name."""
