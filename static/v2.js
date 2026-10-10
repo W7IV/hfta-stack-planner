@@ -428,7 +428,8 @@ function guyBlock(t) {
       <td><select data-gw="${j}">${wires.map(w => `<option ${w === l.wire ? "selected" : ""}>${esc(w)}</option>`).join("")}</select></td>
       <td class="n"><input type="number" data-gt="${j}" value="${l.tension ?? META.wires[l.wire].tension}"></td><td><button class="danger small" data-gd="${j}">Remove</button></td></tr>`).join("")}</table></div>
     <div class="row" style="margin-top:8px"><button class="ghost small" data-gadd>Add guy level</button><button class="ghost small" data-rohn>Rohn 65G 160 ft standard</button>
-      <label>Radial ice (in)<input type="number" step="0.25" data-gi value="${g.ice_in ?? 1}"></label><label>Hardware margin (ft)<input type="number" step="0.5" data-gm value="${g.margin_ft ?? 2}"></label>
+      <label>Radial ice (in)<select data-gi title="Radial ice thickness on guys and elements. Use the value your engineer gives for the site">
+        ${[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(v => `<option value="${v}" ${Number(g.ice_in ?? 1) === v ? "selected" : ""}>${v === 0 ? "none" : v + '"'}</option>`).join("")}</select></label><label>Hardware margin (ft)<input type="number" step="0.5" data-gm value="${g.margin_ft ?? 2}"></label>
       <button data-gcheck>Check clearances</button></div><div data-gout></div></div>`;
 }
 function wireGuys(c, t) {
@@ -616,10 +617,62 @@ async function init() {
   };
   $$(".step").forEach(b => b.onclick = () => go(b.dataset.step));
   $("#drawerX").onclick = () => $("#drawer").hidden = true;
+  $("#helpBtn").onclick = showHelp;
   document.addEventListener("keydown", e => { if (e.key === "Escape") { $("#drawer").hidden = true; closeModal(); } });
   await openProject(SLUG);
 }
 init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not start: ${esc(e.message)}</p>`; });
+
+/* ---------------------------------------------------------------- help */
+function showHelp() {
+  $("#drawerBody").innerHTML = `<h2>How to use the planner</h2>
+  <p class="small mute">Every number comes from HFTA runs. The planner only organises the runs and the arithmetic between them.</p>
+
+  <h3>1. Sites</h3>
+  <p>A site is one position where a tower could stand. Enter its latitude and longitude. Then give it terrain, one file per compass direction:</p>
+  <ul>
+    <li><b>Fetch terrain online (USGS)</b>: one click, United States only.</li>
+    <li><b>Import .PRO or .zip</b>: files from MicroDEM or a K6TU terrain set.</li>
+    <li><b>Generate from DEM file</b>: a GeoTIFF or ASCII grid you downloaded yourself.</li>
+    <li><b>Flat ground</b>: no terrain, for a reference run.</li>
+  </ul>
+  <p>Add two or more sites to compare positions. <b>Copy, moved…</b> makes a second site a set distance away, to see how much the result depends on the exact position (HFTA's move-the-tower check).</p>
+
+  <h3>2. Targets</h3>
+  <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
+
+  <h3>3. Towers</h3>
+  <p>A tower is a set of antennas at given heights. On each band, the antennas that work on that band form one HFTA stack.</p>
+  <ul>
+    <li><b>Location</b>: the site where the tower stands. "Every site" tries the same tower at all sites, to compare positions.</li>
+    <li><b>Serves</b>: the targets this tower is judged on. A fixed European tower should serve Europe only.</li>
+    <li><b>Copy to…</b>: the same antennas as a separate tower at another site.</li>
+    <li><b>Switching</b>: which parts of the stack HFTA may select for each target and band.</li>
+    <li>Turning radius and droop are used only by the guy check.</li>
+  </ul>
+  <p><b>Guy and ice check.</b> Enter guy heights and anchor distances (or the Rohn 65G preset). Pick the radial ice your engineer gives for the site. The check reports, for each turning antenna, how far the iced guy is from the drooping element tip. Negative = contact. The drawing on the card is to one scale, so guys and turning radii can be compared by eye.</p>
+
+  <h3>Best compromise for one tower</h3>
+  <p>Searches heights for one tower over all ticked targets at once. Groups: one row per antenna type, with how many of them (Count) and the spacing rules inside the group.</p>
+  <ul>
+    <li><b>Max height</b> is the only limit you need. From and To are optional; use them to hold one group within a band of heights, for example when guys or a mast limit where an antenna can go.</li>
+    <li><b>Min gap between groups</b>: the smallest distance between antennas of different groups.</li>
+    <li><b>Group order</b>: force one group above the other when the physical layout is fixed.</li>
+    <li><b>Respect guys of</b>: reject heights where an antenna would touch an iced guy, using that tower's guy table.</li>
+    <li>Weights: a target with weight 2 counts twice. Weight 0 leaves it out.</li>
+  </ul>
+  <p>The table ranks layouts by overall score. Under each target, "best" marks the highest score in that column, and the red figure is how far a row is below it. The chart shows each group's score against height, so you can see why a height won and where the search stopped. <b>Use as tower</b> adds a layout to the Towers page.</p>
+
+  <h3>Height scan</h3>
+  <p>One antenna, one target, one band: score against height. The quickest way to answer "is 20 ft more worth it?".</p>
+
+  <h3>4. Compare and 5. Report</h3>
+  <p>Compare runs HFTA for every tower at its site(s), every target and band, and shows the best stack-switch setting for each. Report exports the tables, the charts, and a replay pack: the exact .PRO files and settings, so any number can be reproduced in HFTA itself.</p>
+
+  <h3>Reading the scores</h3>
+  <p>FOM is HFTA's figure of merit: antenna gain at each elevation angle, weighted by how often openings arrive at that angle on that path. A difference under 0.5 dB is small. On a hill that falls away towards the target, HFTA often prefers a lower antenna than you expect: the slope already acts as height, and more height adds nulls at useful angles.</p>`;
+  $("#drawer").hidden = false;
+}
 
 /* ---------------------------------------------------------------- one-tower compromise */
 function compForm() {
