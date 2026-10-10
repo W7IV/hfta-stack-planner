@@ -204,11 +204,15 @@ async function siteCompare() {
 }
 
 /* ---------------------------------------------------------------- 2. Targets */
+/* Region from an ARRL file name: W1-MA-EU.PRN -> Europe. Null for other names. */
+const REGION = { AF: "Africa", AS: "Asia", EU: "Europe", JA: "Japan", OC: "Oceania", SA: "South America", US: "USA" };
+function regionOf(file) { const m = /-([A-Z]{2})\.PRN$/i.exec(file || ""); return m ? REGION[m[1].toUpperCase()] || null : null; }
 function offsetsFrom(spread, step) {
   if (!spread || !step) return [0]; const o = []; for (let x = -spread; x <= spread + 1e-9; x += step) o.push(Math.round(x * 100) / 100); return o;
 }
 function rTargets() {
   const p = P(), el = $("#p-targets");
+  p.targets.forEach(t => { if (/^south asia$/i.test(t.name || "")) { t.name = "Asia"; save(); } });
   el.innerHTML = `<h1>Targets</h1><p class="lead">A target is a path you want to work, for example Europe at 52°. Each target uses one ARRL elevation-angle file (.PRN)
   and one or more headings around its bearing. The result is the weighted mean of the FOM at those headings, exactly as you would average several HFTA runs.</p>
   <div class="card"><h2>Elevation-angle files (.PRN)</h2>
@@ -229,8 +233,7 @@ function rTargets() {
     const d = await api("GET", `/api/v2/p/${SLUG}/prn/${encodeURIComponent(b.dataset.prv)}`);
     const tr = d.columns.slice(1).map((c, j) => ({ x: d.rows.map(r => r[0]), y: d.rows.map(r => r[j + 1]), name: c, mode: "lines", line: { color: PAL[j % 8] } }));
     /* Title: region from the ARRL file name (W1-MA-EU.PRN -> Europe). Files that do not follow that pattern show their own first line. */
-    const REGION = { AF: "Africa", AS: "Asia", EU: "Europe", JA: "Japan", OC: "Oceania", SA: "South America", US: "USA" };
-    const m = /-([A-Z]{2})\.PRN$/i.exec(b.dataset.prv), region = m && REGION[m[1].toUpperCase()];
+    const region = regionOf(b.dataset.prv);
     Plotly.react("prnPlot", tr, plotLayout({ title: { text: region ? `${region} (${esc(b.dataset.prv)})` : esc(d.title), font: { size: 13 } },
       margin: { l: 50, r: 16, t: 28, b: 80 }, legend: { orientation: "h", y: -0.4 },
       xaxis: { title: { text: "Elevation angle (°)", standoff: 6 }, gridcolor: css("--line") }, yaxis: { title: "% of openings", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
@@ -247,7 +250,9 @@ function rTargets() {
       <td><input class="s" style="width:110px" data-w value="${t.weights.every(w => w === t.weights[0]) ? "" : t.weights.join(", ")}" placeholder="equal"></td>
       <td><div class="bandbox">${META.bands.filter(b => b !== "6").map(b => `<label><input type="checkbox" data-b="${b}" ${t.bands.includes(b) ? "checked" : ""}>${b}</label>`).join("")}</div></td>
       <td><button class="danger small" data-del>Delete</button></td>`;
-    $$("[data-k]", tr).forEach(inp => bind(inp, t, inp.dataset.k, null, inp.type === "number"));
+    $$("[data-k]", tr).forEach(inp => bind(inp, t, inp.dataset.k, inp.dataset.k === "prn" ? () => {
+      const r = regionOf(t.prn); if (r && (t.name === "New target" || !t.name)) { t.name = r; $("[data-k=name]", tr).value = r; save(); }
+    } : null, inp.type === "number"));
     const reoff = () => { t.offsets = offsetsFrom(Number($("[data-sp]", tr).value), Number($("[data-st]", tr).value)); rew(); save(); };
     const rew = () => { const v = $("[data-w]", tr).value.trim(); const w = v ? v.split(/[ ,;]+/).map(Number) : [];
       t.weights = w.length === t.offsets.length ? w : t.offsets.map(() => 1); };
