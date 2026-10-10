@@ -659,7 +659,7 @@ function showHelp() {
   </ul>
   <p><b>Guy and ice check.</b> Enter guy heights and anchor distances (or the Rohn 65G preset). Pick the radial ice your engineer gives for the site. The check reports, for each turning antenna, how far the iced guy is from the drooping element tip. Negative = contact. The drawing on the card is to one scale, so guys and turning radii can be compared by eye.</p>
 
-  <h3>Best compromise for one tower</h3>
+  <h3>Stack Designer</h3>
   <p>Searches heights for one tower over all ticked targets at once. Groups: one row per antenna type, with how many of them (Count) and the spacing rules inside the group.</p>
   <ul>
     <li><b>Count</b> is how many antennas of the type; <b>up to</b> lets the search also try more, so one run compares two tribanders against three.</li>
@@ -696,7 +696,7 @@ function compForm() {
 function compCard() {
   const p = P(), f = compForm(), tb = towerBands(f.groups); if (!p.sites.length || !p.targets.length) { $("#compCard").innerHTML = ""; return; }
   const guyTowers = p.towers.filter(t => (t.guys?.levels || []).length);
-  $("#compCard").innerHTML = `<div class="card" style="margin-top:14px"><h2>Best compromise for one tower <span class="chip good">HFTA</span></h2>
+  $("#compCard").innerHTML = `<div class="card" style="margin-top:14px"><h2>Stack Designer <span class="chip good">HFTA</span></h2>
   <p class="small mute">Searches the heights of one tower for the best result over all ticked targets together. For each target and band the best stack-switch setting is used,
   as in Compare. Score per target = mean over bands; overall = weighted mean over targets. Every number is HFTA runs plus this arithmetic.</p>
   <div class="row"><label>Site<select id="cmSite">${p.sites.map(x => `<option value="${x.id}" ${x.id === f.site ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
@@ -719,7 +719,7 @@ function compCard() {
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
   <p class="small mute" style="margin:4px 0 0">Elements per band as in HFTA. Turning radius and droop are needed only with the guy check.</p>
   ${warnList(compFormWarnings(f), "Spacing rules: no warnings.")}
-  <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Find best compromise</button></div>
+  <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Design the stack</button></div>
   <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
   const sv = () => save();
   $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
@@ -795,7 +795,7 @@ function compResult(r) {
     const x = r.rows[Number(b.dataset.apply)], f = compForm();
     const ants = x.layout.flatMap((hs, i) => hs.map(h => ({ h, el: { ...r.groups[i].el }, turning_radius: r.groups[i].turning_radius ?? null, droop: r.groups[i].droop ?? null })));
     const g = p.towers.find(t => t.id === f.guys_from_tower);
-    p.towers.push({ id: uid("w"), name: `Compromise ${lay(x.layout)}`.slice(0, 60), switching: f.switching, height_ft: f.max_height, targets: r.targets.map(t => t.id),
+    p.towers.push({ id: uid("w"), name: `Stack ${lay(x.layout)}`.slice(0, 60), switching: f.switching, height_ft: f.max_height, targets: r.targets.map(t => t.id),
       antennas: ants, guys: g ? JSON.parse(JSON.stringify(g.guys)) : { levels: [], ice_in: 1.0, margin_ft: 2.0 } });
     await save(true); toast("Added as a new tower. Run Compare to see the HFTA runs behind it."); rTowers();
   });

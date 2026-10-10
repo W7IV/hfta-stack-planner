@@ -36,7 +36,7 @@ models. Two checks are added as notes only; they never change a number:
 3. **Towers**: stacks of antennas (height and elements per band, as in HFTA), with spacing warnings, the targets each
    tower serves (this sets the directions, because HFTA treats the antennas as facing the azimuth of the terrain
    file), stack switching, and an optional guy and ice check (Phillystran or EHS, radial ice, element droop).
-   A height scan finds good heights for one antenna. **Best compromise for one tower** searches the stack heights
+   A height scan finds good heights for one antenna. **Stack Designer** searches the stack heights
    for the best weighted result over all chosen targets (for example six regions), within spacing, gap, height and
    guy limits, and shows the loss against each target's own best layout.
 4. **Compare**: all sites × towers × targets × bands. Click any value to see the HFTA runs behind it, the elevation
