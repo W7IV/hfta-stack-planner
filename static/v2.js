@@ -268,15 +268,33 @@ function warnList(w, okText = "Spacing: no warnings.") {
   return `<ul class="warnl">${w.map(x => `<li class="${x.level}"><b>${x.level === "red" ? "TOO CLOSE" : "CLOSE"}</b> ${esc(x.text)}</li>`).join("")}</ul>`;
 }
 function towerSvg(t) {
-  const H = Math.max(t.height_ft || 0, ...t.antennas.map(a => a.h), 50) * 1.08, W = 150, Ht = 300, y = h => Ht - 10 - h / H * (Ht - 30);
-  let s = `<svg viewBox="0 0 ${W} ${Ht}" class="tower-fig" role="img" aria-label="Tower drawing"><line x1="40" y1="${y(0)}" x2="40" y2="${y(t.height_ft || H / 1.08)}" stroke="${css("--ink")}" stroke-width="3"/>`;
-  for (const g of (t.guys?.levels || [])) s += `<line x1="40" y1="${y(g.h)}" x2="${W - 4}" y2="${y(Math.max(0, g.h * (1 - 100 / g.r)))}" stroke="${css("--mute")}" stroke-dasharray="3 3"/>`;
-  for (const a of t.antennas) {
-    const e = elOf(a), w = Math.min(90, (a.turning_radius || 20) * 1.6);
-    const col = e["80"] || e["160"] ? "#8e44ad" : e["40"] || e["30"] ? "#d9822b" : "#2c7a4b";
-    s += `<line x1="40" y1="${y(a.h)}" x2="${40 + w}" y2="${y(a.h)}" stroke="${col}" stroke-width="4"/><text x="34" y="${y(a.h) + 4}" font-size="10" text-anchor="end" fill="${css("--ink")}">${a.h}</text>`;
+  /* Side view to one scale: the same feet-per-pixel vertically and horizontally, so a guy line and an
+     antenna's turning radius can be compared by eye. Guys run from the tower to their anchor on the ground.
+     Antennas are drawn to their turning radius (20 ft if not given); a dotted bar means the radius was not given. */
+  const guys = t.guys?.levels || [], tower = t.height_ft || Math.max(...t.antennas.map(a => a.h), 0);
+  const Hft = Math.max(tower, ...t.antennas.map(a => a.h), ...guys.map(g => g.h), 50) * 1.06;
+  const Xft = Math.max(...guys.map(g => g.r || 0), ...t.antennas.map(a => a.turning_radius || 20), 30) * 1.04;
+  const Ht = 300, X0 = 40, top = 18, bottom = Ht - 14, maxW = 280;
+  let k = (bottom - top) / Hft;                        // px per ft
+  if (X0 + Xft * k + 6 > maxW) k = (maxW - X0 - 6) / Xft;   // wide guy anchors: shrink both axes together
+  const W = Math.max(150, Math.ceil(X0 + Xft * k + 6)), y = h => bottom - h * k, x = ft => X0 + ft * k;
+  let s = `<svg viewBox="0 0 ${W} ${Ht}" class="tower-fig" role="img" aria-label="Tower side view, to scale">`;
+  s += `<line x1="${X0 - 30}" y1="${y(0)}" x2="${W}" y2="${y(0)}" stroke="${css("--line")}"/>`;                 // ground
+  s += `<line x1="${X0}" y1="${y(0)}" x2="${X0}" y2="${y(tower)}" stroke="${css("--ink")}" stroke-width="3"/>`;   // tower
+  for (const g of guys) {
+    if (!(g.h > 0 && g.r > 0)) continue;
+    s += `<line x1="${X0}" y1="${y(g.h)}" x2="${x(g.r)}" y2="${y(0)}" stroke="${css("--mute")}" stroke-dasharray="3 3"/>`;
+    s += `<circle cx="${x(g.r)}" cy="${y(0)}" r="2" fill="${css("--mute")}"/>`;
   }
-  return s + `<text x="40" y="${Ht - 0}" font-size="10" text-anchor="middle" fill="${css("--mute")}">ft</text></svg>`;
+  for (const a of t.antennas) {
+    const e = elOf(a), r = a.turning_radius || 20;
+    const col = e["80"] || e["160"] ? "#8e44ad" : e["40"] || e["30"] ? "#d9822b" : "#2c7a4b";
+    s += `<line x1="${X0}" y1="${y(a.h)}" x2="${x(r)}" y2="${y(a.h)}" stroke="${col}" stroke-width="4" ${a.turning_radius ? "" : 'stroke-dasharray="4 3"'}/>`;
+    s += `<text x="${X0 - 6}" y="${y(a.h) + 4}" font-size="10" text-anchor="end" fill="${css("--ink")}">${a.h}</text>`;
+  }
+  s += `<text x="${X0}" y="${Ht - 2}" font-size="10" text-anchor="middle" fill="${css("--mute")}">ft</text>`;
+  if (Xft > 40) s += `<text x="${x(Xft / 1.04)}" y="${Ht - 2}" font-size="10" text-anchor="end" fill="${css("--mute")}">${Math.round(Xft / 1.04)} ft</text>`;
+  return s + `</svg>`;
 }
 function rTowers() {
   const p = P(), el = $("#p-towers");
