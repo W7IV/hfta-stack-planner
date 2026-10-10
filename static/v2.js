@@ -625,8 +625,8 @@ init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not
 function compForm() {
   const p = P();
   p.settings.compromise = p.settings.compromise || { site: p.sites[0]?.id, weights: {}, switching: "stackmatch", min_gap: 15, max_height: 160, guys_from_tower: "",
-    groups: [{ name: "Tribander", el: { "20": 4, "15": 4, "10": 4 }, count: 3, lo: 20, hi: 130, step: 5, min_spacing: 30, equal_tol: 10, turning_radius: null, droop: null },
-             { name: "40 m Yagi", el: { "40": 3 }, count: 2, lo: 40, hi: 160, step: 5, min_spacing: 60, equal_tol: "", turning_radius: null, droop: null }] };
+    groups: [{ name: "Tribander", el: { "20": 4, "15": 4, "10": 4 }, count: 3, lo: 20, hi: "", step: 5, min_spacing: 30, equal_tol: 10, turning_radius: null, droop: null },
+             { name: "40 m Yagi", el: { "40": 3 }, count: 2, lo: 40, hi: "", step: 5, min_spacing: 60, equal_tol: "", turning_radius: null, droop: null }] };
   return p.settings.compromise;
 }
 function compCard() {
@@ -648,10 +648,10 @@ function compCard() {
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
     <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
   <h3 class="small" style="margin:12px 0 4px">Antenna groups (each group has its own bands)</h3>
-  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n">From (ft)</th><th class="n" title="Highest height searched for this group (also capped by Max height above)">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
+  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n">From (ft)</th><th class="n" title="Optional upper limit for this group. Empty = up to Max height">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
   ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"></td>
     ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
-    ${["count", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
+    ${["count", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
   <p class="small mute" style="margin:4px 0 0">Elements per band as in HFTA. Turning radius and droop are needed only with the guy check.</p>
   ${warnList(compFormWarnings(f), "Spacing rules: no warnings.")}
@@ -668,7 +668,7 @@ function compCard() {
   $$("[data-ge]").forEach(sel => sel.onchange = () => { const g = f.groups[sel.dataset.ge]; g.el = g.el || {}; if (sel.value) g.el[sel.dataset.band] = Number(sel.value); else delete g.el[sel.dataset.band]; sv(); compCard(); });
   $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? (["turning_radius", "droop"].includes(inp.dataset.key) ? null : "") : Number(inp.value); sv(); compCard(); });
   $$("[data-gx]").forEach(b => b.onclick = () => { f.groups.splice(Number(b.dataset.gx), 1); sv(); compCard(); });
-  $("#cmAddG").onclick = () => { f.groups.push({ name: "", el: {}, count: 1, lo: 30, hi: 120, step: 5, min_spacing: 30, equal_tol: "", turning_radius: null, droop: null }); sv(); compCard(); };
+  $("#cmAddG").onclick = () => { f.groups.push({ name: "", el: {}, count: 1, lo: 20, hi: "", step: 5, min_spacing: 30, equal_tol: "", turning_radius: null, droop: null }); sv(); compCard(); };
   $("#cmGo").onclick = async () => {
     await save(true);
     const targets = p.targets.filter(t => f.weights[t.id] !== 0).map(t => t.id);
@@ -687,7 +687,7 @@ function compFormWarnings(f) {
     const lvl = wl < r.red_wl ? "red" : wl < r.amber_wl ? "amber" : null;
     if (lvl) out.push({ level: lvl, text: `${g.name || describe(g)}: minimum spacing ${g.min_spacing} ft = ${wl.toFixed(2)} wavelength on ${b} m. The search may pick stacks that are ${lvl === "red" ? "too close" : "close"}; HFTA will overstate their stacking gain. Raise it to ${Math.ceil(r.amber_wl * lam)} ft or more to avoid this.` });
   }
-  for (const g of f.groups) if (Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but Max height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
+  for (const g of f.groups) if (g.hi !== "" && g.hi != null && Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but Max height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
   if (f.groups.length > 1 && Number(f.min_gap) < r.gap_amber_ft) out.push({ level: Number(f.min_gap) < r.gap_red_ft ? "red" : "amber", text: `Minimum gap between groups ${f.min_gap} ft is below ${r.gap_amber_ft} ft: antennas on different bands may interact; HFTA does not model this.` });
   return out;
 }
@@ -700,7 +700,7 @@ function compResult(r) {
   ${r.rows.map((x, k) => { const sw = worstOf(x.spacing || []); return `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}</td>
     <td>${sw ? `<span class="chip ${sw === "red" ? "bad" : "warn"}" title="${esc((x.spacing || []).map(w => w.text).join("\n"))}">${sw === "red" ? "Too close" : "Close"}</span>` : `<span class="small mute">OK</span>`}</td>
     <td class="n"><b>${fmt(x.overall)}</b></td>
-    ${r.targets.map(t => `<td class="n">${fmt(x.targets[t.id])}<br><span class="small ${x.loss[t.id] < -1 ? "neg" : x.loss[t.id] < -0.3 ? "amb" : "mute"}">${x.loss[t.id] >= 0 ? "best" : fmt(x.loss[t.id])}</span></td>`).join("")}
+    ${r.targets.map(t => `<td class="n">${x.loss[t.id] >= 0 ? `<b>${fmt(x.targets[t.id])}</b>` : fmt(x.targets[t.id])}<br><span class="small ${x.loss[t.id] < -1 ? "neg" : x.loss[t.id] < -0.3 ? "amb" : "mute"}">${x.loss[t.id] >= 0 ? "best" : fmt(x.loss[t.id])}</span></td>`).join("")}
     <td><button class="ghost small" data-apply="${k}">Use as tower</button></td></tr>`; }).join("")}
   <tr><td></td><td class="mute">Best for each target alone</td><td></td><td></td>${r.targets.map(t => `<td class="n mute">${fmt(r.own_best[t.id])}<br><span class="small">${esc(lay(r.own_layout[t.id]))}</span></td>`).join("")}<td></td></tr></table></div>
   ${r.curves?.length ? `<h3 class="small" style="margin:14px 0 4px">Score against height, by group</h3>
