@@ -195,7 +195,10 @@ function rTargets() {
   $$("[data-prv]").forEach(b => b.onclick = async () => {
     const d = await api("GET", `/api/v2/p/${SLUG}/prn/${encodeURIComponent(b.dataset.prv)}`);
     const tr = d.columns.slice(1).map((c, j) => ({ x: d.rows.map(r => r[0]), y: d.rows.map(r => r[j + 1]), name: c, mode: "lines", line: { color: PAL[j % 8] } }));
-    Plotly.react("prnPlot", tr, plotLayout({ title: { text: esc(d.title), font: { size: 13 } }, xaxis: { title: "Elevation angle (°)", gridcolor: css("--line") }, yaxis: { title: "% of openings", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+    /* Title: file name plus the heading written on line 1 of the file, shown unchanged. */
+    Plotly.react("prnPlot", tr, plotLayout({ title: { text: `${esc(b.dataset.prv)} — ${esc(d.title)}`, font: { size: 13 } },
+      margin: { l: 50, r: 16, t: 28, b: 80 }, legend: { orientation: "h", y: -0.4 },
+      xaxis: { title: { text: "Elevation angle (°)", standoff: 6 }, gridcolor: css("--line") }, yaxis: { title: "% of openings", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
   });
   const tb = $("#tgTbl");
   tb.innerHTML = `<tr><th>Name</th><th>.PRN file</th><th class="n">Bearing (°)</th><th class="n">± spread (°)</th><th class="n">Step (°)</th><th>Weights</th><th>Bands</th><th></th></tr>`;
