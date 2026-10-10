@@ -631,7 +631,7 @@ function compCard() {
   as in Compare. Score per target = mean over bands; overall = weighted mean over targets. Every number is HFTA runs plus this arithmetic.</p>
   <div class="row"><label>Site<select id="cmSite">${p.sites.map(x => `<option value="${x.id}" ${x.id === f.site ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <label>Switching<select id="cmSw"><option value="stackmatch" ${f.switching === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option><option value="full" ${f.switching === "full" ? "selected" : ""}>Whole stack only</option><option value="all" ${f.switching === "all" ? "selected" : ""}>Every combination</option></select></label>
-    <label>Max height (ft)<input type="number" id="cmMax" value="${f.max_height}"></label>
+    <label>Max height (ft)<input type="number" id="cmMax" value="${f.max_height}" title="Upper limit for every group; a group's own To (ft) cannot go above it"></label>
     <label>Min gap between groups (ft)<input type="number" id="cmGap" value="${f.min_gap}"></label>
     <label>Group order<select id="cmOrder" title="Which group is above which. The list order of the groups below is used.">
       <option value="any" ${(f.order || "any") === "any" ? "selected" : ""}>Any (HFTA decides)</option>
@@ -653,7 +653,7 @@ function compCard() {
   <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
   const sv = () => save();
   $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
-  $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
+  $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); compCard(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
   $("#cmGuy").onchange = e => { f.guys_from_tower = e.target.value; sv(); };
   $("#cmOrder").onchange = e => { f.order = e.target.value; sv(); };
   $$("[data-ct]").forEach(cb => cb.onchange = () => { f.weights[cb.dataset.ct] = cb.checked ? Number($(`[data-cw="${cb.dataset.ct}"]`).value || 1) : 0; sv(); });
@@ -681,6 +681,7 @@ function compFormWarnings(f) {
     const lvl = wl < r.red_wl ? "red" : wl < r.amber_wl ? "amber" : null;
     if (lvl) out.push({ level: lvl, text: `${g.name || describe(g)}: minimum spacing ${g.min_spacing} ft = ${wl.toFixed(2)} wavelength on ${b} m. The search may pick stacks that are ${lvl === "red" ? "too close" : "close"}; HFTA will overstate their stacking gain. Raise it to ${Math.ceil(r.amber_wl * lam)} ft or more to avoid this.` });
   }
+  for (const g of f.groups) if (Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but Max height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
   if (f.groups.length > 1 && Number(f.min_gap) < r.gap_amber_ft) out.push({ level: Number(f.min_gap) < r.gap_red_ft ? "red" : "amber", text: `Minimum gap between groups ${f.min_gap} ft is below ${r.gap_amber_ft} ft: antennas on different bands may interact; HFTA does not model this.` });
   return out;
 }
