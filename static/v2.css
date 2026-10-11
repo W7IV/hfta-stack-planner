@@ -62,3 +62,4 @@ pre.code{font:12px/1.4 var(--mono);background:var(--soft);padding:8px;border-rad
 select.el{min-width:64px}
 
 .tgtabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}.tgtabs button{padding:5px 12px}
+.azmap{width:100%;height:auto;display:block;touch-action:none;cursor:crosshair;user-select:none}

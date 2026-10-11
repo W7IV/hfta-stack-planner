@@ -296,7 +296,8 @@ function rTargets() {
     <p class="small mute" style="margin:6px 0 0">${homeSite() ? `Bearings are computed from <b>${esc(homeSite().name)}</b> (${homeSite().lat}, ${homeSite().lon}) to a reference point in each region (shown under the bearing).
       Choosing a .PRN file sets the bearing; you can still type your own.` : "Enter a latitude and longitude on the Sites page and the bearings can be computed for you."}</p>
     <p class="small mute">Headings: the bearing ± spread in steps (e.g. ±8° in 8° steps gives three headings). Weights are equal unless you type them, e.g. "1, 2, 1".
-    Weights from contest logs are not part of this release.</p></div>`;
+    Weights from contest logs are not part of this release.</p></div>
+  <div class="card"><h2>Map of targets <span class="chip">great-circle map centred on your site</span></h2><div id="azMap"></div></div>`;
   $("#prnBtn").onclick = () => $("#prnIn").click();
   api("GET", "/api/v2/library").then(L => {
     const el = $("#prnLibInfo"); if (!el) return;
@@ -345,6 +346,7 @@ function rTargets() {
     tb.appendChild(tr);
   });
   const first = $("[data-prv]"); if (first) first.click();
+  azMap();
   $("#tgBrg").onclick = () => {
     const ch = [];
     p.targets.forEach(t => {
@@ -365,6 +367,91 @@ function rTargets() {
     if (p.settings.compromise) p.settings.compromise.weights[id] = 1;
     save(true).then(rTargets);
   };
+}
+
+/* ---------------------------------------------------------------- great-circle map (azimuthal equidistant) */
+/* Centred on the first site with a position. Straight lines from the centre are great circles: the bearing on the map is the
+   true bearing, and the distance from the centre is the true distance. The outer circle is the antipode (20,015 km). */
+let AZ = { sel: null };
+function azMap() {
+  const box = $("#azMap"); if (!box) return;
+  const h = homeSite(), p = P();
+  if (!h) { box.innerHTML = `<p class="mute">Enter a latitude and longitude on the Sites page to see the map.</p>`; return; }
+  if (!p.targets.some(t => t.id === AZ.sel)) AZ.sel = p.targets[0]?.id || null;
+  const R = 250, C = R + 34, S = 2 * C, d2r = Math.PI / 180, la0 = Number(h.lat) * d2r, lo0 = Number(h.lon) * d2r;
+  const proj = (lat, lon) => {                                    // -> [x, y] in px, plus angular distance c
+    const la = lat * d2r, dl = lon * d2r - lo0;
+    const cc = Math.sin(la0) * Math.sin(la) + Math.cos(la0) * Math.cos(la) * Math.cos(dl), c = Math.acos(Math.max(-1, Math.min(1, cc)));
+    const k = c < 1e-9 ? 1 : c / Math.sin(c);
+    const x = k * Math.cos(la) * Math.sin(dl), y = k * (Math.cos(la0) * Math.sin(la) - Math.sin(la0) * Math.cos(la) * Math.cos(dl));
+    return [C + R * x / Math.PI, C - R * y / Math.PI, c];
+  };
+  const polar = (brg, r) => [C + r * Math.sin(brg * d2r), C - r * Math.cos(brg * d2r)];
+  // land: filled where the ring stays clear of the antipode; outline only (broken at jumps) where it wraps round the edge
+  let fill = "", line = "";
+  for (const ring of LAND110) {
+    const pts = []; for (let i = 0; i < ring.length; i += 2) pts.push(proj(ring[i + 1], ring[i]));
+    const jumps = pts.some((q, i) => i && Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) > R * 0.25);
+    if (!jumps) fill += "M" + pts.map(q => q[0].toFixed(1) + "," + q[1].toFixed(1)).join("L") + "Z";
+    else pts.forEach((q, i) => { line += (i && Math.hypot(q[0] - pts[i - 1][0], q[1] - pts[i - 1][1]) <= R * 0.25 ? "L" : "M") + q[0].toFixed(1) + "," + q[1].toFixed(1); });
+  }
+  let svg = `<svg viewBox="0 0 ${S} ${S}" class="azmap" role="img" aria-label="Great-circle map centred on ${esc(h.name)}">
+    <defs><clipPath id="azClip"><circle cx="${C}" cy="${C}" r="${R}"/></clipPath></defs>
+    <circle cx="${C}" cy="${C}" r="${R}" fill="var(--soft)" stroke="${css("--line")}"/>
+    <g clip-path="url(#azClip)"><path d="${fill}" fill="${css("--ink")}" fill-opacity="0.22" stroke="${css("--mute")}" stroke-width="0.4"/>
+      <path d="${line}" fill="none" stroke="${css("--mute")}" stroke-width="0.6"/>`;
+  for (const km of [5000, 10000, 15000]) svg += `<circle cx="${C}" cy="${C}" r="${R * km / 20015}" fill="none" stroke="${css("--mute")}" stroke-width="0.4" stroke-dasharray="2 3"/>
+    <text x="${C + 3}" y="${C - R * km / 20015 - 2}" font-size="9" fill="${css("--mute")}">${km / 1000}k km</text>`;
+  // target wedges: bearing ± spread, out to the edge (own group, so a drag redraws only this)
+  const wedges = () => { let w = ""; p.targets.forEach((t, i) => {
+    const sp = Math.max(0, ...(t.offsets || [0]).map(Math.abs)), b = Number(t.heading) || 0, col = PAL[i % 8], on = t.id === AZ.sel;
+    const [x1, y1] = polar(b - sp, R), [x2, y2] = polar(b + sp, R);
+    if (sp > 0) w += `<path d="M${C},${C}L${x1},${y1}A${R},${R} 0 ${2 * sp > 180 ? 1 : 0} 1 ${x2},${y2}Z" fill="${col}" fill-opacity="${on ? 0.32 : 0.14}" stroke="${col}" stroke-width="${on ? 1.5 : 0.6}"/>`;
+    const [xe, ye] = polar(b, R);
+    w += `<line x1="${C}" y1="${C}" x2="${xe}" y2="${ye}" stroke="${col}" stroke-width="${on ? 2.5 : 1.2}"/>`;
+    const [xl, yl] = polar(b, R + 14);
+    w += `<text x="${xl}" y="${yl + 4}" font-size="11" font-weight="${on ? 700 : 400}" text-anchor="middle" fill="${col}">${esc(t.name)}</text>`;
+  }); return w; };
+  // reference points of the ARRL regions
+  for (const [code, q] of Object.entries(REGION_POINT)) {
+    const [x, y, c] = proj(q.lat, q.lon); if (c > Math.PI * 0.995) continue;
+    svg += `<circle cx="${x}" cy="${y}" r="2.5" fill="${css("--ink")}"><title>${code}: ${esc(q.where)}</title></circle>`;
+  }
+  svg += `</g><g id="azDyn">${wedges()}</g>`;
+  for (let a = 0; a < 360; a += 10) { const [xa, ya] = polar(a, R), [xb, yb] = polar(a, R - (a % 30 ? 4 : 9)); svg += `<line x1="${xa}" y1="${ya}" x2="${xb}" y2="${yb}" stroke="${css("--ink")}" stroke-width="0.7"/>`; }
+  for (let a = 0; a < 360; a += 30) { const [xt, yt] = polar(a, R + 26); svg += `<text x="${xt}" y="${yt + 3}" font-size="9" text-anchor="middle" fill="${css("--mute")}">${a}°</text>`; }
+  svg += `<circle cx="${C}" cy="${C}" r="3" fill="${css("--ink")}"/></svg>`;
+  const t = p.targets.find(x => x.id === AZ.sel), sp = t ? Math.max(0, ...(t.offsets || [0]).map(Math.abs)) : 0;
+  const step = t && t.offsets?.length > 1 ? Math.abs(t.offsets[1] - t.offsets[0]) : 8;
+  box.innerHTML = `<div class="split"><div style="flex:none;width:min(100%,${S}px)">${svg}<div class="small mute" id="azRead" style="min-height:1.2em">Centre: ${esc(h.name)}. Move the pointer over the map for bearing and distance.</div></div>
+    <div><p class="small" style="margin-top:0">Choose a target, then click the map (or hold and drag) to set its bearing. Use the slider for the spread.</p>
+      <div class="tgtabs">${p.targets.map((x, i) => `<button class="${x.id === AZ.sel ? "" : "ghost"}" data-azsel="${x.id}" style="${x.id === AZ.sel ? `background:${PAL[i % 8]};border-color:${PAL[i % 8]}` : `color:${PAL[i % 8]}`}">${esc(x.name)}</button>`).join("")}</div>
+      ${t ? `<div class="row" style="margin-top:8px"><label>Bearing (°)<input type="number" id="azBrg" min="0" max="359" value="${t.heading}"></label>
+        <label style="min-width:220px">Spread ± <b id="azSpV">${sp}</b>°<input type="range" id="azSp" min="0" max="60" step="${step || 8}" value="${sp}" style="width:100%"></label>
+        <label>Step (°)<input type="number" id="azSt" min="1" max="30" value="${step || 8}"></label></div>
+        <p class="small mute">Headings judged: ${(t.offsets || [0]).map(o => ((Number(t.heading) + o + 360) % 360)).join("°, ")}°.
+        ${computedBearing(t) ? `Reference point of ${esc(regionOf(t.prn) || "")}: ${esc(computedBearing(t).where)}, ${computedBearing(t).deg}°.` : ""}</p>` : `<p class="mute">No targets yet.</p>`}
+      <p class="small mute">Lines from the centre are great circles (short path). The ring marks are 5,000, 10,000 and 15,000 km; the outer circle is the far side of the Earth. Dots: ARRL region reference points.
+      Changes here are the same as editing the table above; run Evaluate again afterwards.</p></div></div>`;
+  $$("[data-azsel]", box).forEach(b => b.onclick = () => { AZ.sel = b.dataset.azsel; azMap(); });
+  if (!t) return;
+  const svgEl = $("svg.azmap", box), toMap = e => { const r = svgEl.getBoundingClientRect(); return [(e.clientX - r.left) * S / r.width, (e.clientY - r.top) * S / r.height]; };
+  const brgAt = (x, y) => Math.round((Math.atan2(x - C, C - y) / d2r + 360) % 360), kmAt = (x, y) => Math.hypot(x - C, y - C) / R * 20015;
+  const setBrg = b => { t.heading = b; save(); rTargets(); };
+  let drag = false;
+  svgEl.onpointerdown = e => { const [x, y] = toMap(e); if (Math.hypot(x - C, y - C) > R + 20) return; drag = true; svgEl.setPointerCapture(e.pointerId);
+    t.heading = brgAt(x, y); $("#azDyn").innerHTML = wedges(); $("#azBrg").value = t.heading; };
+  svgEl.onpointermove = e => {
+    const [x, y] = toMap(e), km = kmAt(x, y);
+    const rd = $("#azRead"); if (rd && km <= 20015) rd.textContent = `Bearing ${brgAt(x, y)}°, ${Math.round(km).toLocaleString()} km (${Math.round(km / 1.609).toLocaleString()} miles)`;
+    if (drag) { t.heading = brgAt(x, y); $("#azDyn").innerHTML = wedges(); $("#azBrg").value = t.heading; }
+  };
+  svgEl.onpointerup = () => { if (drag) { drag = false; save(); rTargets(); } };
+  $("#azBrg").onchange = e => setBrg(((Number(e.target.value) % 360) + 360) % 360);
+  const reoff = (spv, stv) => { t.offsets = offsetsFrom(spv, stv); t.weights = t.offsets.map(() => 1); };
+  $("#azSp").oninput = e => { $("#azSpV").textContent = e.target.value; };
+  $("#azSp").onchange = e => { reoff(Number(e.target.value), Number($("#azSt").value) || 8); save(); rTargets(); };
+  $("#azSt").onchange = e => { reoff(Number($("#azSp").value), Number(e.target.value) || 8); save(); rTargets(); };
 }
 
 /* ---------------------------------------------------------------- 3. Towers */
@@ -912,7 +999,7 @@ function showHelp() {
   <p><b>Library.</b> "Save to library" on a site or tower card keeps a named copy for all your projects (sites with their terrain files). "Add from library…" below the cards copies one into the current project.</p>
 
   <h3>2. Targets</h3>
-  <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Choosing the file sets the bearing from your site's position to a reference point in that region (shown under the bearing); "Bearings from site position" recomputes them all. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
+  <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Choosing the file sets the bearing from your site's position to a reference point in that region (shown under the bearing); "Bearings from site position" recomputes them all. The <b>map of targets</b> below the table is a great-circle map centred on your site: choose a target, click or drag on the map to set its bearing, and use the slider for its spread. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
 
   <h3>3. Towers</h3>
   <p>A tower is a set of antennas at given heights. On each band, the antennas that work on that band form one HFTA stack.</p>
