@@ -13,6 +13,9 @@ RUN git clone "$OPENHFTA_REPO" /opt/openhfta && cd /opt/openhfta && git checkout
     && test -f /opt/openhfta/libopenytwcore.so
 
 WORKDIR /app
+# Railway passes the GitHub commit as a build argument; kept so the page can show its version (see v2.build_info).
+ARG RAILWAY_GIT_COMMIT_SHA=
+ENV SOURCE_COMMIT=$RAILWAY_GIT_COMMIT_SHA
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt gunicorn==23.0.0
 COPY . .

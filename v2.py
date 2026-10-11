@@ -1,6 +1,6 @@
 """HFTA Stack Planner v2: five-step workflow (Sites, Targets, Towers, Compare, Report). Runs locally."""
 from __future__ import annotations
-import io, json, threading, time, uuid
+import io, json, os, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
@@ -30,12 +30,32 @@ def new_job() -> tuple:
 def load_results(slug):
     p = results_path(slug); return json.loads(p.read_text()) if p.exists() else None
 
+STARTED = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
+_BUILD = None
+
+def build_info() -> dict:
+    """Version shown at the bottom of the page: planner commit (Railway gives RAILWAY_GIT_COMMIT_SHA; a local
+    checkout asks git), when this server started, and the OpenHFTA engine."""
+    global _BUILD
+    if _BUILD is None:
+        sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA") or os.environ.get("SOURCE_COMMIT") or ""
+        if not sha:
+            try:
+                import subprocess
+                sha = subprocess.run(["git", "-C", str(Path(__file__).parent), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip()
+            except Exception:  # noqa: BLE001
+                sha = ""
+        e = engine.engine_info()
+        _BUILD = {"planner": sha[:7] or "unknown", "started": STARTED,
+                  "engine_commit": str(e.get("commit", "unknown"))[:7], "engine_lib": str(e.get("library_sha256", "unknown"))[:8]}
+    return _BUILD
+
 @bp.get("/")
 def index():
     # Version stamp from the files' modification time, so browsers fetch new JS/CSS after an update.
     st = Path(__file__).parent / "static"
     v = int(max(p.stat().st_mtime for p in (st / "v2.js", st / "v2.css")))
-    return render_template("v2.html", asset_v=v)
+    return render_template("v2.html", asset_v=v, build=build_info())
 
 @bp.get("/api/v2/meta")
 def meta():
