@@ -1101,6 +1101,7 @@ function compCard() {
     if (!targets.length) return toast("Tick at least one target");
     const body = { site: f.site, targets, weights: Object.fromEntries(targets.map(t => [t, f.weights[t] ?? 1])), groups: f.groups, switching: f.switching,
       min_gap: f.min_gap, max_height: f.max_height, guys_from_tower: f.guys_from_tower || null, order: f.order || "any", min_spacing: 30, top: 25 };
+    $("#cmOut").innerHTML = `<p class="note small">Searching… The earlier result is hidden until this search finishes. Large searches take several minutes.</p>`;
     const { job } = await api("POST", `/api/v2/p/${SLUG}/compromise`, body); const r = await poll(job, $("#cmProg")); if (r) compResult(r);
   };
   api("GET", `/api/v2/p/${SLUG}/compromise`).then(r => { if (r && r.rows) compResult(r); });
@@ -1125,7 +1126,7 @@ function compResult(r) {
   const p = P(); r.targets.forEach(t => { const cur = p.targets.find(x => x.id === t.id); if (cur) t.name = cur.name; });
   const lay = l => l.map((g, i) => `${r.groups[i].name || r.groups[i].model} ${g.join(" / ")}`).join("; ");
   const q = r.request || {}, nm = id => p.sites.find(x => x.id === id)?.name || "?", tn = id => p.targets.find(x => x.id === id)?.name || "?";
-  const inputs = !r.request ? "" : `Site ${nm(q.site)}; max height ${q.max_height} ft; min gap ${q.min_gap} ft; order ${q.order || "any"}; ${q.guys_from_tower ? "guy check on" : "no guy check"}; switching ${q.switching}.
+  const inputs = !r.request ? "" : `Site ${nm(q.site)}; tower height ${q.max_height} ft; min gap ${q.min_gap} ft; order ${q.order || "any"}; ${q.guys_from_tower ? "guy check on" : "no guy check"}; switching ${q.switching}.
     Targets: ${(q.targets || []).map(t => `${tn(t)}${(q.weights || {})[t] !== 1 ? " ×" + q.weights[t] : ""}`).join(", ")}.
     Groups: ${(q.groups || []).map(g => `${esc(g.name || "?")} ×${g.count}${g.count_max ? "–" + g.count_max : ""} (${bandsOf(g).join("/")} m; ${g.lo || "–"} to ${g.hi || q.max_height} ft, step ${g.step}, spacing ≥ ${g.min_spacing})`).join("; ")}.`;
   r.inputs_text = inputs.replace(/\s+/g, " ");
@@ -1136,7 +1137,22 @@ function compResult(r) {
     ${n(st.combinations_checked)} combinations of groups checked, ${n(st.combinations_kept)} kept by the gap and order rules.
     Time ${st.seconds < 90 ? st.seconds + " s" : (st.seconds / 60).toFixed(1) + " min"}.
     <span class="mute">In the original HFTA each run is one press of the Calculate button.</span></div>`;
-  $("#cmOut").innerHTML = `${summary}${inputs ? `<div class="note small"><b>Inputs of this run</b> (${esc(r.stamp || "")}): ${esc(inputs)}<br>A different result after a new run means one of these changed.</div>` : ""}
+  /* Does the shown result match the form as it is now? */
+  const f = compForm(), diffs = [];
+  if (q.site !== f.site) diffs.push("site");
+  if (Number(q.max_height) !== Number(f.max_height)) diffs.push(`tower height (result ${q.max_height} ft, form ${f.max_height} ft)`);
+  if (Number(q.min_gap) !== Number(f.min_gap)) diffs.push("min gap");
+  if ((q.order || "any") !== (f.order || "any")) diffs.push("group order");
+  if ((q.guys_from_tower || "") !== (f.guys_from_tower || "")) diffs.push("guy check");
+  if (q.switching !== f.switching) diffs.push("switching");
+  const gkey = g => JSON.stringify([g.name, g.el, Number(g.count), g.count_max || null, String(g.lo ?? ""), String(g.hi === "" || g.hi == null ? q.max_height : g.hi), Number(g.step), Number(g.min_spacing), String(g.equal_tol ?? "")]);
+  const fkey = g => JSON.stringify([g.name, g.el, Number(g.count), g.count_max || null, String(g.lo ?? ""), String(g.hi === "" || g.hi == null ? f.max_height : g.hi), Number(g.step), Number(g.min_spacing), String(g.equal_tol ?? "")]);
+  if (r.request && ((q.groups || []).length !== f.groups.length || (q.groups || []).some((g, i) => gkey(g) !== fkey(f.groups[i])))) diffs.push("antenna groups");
+  const wNow = Object.fromEntries(p.targets.filter(t => f.weights[t.id] !== 0).map(t => [t.id, f.weights[t.id] ?? 1]));
+  if (r.request && JSON.stringify(Object.entries(q.weights || {}).sort()) !== JSON.stringify(Object.entries(wNow).sort())) diffs.push("targets or weights");
+  const stale = r.request && diffs.length ? `<div class="note" style="border-left-color:#d9822b"><b>This result is from an earlier search with different inputs</b> (${esc(diffs.join(", "))}).
+    Press <b>Design the stack</b> to search with the inputs above.</div>` : "";
+  $("#cmOut").innerHTML = `${stale}${summary}${inputs ? `<div class="note small"><b>Inputs of this run</b> (${esc(r.stamp || "")}): ${esc(inputs)}<br>A different result after a new run means one of these changed.</div>` : ""}
   <p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
     ${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
