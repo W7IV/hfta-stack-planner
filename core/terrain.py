@@ -8,7 +8,7 @@ Imported files are stored unchanged under the site folder, so the replay pack po
 would load into HFTA. Generated files use the HFTA .PRO format: first line 'meters', then 'distance elevation'.
 """
 from __future__ import annotations
-import io, math, re, urllib.request, zipfile
+import hashlib, io, math, os, re, shutil, urllib.request, uuid, zipfile
 from pathlib import Path
 import numpy as np
 import engine
@@ -22,13 +22,24 @@ def azimuth_from_name(name: str):
     a = float(m.group(1))
     return a % 360 if a <= 360 else None
 
+MAX_PRO_BYTES = 200_000          # a 148-point profile is a few kB
+MAX_ZIP_MEMBERS = 5000
+MAX_ZIP_TOTAL = 200_000_000
+
+def _plain_name(name: str):
+    """File name only (no folder), and only characters that are safe in a path. None if unusable."""
+    n = re.split(r"[\\/]", name)[-1]
+    return n if re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.\- ]{0,120}", n) and ".." not in n else None
+
 def import_files(site_dir: Path, files) -> dict:
-    """files: iterable of (filename, bytes). Accepts .PRO files and .zip archives of them."""
+    """files: iterable of (filename, bytes). Accepts .PRO files and .zip archives of them.
+    A file for a heading the site already has replaces the old file of that heading (reported as 'replaced'),
+    so each heading has exactly one profile."""
     site_dir.mkdir(parents=True, exist_ok=True)
-    added, skipped = [], []
+    added, skipped, replaced = [], [], []
     def take(name, data):
-        name = Path(name).name
-        if not name.lower().endswith(".pro"):
+        name = _plain_name(name)
+        if not name or not name.lower().endswith(".pro"):
             return
         az = azimuth_from_name(name)
         try:
@@ -37,16 +48,46 @@ def import_files(site_dir: Path, files) -> dict:
             skipped.append(f"{name}: {e}"); return
         if az is None:
             skipped.append(f"{name}: no azimuth in the file name"); return
+        for old in site_dir.glob("*"):
+            if old.suffix.lower() == ".pro" and old.name != name and azimuth_from_name(old.name) == az:
+                old.unlink(); replaced.append(old.name)
         (site_dir / name).write_bytes(data); added.append(name)
     for name, data in files:
         if name.lower().endswith(".zip"):
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                for n in z.namelist():
-                    if not n.endswith("/"):
-                        take(n, z.read(n))
+                infos = [i for i in z.infolist() if not i.is_dir()]
+                if len(infos) > MAX_ZIP_MEMBERS or sum(i.file_size for i in infos) > MAX_ZIP_TOTAL:
+                    raise ValueError("The zip is too large (too many files or too many bytes when unpacked)")
+                for i in infos:
+                    if not i.filename.lower().endswith(".pro"): continue       # never unpack other files
+                    if i.file_size > MAX_PRO_BYTES: skipped.append(f"{i.filename}: too large for a profile"); continue
+                    take(i.filename, z.read(i))
         else:
             take(name, data)
-    return {"added": added, "skipped": skipped}
+    return {"added": added, "skipped": skipped, "replaced": replaced}
+
+def file_digest(site_dir: Path, name: str) -> str:
+    """SHA-256 of a terrain file's bytes: part of every run key, so a changed file is never matched to old results."""
+    return hashlib.sha256((site_dir / name).read_bytes()).hexdigest()[:16]
+
+def _swap_in(out_dir: Path, stage: Path):
+    """Replace the .PRO set in out_dir by the files in stage. The old set is kept until the new set is complete."""
+    old = out_dir.parent / f".old-{out_dir.name}-{uuid.uuid4().hex[:6]}"
+    out_dir.mkdir(parents=True, exist_ok=True); old.mkdir()
+    for p in list(out_dir.glob("*")):
+        if p.suffix.lower() == ".pro": os.replace(p, old / p.name)
+    try:
+        for p in stage.glob("*"): os.replace(p, out_dir / p.name)
+    except BaseException:
+        for p in out_dir.glob("*"):
+            if p.suffix.lower() == ".pro" and not (old / p.name).exists(): p.unlink()
+        for p in old.glob("*"): os.replace(p, out_dir / p.name)
+        raise
+    finally:
+        shutil.rmtree(old, ignore_errors=True); shutil.rmtree(stage, ignore_errors=True)
+
+def _stage_dir(out_dir: Path) -> Path:
+    d = out_dir.parent / f".stage-{out_dir.name}-{uuid.uuid4().hex[:6]}"; d.mkdir(parents=True); return d
 
 def profile_index(site_dir: Path) -> dict:
     """azimuth (float) -> file name."""
@@ -116,15 +157,21 @@ class DEM:
         if path.suffix.lower() in (".tif", ".tiff"):
             import tifffile
             with tifffile.TiffFile(path) as tf:
-                page = tf.pages[0]; self.z = page.asarray().astype(np.float64)
+                page = tf.pages[0]
+                if page.shape and int(np.prod(page.shape)) > 60_000_000:
+                    raise ValueError(f"DEM too large ({' x '.join(map(str, page.shape))} pixels). Cut it to the area around the site.")
+                self.z = page.asarray().astype(np.float64)
                 tags = {t.name: t.value for t in page.tags.values()}
                 sx, sy = tags["ModelPixelScaleTag"][:2]; tp = tags["ModelTiepointTag"]
                 self.x0, self.y0, self.dx, self.dy = tp[3] - tp[0] * sx, tp[4] + tp[1] * sy, sx, sy
                 nod = tags.get("GDAL_NODATA")
                 self.nodata = float(nod) if nod not in (None, "") else None
                 gk = tags.get("GeoKeyDirectoryTag")
+                keys = {gk[i]: gk[i + 3] for i in range(4, len(gk), 4)} if gk is not None else {}
+                if keys.get(1025) == 2:
+                    # GTRasterTypeGeoKey = RasterPixelIsPoint: the tie point is the centre of its pixel, not its corner.
+                    self.x0 -= sx / 2; self.y0 += sy / 2
                 if crs is None and gk is not None:
-                    keys = {gk[i]: gk[i + 3] for i in range(4, len(gk), 4)}
                     pcs, gcs = keys.get(3072), keys.get(2048)
                     if pcs and (26901 <= pcs <= 26923 or 32601 <= pcs <= 32660 or 6330 <= pcs <= 6348):
                         crs = f"utm:{pcs % 100 if pcs < 32700 else pcs - 32600}"
@@ -161,32 +208,42 @@ class DEM:
 def generate_from_dem(dem: DEM, lat: float, lon: float, out_dir: Path, prefix: str,
                       az_step: float = 1.0, spacing_m: float = 30.0, length_m: float = 4410.0) -> dict:
     """Write one .PRO per azimuth. Distances 0..length in steps of spacing (at most 148 points, HFTA limit).
-    Existing .PRO files in out_dir are removed first, so the folder holds one consistent set."""
-    out_dir.mkdir(parents=True, exist_ok=True)
+    The new set replaces the existing .PRO files only when every profile has been written, so a failure leaves the
+    old set as it was and the folder always holds one consistent set."""
+    for v, what, lo_, hi_ in ((az_step, "Azimuth step", 0.1, 90), (spacing_m, "Point spacing", 1, 1000), (length_m, "Profile length", 100, 100000)):
+        if not (np.isfinite(v) and lo_ <= v <= hi_): raise ValueError(f"{what} must be {lo_}..{hi_}")
     dist = np.arange(0, length_m + 0.1, spacing_m)[:148]
     if np.isnan(dem.sample([lat], [lon])[0]):
         raise ValueError("The site is outside the DEM, or the DEM has no data at the site.")
-    for p in out_dir.glob("*"):
-        if p.suffix.lower() == ".pro": p.unlink()
-    written, short = [], []
-    for az in np.arange(0, 360, az_step):
-        la, lo = _destination(lat, lon, az, dist); z = dem.sample(la, lo)
-        good = ~np.isnan(z)
-        if not good[0]:
-            raise ValueError("The site is outside the DEM, or the DEM has no data at the site.")
-        n = int(np.argmin(good)) if not good.all() else len(z)
-        if n < len(z): short.append(float(az))
-        name = f"{prefix}-AZI-{az:.2f}.PRO"
-        body = "meters\n" + "".join(f"{d:12.0f} {e:8.1f}\n" for d, e in zip(dist[:n], z[:n]))
-        (out_dir / name).write_text(body); written.append(name)
+    # Write the new set to a staging folder; the existing profiles stay in place until every new one is written.
+    stage = _stage_dir(out_dir); written, short = [], []
+    try:
+        for az in np.arange(0, 360, az_step):
+            la, lo = _destination(lat, lon, az, dist); z = dem.sample(la, lo)
+            good = ~np.isnan(z)
+            if not good[0]:
+                raise ValueError("The site is outside the DEM, or the DEM has no data at the site.")
+            n = int(np.argmin(good)) if not good.all() else len(z)
+            if n < 2:
+                raise ValueError(f"At azimuth {az:g}° the DEM has data only at the site itself. Use a larger DEM.")
+            if n < len(z): short.append(float(az))
+            name = f"{prefix}-AZI-{az:.2f}.PRO"
+            body = "meters\n" + "".join(f"{d:12.0f} {e:8.1f}\n" for d, e in zip(dist[:n], z[:n]))
+            engine.parse_profile_text(body)
+            (stage / name).write_text(body); written.append(name)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True); raise
+    _swap_in(out_dir, stage)
     return {"written": len(written), "spacing_m": spacing_m, "length_m": float(dist[-1]), "short_azimuths": short,
             "ground_elevation_m": round(float(dem.sample([lat], [lon])[0]), 1)}
 
 def write_flat(out_dir: Path, prefix: str = "FLAT"):
-    out_dir.mkdir(parents=True, exist_ok=True)
+    """Replace the site's whole terrain set by flat ground (one profile per degree)."""
+    out_dir.mkdir(parents=True, exist_ok=True); stage = _stage_dir(out_dir)
     body = "meters\n" + "".join(f"{d:12.0f} {0.0:8.1f}\n" for d in range(0, 4410, 30))
     for az in range(0, 360, 1):
-        (out_dir / f"{prefix}-AZI-{az}.00.PRO").write_text(body)
+        (stage / f"{prefix}-AZI-{az}.00.PRO").write_text(body)
+    _swap_in(out_dir, stage)
 
 # ---------------- USGS 3DEP online fetch ----------------
 _3DEP_URL = (

@@ -44,6 +44,32 @@ ANGLES = np.arange(0.25, 35.25, 0.25)  # 140 output angles of the core
 
 _LIB = None
 
+# Version of this wrapper's numerical handling (run inputs, invalid-output policy). Part of every run key, so a
+# change here makes old stored patterns unusable instead of silently reused.
+WRAPPER_NUMERIC_VERSION = "2"
+_ENGINE = None
+
+
+def engine_info() -> dict:
+    """Identity of the calculation engine actually used: OpenHFTA commit (when the checkout has .git), the SHA-256 of
+    the native library, and the wrapper version. Stored with results and exports. 'unknown' when not found."""
+    global _ENGINE
+    if _ENGINE is None:
+        import hashlib, subprocess
+        lib = os.environ.get("OPENHFTA_LIB") or (hfta.find_ytw_core_library() if hasattr(hfta, "find_ytw_core_library") else None)
+        sha = "unknown"
+        if lib and Path(lib).exists():
+            sha = hashlib.sha256(Path(lib).read_bytes()).hexdigest()
+        commit = os.environ.get("OPENHFTA_COMMIT") or "unknown"
+        if commit == "unknown" and (OPENHFTA_DIR / ".git").exists():
+            try:
+                commit = subprocess.run(["git", "-C", str(OPENHFTA_DIR), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip() or "unknown"
+            except Exception:  # noqa: BLE001
+                pass
+        _ENGINE = {"name": "OpenHFTA", "commit": commit, "library_sha256": sha, "wrapper": WRAPPER_NUMERIC_VERSION}
+        _ENGINE["id"] = hashlib.sha256(f"{commit}|{sha}|{WRAPPER_NUMERIC_VERSION}".encode()).hexdigest()[:12]
+    return _ENGINE
+
 
 def _lib():
     """Load the core once per process."""
@@ -73,12 +99,17 @@ def parse_profile_text(text: str) -> Tuple[List[float], List[float]]:
         p = ln.split()
         if len(p) >= 2:
             try:
-                d.append(float(p[0]) * f)
-                h.append(float(p[1]) * f)
+                x, y = float(p[0]) * f, float(p[1]) * f   # both parsed before either is kept
             except ValueError:
-                continue
+                continue                                   # text line (e.g. a column heading), as in hfta.parse_profile
+            if not (np.isfinite(x) and np.isfinite(y)):
+                raise ValueError(f"Profile has a non-finite value: {ln[:40]}")
+            if d and x <= d[-1]:
+                raise ValueError(f"Profile distances must increase: {x / f:g} after {d[-1] / f:g}")
+            d.append(x); h.append(y)
     if len(d) < 2:
         raise ValueError("Profile must contain at least 2 points")
+
     if len(d) > 148:
         raise ValueError(f"Profile has {len(d)} points; the core accepts at most 148")
     return d, h
@@ -214,6 +245,10 @@ def height_grid(specs: List[dict], step_ft: float, min_spacing_ft: float,
                 raise ValueError("Maximum height is below minimum height")
             n = int(np.floor((hi - lo) / step_ft + 1e-6))
             axes.append([round(lo + i * step_ft, 3) for i in range(n + 1)])
+    n = 1
+    for a in axes: n *= len(a)
+    if n > 2_000_000:
+        raise ValueError(f"{n:,} height combinations: too many. Use a larger step or narrower ranges.")
     out = []
     for combo in itertools.product(*axes):
         if max_top_ft is not None and combo[-1] > max_top_ft + 1e-6:

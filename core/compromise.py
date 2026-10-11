@@ -9,13 +9,15 @@ optional equal spacing, minimum gap between groups, maximum height, and optional
 tower's guy plan.
 """
 from __future__ import annotations
-import itertools, math, time
+import heapq, itertools, math, time
 import numpy as np
 import engine
 from . import antennas as A, terrain as TR, project as P, guys as G, spacing as SP
-from .evaluate import switch_options, target_azimuths, band_freq, run_one
+from .evaluate import switch_options, target_azimuths, band_freq, run_one, aoa_status
 
 RUN_BUDGET = 25000   # unique HFTA runs per search stage before the height grid is coarsened
+NODE_BUDGET = 3_000_000   # combinations examined by the branch-and-bound search before it stops and says so
+MAX_GROUP_LAYOUTS = 200_000   # layouts of one group; above this the request is refused before any work
 
 def _axis(lo, hi, step): return [round(lo + i * step, 2) for i in range(int(math.floor((hi - lo) / step + 1e-9)) + 1)]
 
@@ -62,6 +64,7 @@ class Scorer:
         s = proj["settings"]; self.ground = (s["epsr"], s["sigma"], s["diffraction"])
         self.pat, self.aoa = {}, {}
         self.n_fom = 0; self.stages = []          # counters for the search summary
+        self.n_failed = 0; self.n_filled = 0
     def spec(self, file, freq, t, hs):
         e, sg, d = self.ground
         return {"site": self.site, "file": file, "freq": freq, "hfta_type": t, "heights_ft": list(hs), "phases": [1] * len(hs), "epsr": e, "sigma": sg, "diffraction": d}
@@ -82,13 +85,15 @@ class Scorer:
     def compute(self, keys, label):
         self.job.update(phase=label, done=0, total=len(keys)); self.stages.append({"stage": label, "runs": len(keys)})
         jobs = [(i, self.spec(*k), str(self.sdir)) for i, k in enumerate(keys)]
-        for i, pat in self.pool.map(run_one, jobs, chunksize=8):
-            self.pat[keys[i]] = np.array(pat, dtype=np.float32); self.job["done"] += 1
+        for i, pat, note in self.pool.map(run_one, jobs, chunksize=8):
+            self.pat[keys[i]] = None if pat is None else np.array(pat, dtype=np.float32); self.job["done"] += 1
+            if pat is None: self.n_failed += 1
+            elif note and note.get("filled_deg"): self.n_filled += 1
             if self.job.get("cancel"): raise RuntimeError("Cancelled")
-    def aoa_for(self, prn, freq):
-        k = (prn, freq)
-        if k not in self.aoa: self.aoa[k] = engine.parse_aoa((P.prn_dir(self.slug) / prn).read_text(errors="ignore"), freq)
-        return self.aoa[k]
+    def aoa_for(self, tg, freq):
+        aoa, why = aoa_status(self.proj, self.slug, tg, freq, self.aoa)
+        if why: raise ValueError(f"{tg['name']}: {why}")
+        return aoa
     def score(self, model, bands, c, mode):
         """{target_id: {band: (switched FOM, heights used)}}"""
         out = {}
@@ -96,13 +101,16 @@ class Scorer:
             out[tg["id"]] = {}
             for b in bands:
                 if b not in tg["bands"]: continue
-                f, t = band_freq(self.proj, b), A.hfta_type(model, b); aoa = self.aoa_for(tg["prn"], f); best = None
+                f, t = band_freq(self.proj, b), A.hfta_type(model, b); aoa = self.aoa_for(tg, f); best = None
                 for opt in switch_options(len(c), mode):
-                    hs = tuple(c[i] for i in opt); num = den = 0.0
+                    hs = tuple(c[i] for i in opt); num = den = 0.0; ok = True
                     for az, w in target_azimuths(tg):
-                        k, file = TR.nearest(self.idx, az); v = engine.fom(self.pat[(file, f, t, hs)], aoa); self.n_fom += 1
-                        if v is not None: num += w * v; den += w
-                    if den and (best is None or num / den > best[0]): best = (num / den, list(hs))
+                        k, file = TR.nearest(self.idx, az); pat = self.pat[(file, f, t, hs)]
+                        if pat is None: ok = False; break       # failed run: this switch setting has no value
+                        v = engine.fom(pat, aoa); self.n_fom += 1
+                        if v is None: ok = False; break
+                        num += w * v; den += w
+                    if ok and den and (best is None or num / den > best[0]): best = (num / den, list(hs))
                 if best: out[tg["id"]][b] = (round(best[0], 3), best[1])
         return out
 
@@ -131,6 +139,15 @@ def search(proj, slug, body, pool, job):
         groups.append(g)
     for a, b in itertools.combinations(groups, 2):
         if set(a["bands"]) & set(b["bands"]): raise ValueError(f"{a['name']} and {b['name']} share a band; HFTA needs one antenna type per band")
+    if not targets: raise ValueError("Choose at least one target")
+    if sum(weights.values()) <= 0: raise ValueError("The target weights add up to zero")
+    # Every target must have usable arrival-angle data on every band it is scored on, before any run is started.
+    missing, cache = [], {}
+    for t in targets:
+        for b in sorted({b for g in groups for b in g["bands"] if b in t["bands"]}, key=A.BANDS.index):
+            _, why = aoa_status(proj, slug, t, band_freq(proj, b), cache)
+            if why: missing.append(f"{t['name']} {b} m: {why}")
+    if missing: raise ValueError("Missing elevation-angle data. " + " ".join(missing))
     # guy limits (optional)
     allowed = lambda g, h: True
     tw = next((t for t in proj["towers"] if t["id"] == body.get("guys_from_tower")), None)
@@ -140,17 +157,28 @@ def search(proj, slug, body, pool, job):
             if g.get("turning_radius") in (None, ""):
                 raise ValueError(f"{g['name']}: enter the turning radius (and element droop) to use the guy check")
         def allowed(g, h, _c={}):
-            k = (g["name"], h)
+            # Keyed by the geometry that decides the clearance, never by the group name.
+            k = (float(g["turning_radius"]), float(g.get("droop") or 0), float(h))
             if k not in _c:
                 r = G.check([{"name": g["name"], "h": h, "turning_radius": float(g["turning_radius"]), "droop": float(g.get("droop") or 0)}],
-                            gp["levels"], float(gp.get("ice_in", 1.0)), float(gp.get("margin_ft", 2.0)))[0]
+                            gp["levels"], float(gp.get("ice_in", 1.0)), float(gp.get("margin_ft", 2.0)), float(gp.get("density", 56)))[0]
                 _c[k] = r["clearance"] is None or r["clearance"] >= 0
             return _c[k]
     sc = Scorer(proj, slug, body["site"], targets, pool, job)
     if not sc.idx: raise ValueError("The chosen site has no terrain profiles")
     per_group = []
     for gi, g in enumerate(groups):
-        step = g["step"]; cands = group_candidates(g, step, rules, allowed); coarse = None
+        step = g["step"]
+        if step <= 0 or g["hi"] < g["lo"]: raise ValueError(f"{g['name']}: check the height range and step")
+        # Size check BEFORE listing layouts: if the height grid gives too many layouts, start on a coarser grid
+        # (then refine around the best), instead of building a list that does not fit in memory.
+        coarse = None
+        def n_layouts(st_):
+            n_h = int((g["hi"] - g["lo"]) / st_) + 1
+            return sum(math.comb(n_h, k) for k in range(g["count"], (g.get("count_max") or g["count"]) + 1))
+        while n_layouts(coarse or step) > MAX_GROUP_LAYOUTS:
+            coarse = (coarse or step) * 2
+        cands = group_candidates(g, coarse or step, rules, allowed)
         while cands and len(sc.needed(g["ant"], g["bands"], cands, mode)) > RUN_BUDGET:
             coarse = (coarse or step) * 2; cands = group_candidates(g, coarse, rules, allowed)
         if not cands: raise ValueError(f"No heights fit the rules for {g['name']} (spacing, height limits or guys)")
@@ -164,7 +192,20 @@ def search(proj, slug, body, pool, job):
                 sc.compute(sc.needed(g["ant"], g["bands"], fine, mode), f"{g['name']}: fine search, {len(fine)} layouts")
                 for c in fine: scored[c] = sc.score(g["ant"], g["bands"], c, mode)
         per_group.append(scored)
-    # combine groups
+    # Layouts whose score is incomplete (a failed run left a band without a value) cannot be compared: drop them.
+    tids = [t["id"] for t in targets]
+    expect = {(gi, t["id"]): len([b for b in g["bands"] if b in t["bands"]]) for gi, g in enumerate(groups) for t in targets}
+    dropped = 0
+    for gi, scored in enumerate(per_group):
+        bad = [c for c in scored if any(len(scored[c][t]) != expect[(gi, t)] for t in tids)]
+        for c in bad: del scored[c]
+        dropped += len(bad)
+        if not scored: raise ValueError(f"{groups[gi]['name']}: no layout could be scored (the calculation core failed)")
+    # The score. Per target: mean over all its bands (all groups together). Overall: weighted mean over targets.
+    # Because each target's band count is fixed, the overall score is a SUM of one term per group, which makes an
+    # exact branch-and-bound search possible (below).
+    N = {t: sum(expect[(gi, t)] for gi in range(len(groups))) for t in tids}
+    W = sum(weights[t] for t in tids if N[t] > 0)
     def tscore(parts):
         """parts: list of group score dicts -> {target: mean over all bands}"""
         out = {}
@@ -174,11 +215,13 @@ def search(proj, slug, body, pool, job):
         return out
     def overall(ts):
         ok = [(weights[t], v) for t, v in ts.items() if v is not None]
-        return sum(w * v for w, v in ok) / sum(w for w, _ in ok)
-    tops = []
-    for scored in per_group:
-        ranked = sorted(scored, key=lambda c: -overall(tscore([scored[c]])))
-        tops.append(ranked[:60])
+        den = sum(w for w, _ in ok)
+        return sum(w * v for w, v in ok) / den if den else float("nan")
+    def term_all(gi, c):
+        sc_ = per_group[gi][c]
+        return sum(weights[t] / (N[t] * W) * sum(v[0] for v in sc_[t].values()) for t in tids if N[t] > 0)
+    def term_one(tid):
+        return lambda gi, c: sum(v[0] for v in per_group[gi][c][tid].values()) / N[tid]
     # Score of each group against height, for the chart: for one antenna, score at each height; for a stack,
     # the best layout whose top antenna is at that height. Per target too, so the user can see why a height won.
     curves = []
@@ -191,42 +234,65 @@ def search(proj, slug, body, pool, job):
         curves.append({"name": g["name"], "heights": hs, "overall": [round(by_top[h][0], 3) for h in hs],
                        "targets": {t["id"]: [by_top[h][1][t["id"]] for h in hs] for t in targets}, "layouts": [by_top[h][2] for h in hs]})
     order = body.get("order") or "any"
-    def combo_ok(combo):
-        """Minimum gap between groups, and the chosen group order (every antenna of an upper group above every
-        antenna of a lower group)."""
-        hs_all = [(h, gi) for gi, c in enumerate(combo) for h in c]
-        if any(abs(a - b) < rules["min_gap"] - 1e-9 for (a, ga), (b, gb) in itertools.combinations(hs_all, 2) if ga != gb): return False
-        if order in ("first_top", "first_bottom"):
-            for (c1, c2) in zip(combo, combo[1:]):
-                if order == "first_top" and min(c1) <= max(c2): return False
-                if order == "first_bottom" and max(c1) >= min(c2): return False
+    def fits(chosen, gi, c):
+        """Can layout c of group gi join the layouts chosen for groups 0..gi-1? Minimum gap between antennas of
+        different groups, and the group order (every antenna of an upper group above every antenna of a lower one)."""
+        for gj, cj in enumerate(chosen):
+            if any(abs(a - b) < rules["min_gap"] - 1e-9 for a in c for b in cj): return False
+        if chosen and order in ("first_top", "first_bottom"):
+            prev = chosen[-1]
+            if order == "first_top" and min(prev) <= max(c): return False
+            if order == "first_bottom" and max(prev) >= min(c): return False
         return True
-    rows = []; n_combos = 0
-    for combo in itertools.product(*tops):
-        n_combos += 1
-        if not combo_ok(combo): continue
+    def best_combos(term, K):
+        """Exact top-K combinations by branch and bound. Each group's layouts are sorted by their term; a branch is
+        abandoned only when even the best remaining terms cannot beat the K-th best found, so no better feasible
+        combination is skipped. Stops after NODE_BUDGET steps and then reports complete=False."""
+        G_ = len(per_group)
+        lists = [sorted(((term(gi, c), c) for c in per_group[gi]), key=lambda x: -x[0]) for gi in range(G_)]
+        rest = [0.0] * (G_ + 1)
+        for gi in range(G_ - 1, -1, -1): rest[gi] = rest[gi + 1] + lists[gi][0][0]
+        heap, cnt = [], itertools.count(); st = {"nodes": 0, "complete": True}
+        def dfs(gi, chosen, partial):
+            for val, c in lists[gi]:
+                st["nodes"] += 1
+                if st["nodes"] > NODE_BUDGET: st["complete"] = False; return True
+                if len(heap) == K and partial + val + rest[gi + 1] <= heap[0][0] + 1e-12: break
+                if not fits(chosen, gi, c): continue
+                if gi == G_ - 1:
+                    item = (partial + val, next(cnt), chosen + [c])
+                    if len(heap) < K: heapq.heappush(heap, item)
+                    else: heapq.heapreplace(heap, item)
+                elif dfs(gi + 1, chosen + [c], partial + val): return True
+            return False
+        dfs(0, [], 0.0)
+        return [x[2] for x in sorted(heap, key=lambda x: -x[0])], st
+    top_n = max(1, min(int(body.get("top", 25)), 200))
+    combos, st_all = best_combos(term_all, top_n)
+    if not combos:
+        if not st_all["complete"]: raise ValueError("The search limit was reached before any combination met the gap and order rules. Narrow the height ranges.")
+        raise ValueError("No combination keeps the minimum gap and the group order. Lower the gap, widen the height ranges, or change the order.")
+    rows = []
+    for combo in combos:
         parts = [per_group[gi][c] for gi, c in enumerate(combo)]; ts = tscore(parts)
         rows.append({"layout": [list(c) for c in combo], "overall": round(overall(ts), 3), "targets": ts,
                      "detail": {t["id"]: {b: v for p in parts for b, v in p[t["id"]].items()} for t in targets}})
-    if not rows: raise ValueError("No combination keeps the minimum gap and the group order. Lower the gap, widen the height ranges, or change the order.")
     rows.sort(key=lambda r: -r["overall"])
-    # best for each target alone, with the same rules (spacing, guys, gap between groups)
-    keep = 60 if len(per_group) <= 2 else 20
-    own_best, own_layout = {}, {}
+    # Best for each target alone, with the same rules (spacing, guys, gap between groups) and the same exact search.
+    own_best, own_layout, nodes_own, complete_own = {}, {}, 0, True
     for t in targets:
         tid = t["id"]
-        def gsum(scored, c): return sum(v[0] for v in scored[c][tid].values())
-        ranked = [sorted(scored, key=lambda c, s=scored: -gsum(s, c))[:keep] for scored in per_group]
-        best = None
-        for combo in itertools.product(*ranked):
-            if not combo_ok(combo): continue
-            tot = sum(gsum(per_group[gi], c) for gi, c in enumerate(combo)); n = sum(len(per_group[gi][c][tid]) for gi, c in enumerate(combo))
-            if n and (best is None or tot / n > best[0]): best = (tot / n, [list(c) for c in combo])
-        own_best[tid] = round(best[0], 3) if best else None; own_layout[tid] = best[1] if best else []
+        if N[tid] == 0: own_best[tid] = None; own_layout[tid] = []; continue
+        cb, st1 = best_combos(term_one(tid), 1); nodes_own += st1["nodes"]; complete_own &= st1["complete"]
+        if cb:
+            own_best[tid] = round(sum(v[0] for gi, c in enumerate(cb[0]) for v in per_group[gi][c][tid].values()) / N[tid], 3)
+            own_layout[tid] = [list(c) for c in cb[0]]
+        else: own_best[tid] = None; own_layout[tid] = []
     for r in rows:
         r["loss"] = {t: (None if v is None or own_best[t] is None else round(v - own_best[t], 2)) for t, v in r["targets"].items()}
+    n_combos = st_all["nodes"]; exhaustive = st_all["complete"] and complete_own
     spr = proj["settings"]["spacing"]
-    for r in rows[: int(body.get("top", 25))]:
+    for r in rows:
         ants = [{"h": h, "el": groups[gi]["el"]} for gi, c in enumerate(r["layout"]) for h in c]
         r["spacing"] = SP.check(ants, lambda b: band_freq(proj, b), spr)
     return {"groups": [{"name": g["name"], "el": g["el"], "count": g["count"], "bands": g["bands"], "turning_radius": g.get("turning_radius"),
@@ -234,5 +300,8 @@ def search(proj, slug, body, pool, job):
             "own_best": own_best, "own_layout": own_layout, "curves": curves,
             "stats": {"hfta_runs": len(sc.pat), "stages": sc.stages, "fom_evaluations": sc.n_fom,
                       "group_layouts": [{"name": g["name"], "layouts": len(sc_)} for g, sc_ in zip(groups, per_group)],
-                      "combinations_checked": n_combos, "combinations_kept": len(rows), "seconds": round(time.time() - t0, 1)}, "rows": rows[: int(body.get("top", 25))], "evaluated": len(rows), "runs": len(sc.pat),
+                      "combinations_checked": n_combos, "combinations_kept": len(rows), "own_best_steps": nodes_own,
+                      "complete": exhaustive, "coarse_grid": any(st_["stage"].find("coarse") >= 0 for st_ in sc.stages),
+                      "failed_runs": sc.n_failed, "filled_runs": sc.n_filled, "layouts_dropped": dropped,
+                      "seconds": round(time.time() - t0, 1)}, "rows": rows, "evaluated": len(rows), "runs": len(sc.pat),
             "targets": [{"id": t["id"], "name": t["name"]} for t in targets]}

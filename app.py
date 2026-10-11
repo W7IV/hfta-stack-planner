@@ -30,6 +30,26 @@ app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 
+# A hosted copy must have a password. Railway sets RAILWAY_ENVIRONMENT; HOSTED=1 marks any other server.
+if (os.environ.get("HOSTED") == "1" or os.environ.get("RAILWAY_ENVIRONMENT")) and not APP_PASSWORD:
+    raise SystemExit("Hosted copy without APP_PASSWORD: set APP_PASSWORD (or unset HOSTED) and start again.")
+
+
+@app.before_request
+def _same_origin():
+    """Refuse requests that change data when they come from another web site (a page open in the same browser).
+    Browsers send Sec-Fetch-Site and Origin; tools such as curl send neither and are not affected."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    if request.headers.get("Sec-Fetch-Site") == "cross-site":
+        return ("Request from another web site refused", 403)
+    origin = request.headers.get("Origin")
+    if origin and origin != "null":
+        from urllib.parse import urlparse
+        if urlparse(origin).netloc != request.host:
+            return ("Request from another web site refused", 403)
+    return None
+
 
 @app.before_request
 def _password():

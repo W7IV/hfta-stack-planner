@@ -41,11 +41,15 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     from . import spacing as SP
     from .evaluate import band_freq
     on = []
-    lay_txt = ("Pure HFTA: every number can be reproduced in the original HFTA. Spacing warnings and the guy check are notes only; "
-               "they never change a number.")
+    eng = res.get("engine") or {}
+    lay_txt = ("Calculated with OpenHFTA, an open-source implementation of the HFTA method (checked against original-HFTA output "
+               "within 0.1 dB on the reference set; see README). Spacing warnings and the guy check are notes only; they never change a number.")
+    if res.get("n_filled"): lay_txt += f" {res['n_filled']} run(s) had a few invalid angles from the core, filled by interpolation (marked in the replay pack)."
+    if res.get("n_failed"): lay_txt += f" {res['n_failed']} run(s) failed and give no result."
     st = proj["settings"]; o = []; spr = st["spacing"]
     o.append(f"<main><h1>{e(proj['name'])}</h1><p class=mute>HFTA Stack Planner report, {datetime.date.today()}. "
-             f"Results computed {e(res['stamp'])} from {res['n_runs']} HFTA runs.</p><div class=note>{e(lay_txt)}</div>")
+             f"Results computed {e(res['stamp'])} from {res['n_runs']} OpenHFTA runs. Engine: {e(eng.get('name', 'unknown'))} "
+             f"commit {e(str(eng.get('commit', 'unknown'))[:12])}, library {e(str(eng.get('library_sha256', 'unknown'))[:12])}.</p><div class=note>{e(lay_txt)}</div>")
     o.append("<h2>Inputs</h2><h3>Sites</h3><table><tr><th>Site</th><th>Position</th><th>Terrain source</th><th>Profiles</th><th>Notes</th></tr>")
     for s in proj["sites"]:
         n = len(TR.profile_index(P.site_dir(slug, s["id"])))
@@ -57,7 +61,7 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
         o.append(f"<tr><td>{e(t['name'])}</td><td>{e(t['prn'])}</td><td class=n>{t['heading']:g}°</td><td>{hd}</td><td>{', '.join(t['bands'])}</td></tr>")
     o.append("</table><h3>Towers</h3>")
     for t in proj["towers"]:
-        serves = ", ".join(TG[x]["name"] for x in t.get("targets") or TG)
+        serves = ", ".join(TG[x]["name"] for x in (t["targets"] if t.get("targets") is not None else TG) if x in TG) or "none"
         o.append(f"<p><b>{e(t['name'])}</b> <span class=chip>serves: {e(serves)}</span><span class=chip>switching: {e(t.get('switching', 'stackmatch'))}</span></p><table><tr><th>Height (ft)</th><th>Bands and HFTA type</th></tr>")
         for a in sorted(t["antennas"], key=lambda a: -a["h"]):
             btxt = ", ".join(f"{b} m ({A.hfta_type(a, b)})" for b in A.bands_of(a))
@@ -70,7 +74,8 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
             o.append("<p class=mute>Spacing: no warnings.</p>")
     o.append(f"<p class=mute>Spacing warnings (HFTA has no mutual coupling): stack spacing red below {spr['red_wl']} wavelength, amber below {spr['amber_wl']}; "
              f"gap between antennas on different bands red below {spr['gap_red_ft']:g} ft, amber below {spr['gap_amber_ft']:g} ft. "
-             "NEC-2 check: 0.22 wavelength lost 2.2 dB of stacking gain, 0.43 wavelength lost 0.7 dB.</p>")
+             "These limits are guidance from one NEC-2 example (two Yagis: 0.22 wavelength lost 2.2 dB of stacking gain, 0.43 wavelength 0.7 dB), "
+             "not a general rule.</p>")
     o.append(f"<p class=mute>Ground: {e(st['soil'])} (dielectric {st['epsr']}, conductivity {st['sigma']} S/m). Diffraction {'on' if st['diffraction'] else 'off'}.</p>")
     # comparison
     o.append("<h2>Comparison</h2><p>FOM in dB, higher is better. Differences of 0.3 dB or less are not significant. "

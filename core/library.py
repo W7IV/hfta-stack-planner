@@ -16,7 +16,7 @@ def _load(name) -> list:
     return json.loads(f.read_text()) if f.exists() else []
 
 def _save(name, items: list):
-    (root() / name).write_text(json.dumps(items, indent=1))
+    P.write_atomic(root() / name, json.dumps(items, indent=1))
 
 def _clean_name(s) -> str:
     return (str(s or "").strip() or "Unnamed")[:80]
@@ -84,7 +84,7 @@ def site_into_project(lib_id: str, pslug: str) -> dict:
     dst.mkdir(parents=True, exist_ok=True)
     if src.exists():
         for f in src.iterdir():
-            if f.is_file(): shutil.copy2(f, dst / f.name)
+            if f.is_file() and f.suffix.lower() == ".pro": shutil.copy2(f, dst / f.name)
     return out
 
 def delete_site(lib_id: str):
@@ -117,6 +117,5 @@ def prns_into_project(pslug: str) -> list:
     return sorted(out)
 
 def delete_prn(name: str):
-    if not re.fullmatch(r"[\w.\- ]+\.prn", name or "", re.I): raise ValueError("Bad file name")
-    f = prn_root() / name
+    f = prn_root() / P.safe_file(name, ".prn")
     if f.exists(): f.unlink()
