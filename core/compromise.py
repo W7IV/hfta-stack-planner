@@ -9,7 +9,7 @@ optional equal spacing, minimum gap between groups, maximum height, and optional
 tower's guy plan.
 """
 from __future__ import annotations
-import itertools, math
+import itertools, math, time
 import numpy as np
 import engine
 from . import antennas as A, terrain as TR, project as P, guys as G, spacing as SP
@@ -61,6 +61,7 @@ class Scorer:
         self.sdir = P.site_dir(slug, site); self.idx = TR.profile_index(self.sdir)
         s = proj["settings"]; self.ground = (s["epsr"], s["sigma"], s["diffraction"])
         self.pat, self.aoa = {}, {}
+        self.n_fom = 0; self.stages = []          # counters for the search summary
     def spec(self, file, freq, t, hs):
         e, sg, d = self.ground
         return {"site": self.site, "file": file, "freq": freq, "hfta_type": t, "heights_ft": list(hs), "phases": [1] * len(hs), "epsr": e, "sigma": sg, "diffraction": d}
@@ -79,7 +80,7 @@ class Scorer:
                             if key not in self.pat: need[key] = 1
         return list(need)
     def compute(self, keys, label):
-        self.job.update(phase=label, done=0, total=len(keys))
+        self.job.update(phase=label, done=0, total=len(keys)); self.stages.append({"stage": label, "runs": len(keys)})
         jobs = [(i, self.spec(*k), str(self.sdir)) for i, k in enumerate(keys)]
         for i, pat in self.pool.map(run_one, jobs, chunksize=8):
             self.pat[keys[i]] = np.array(pat, dtype=np.float32); self.job["done"] += 1
@@ -99,13 +100,14 @@ class Scorer:
                 for opt in switch_options(len(c), mode):
                     hs = tuple(c[i] for i in opt); num = den = 0.0
                     for az, w in target_azimuths(tg):
-                        k, file = TR.nearest(self.idx, az); v = engine.fom(self.pat[(file, f, t, hs)], aoa)
+                        k, file = TR.nearest(self.idx, az); v = engine.fom(self.pat[(file, f, t, hs)], aoa); self.n_fom += 1
                         if v is not None: num += w * v; den += w
                     if den and (best is None or num / den > best[0]): best = (num / den, list(hs))
                 if best: out[tg["id"]][b] = (round(best[0], 3), best[1])
         return out
 
 def search(proj, slug, body, pool, job):
+    t0 = time.time()
     targets = [t for t in proj["targets"] if t["id"] in (body.get("targets") or [t["id"] for t in proj["targets"]])]
     weights = {t["id"]: float((body.get("weights") or {}).get(t["id"], 1.0)) for t in targets}
     rules = {"min_spacing": float(body.get("min_spacing", 30)), "max_spacing": body.get("max_spacing"), "equal_tol": body.get("equal_tol"),
@@ -199,8 +201,9 @@ def search(proj, slug, body, pool, job):
                 if order == "first_top" and min(c1) <= max(c2): return False
                 if order == "first_bottom" and max(c1) >= min(c2): return False
         return True
-    rows = []
+    rows = []; n_combos = 0
     for combo in itertools.product(*tops):
+        n_combos += 1
         if not combo_ok(combo): continue
         parts = [per_group[gi][c] for gi, c in enumerate(combo)]; ts = tscore(parts)
         rows.append({"layout": [list(c) for c in combo], "overall": round(overall(ts), 3), "targets": ts,
@@ -228,5 +231,8 @@ def search(proj, slug, body, pool, job):
         r["spacing"] = SP.check(ants, lambda b: band_freq(proj, b), spr)
     return {"groups": [{"name": g["name"], "el": g["el"], "count": g["count"], "bands": g["bands"], "turning_radius": g.get("turning_radius"),
                         "droop": g.get("droop")} for g in groups], "weights": weights, "spacing_rules": spr,
-            "own_best": own_best, "own_layout": own_layout, "curves": curves, "rows": rows[: int(body.get("top", 25))], "evaluated": len(rows), "runs": len(sc.pat),
+            "own_best": own_best, "own_layout": own_layout, "curves": curves,
+            "stats": {"hfta_runs": len(sc.pat), "stages": sc.stages, "fom_evaluations": sc.n_fom,
+                      "group_layouts": [{"name": g["name"], "layouts": len(sc_)} for g, sc_ in zip(groups, per_group)],
+                      "combinations_checked": n_combos, "combinations_kept": len(rows), "seconds": round(time.time() - t0, 1)}, "rows": rows[: int(body.get("top", 25))], "evaluated": len(rows), "runs": len(sc.pat),
             "targets": [{"id": t["id"], "name": t["name"]} for t in targets]}

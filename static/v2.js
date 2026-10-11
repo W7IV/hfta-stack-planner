@@ -1126,7 +1126,14 @@ function compResult(r) {
     Targets: ${(q.targets || []).map(t => `${tn(t)}${(q.weights || {})[t] !== 1 ? " ×" + q.weights[t] : ""}`).join(", ")}.
     Groups: ${(q.groups || []).map(g => `${esc(g.name || "?")} ×${g.count}${g.count_max ? "–" + g.count_max : ""} (${bandsOf(g).join("/")} m; ${g.lo || "–"} to ${g.hi || q.max_height} ft, step ${g.step}, spacing ≥ ${g.min_spacing})`).join("; ")}.`;
   r.inputs_text = inputs.replace(/\s+/g, " ");
-  $("#cmOut").innerHTML = `${inputs ? `<div class="note small"><b>Inputs of this run</b> (${esc(r.stamp || "")}): ${esc(inputs)}<br>A different result after a new run means one of these changed.</div>` : ""}
+  const st = r.stats, n = v => Number(v).toLocaleString();
+  const summary = !st ? "" : `<div class="note small"><b>Search summary.</b> ${n(st.hfta_runs)} HFTA runs (each one HFTA calculation of an elevation pattern:
+    ${st.stages.map(x => `${esc(x.stage)} ${n(x.runs)}`).join("; ")}). ${n(st.fom_evaluations)} FOM evaluations against the .PRN files.
+    Layouts scored per group: ${st.group_layouts.map(g => `${esc(g.name)} ${n(g.layouts)}`).join(", ")}.
+    ${n(st.combinations_checked)} combinations of groups checked, ${n(st.combinations_kept)} kept by the gap and order rules.
+    Time ${st.seconds < 90 ? st.seconds + " s" : (st.seconds / 60).toFixed(1) + " min"}.
+    <span class="mute">In the original HFTA each run is one press of the Calculate button.</span></div>`;
+  $("#cmOut").innerHTML = `${summary}${inputs ? `<div class="note small"><b>Inputs of this run</b> (${esc(r.stamp || "")}): ${esc(inputs)}<br>A different result after a new run means one of these changed.</div>` : ""}
   <p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
     ${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
