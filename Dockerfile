@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt gunicorn==23.0.0
 COPY . .
 
 # The core must still agree with the original HFTA inside the image
-ENV OPENHFTA_DIR=/opt/openhfta PROJECTS_DIR=/data/projects PYTHONUNBUFFERED=1
+ENV OPENHFTA_DIR=/opt/openhfta OPENHFTA_COMMIT=$OPENHFTA_COMMIT PROJECTS_DIR=/data/projects PYTHONUNBUFFERED=1
 RUN python tests/test_hfta_match.py
 
 # One web process (jobs are kept in memory); calculations run in HFTA_WORKERS processes.

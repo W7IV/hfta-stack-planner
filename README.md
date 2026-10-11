@@ -1,8 +1,11 @@
 # HFTA Stack Planner
 
-A local web application around **OpenHFTA**, the open-source port of N6BV's HFTA (HF Terrain Assessment).
-It compares tower sites, antenna stacks and switch settings over real terrain, and every number it reports can be
-reproduced in the original HFTA.
+A local web application around **OpenHFTA**, an open-source implementation of the method of N6BV's HFTA
+(HF Terrain Assessment). It compares tower sites, antenna stacks and switch settings over real terrain. Every run
+is recorded with the exact inputs to type into the original HFTA, so any number can be checked there.
+
+**Engine.** All calculations are done by OpenHFTA, not by the original ARRL HFTA program. The engine (OpenHFTA
+commit, SHA-256 of the native library, wrapper version) is recorded with every result and export.
 
 ## Credits
 - **Calculations:** [OpenHFTA](https://github.com/RioDXGroup/openhfta) by RioDXGroup (BSD Zero Clause licence).
@@ -14,11 +17,21 @@ reproduced in the original HFTA.
 - Not affiliated with or endorsed by ARRL or the OpenHFTA authors.
 
 ## The rule
-**Every Figure of Merit (FOM) shown is one HFTA run, or simple arithmetic on HFTA runs.**
+**Every Figure of Merit (FOM) shown is one OpenHFTA run, or simple arithmetic on runs.**
 The arithmetic is limited to:
 - the weighted mean over a target's headings (e.g. 44°, 52°, 60° for Europe), and
 - the best of a tower's stack-switch settings (whole stack, pairs, single antennas).
+- for an overall score over several targets (Stack Designer, Worldwide view): for each target the mean over its bands,
+  then the weighted mean over the targets. This is an average of dB values chosen as a planning score; it is not
+  the same as HFTA's own FOM, which weights linear power by the arrival-angle statistics.
 
+**Invalid core output.** A known fault of the calculation core returns a few invalid angles on some profiles.
+Up to 8 isolated angles (2 degrees) are filled by straight-line interpolation; the run is then marked (* in Compare,
+a note in the result, `core_note` in the replay pack). A run with more invalid angles, or an invalid first or last
+angle, is a failed run: it gets no FOM and is never ranked.
+
+**Missing arrival-angle data.** A target without a .PRN file, or a band that its .PRN file does not contain, gives no
+result and says why. The Stack Designer refuses to start until every chosen target has data on every band it scores.
 Antennas are entered as HFTA enters them: for each band, the number of elements (Dipole, 2-6 or 8). No brand
 models. Two checks are added as notes only; they never change a number:
 
@@ -49,9 +62,15 @@ A zip with every terrain and .PRN file used, `runs.csv` (each HFTA run: terrain 
 antenna type, heights, ground, diffraction, FOM), `combination.csv` (how runs combine into each result),
 `expected_out/<run>.PRN` (the expected pattern in HFTA's OUT.PRN layout) and step-by-step instructions.
 
-## Proof of agreement with HFTA
-`python tests/test_hfta_match.py` compares the core with 16 runs written by the original HFTA (560 gains);
-all agree within 0.1 dB, the precision HFTA prints.
+## Tests
+- `python tests/test_hfta_match.py` compares the core with 16 runs written by the original HFTA (560 gains at
+  14.2 MHz, 4-element antennas): all agree within 0.1 dB, the precision HFTA prints. The test first checks itself:
+  it must fail on invalid core output (NaN, infinite values, short output). This reference set covers one band and one
+  antenna type only; other bands, types and FOM values are not yet compared with the original HFTA.
+- `python tests/test_wrapper.py` checks the planner's own guarantees with the real core and the synthetic test .PRN:
+  safe file paths, input checks, recalculation when a terrain file changes, invalid-output policy, missing data,
+  terrain replacement, the Stack Designer's exact search, guy limits, export safety, cross-site requests, and
+  shareable exports.
 
 ## Running it (on your own computer)
 The app runs locally; nothing is sent to a server.
@@ -61,6 +80,7 @@ The app runs locally; nothing is sent to a server.
 3. `pip install -r requirements.txt`
 4. `python app.py`, then open http://localhost:5000
    (`PORT` and `HOST` environment variables change the address; the default listens on this computer only).
+   Nothing leaves this computer, except the "Fetch terrain online" request to USGS (position only).
 
 Projects are stored in `projects/<name>/` (project.json, terrain, .PRN files, results).
 The previous single-page optimiser (multi-antenna height search, tribander trade-off matrix) is still at `/classic`.
@@ -68,22 +88,27 @@ The previous single-page optimiser (multi-antenna height search, tribander trade
 **With Docker (any system, no compiler needed):**
 ```
 docker build -t hfta-planner .
-docker run -p 5055:5055 -v hfta-data:/data hfta-planner
+docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data hfta-planner
 ```
-Then open http://localhost:5055. Projects are kept in the Docker volume `hfta-data`. The image builds the OpenHFTA
+Then open http://localhost:5055. Projects are kept in the Docker volume `hfta-data`. `127.0.0.1:` keeps the app on
+this computer only; without it Docker opens the port to the whole network, with no password. The image builds the OpenHFTA
 core at a pinned commit and checks it against the original HFTA during the build.
 
 ## Hosted test copy (Railway)
 1. Push this folder to a private GitHub repository.
 2. Railway: New project → Deploy from GitHub repo. Railway finds the `Dockerfile`.
 3. Add a volume mounted at `/data` (projects are stored there).
-4. Variables: `APP_PASSWORD` (required on the internet; the browser asks for it, any user name) and
-   `HFTA_WORKERS` (number of vCPUs of the service).
+4. Variables: `APP_PASSWORD` (the browser asks for it, any user name) and `HFTA_WORKERS` (number of vCPUs of the
+   service). On Railway, or with `HOSTED=1`, the app **refuses to start without `APP_PASSWORD`**.
 5. Settings → Networking → Generate domain.
 
 **Moving a project:** Report → "Project with files (zip)" on one copy, then "Open project zip" on the other.
 The zip holds the terrain and .PRN files; results are recomputed. The ARRL .PRN files are copyright: keep such
 zips and any hosted copy private.
+
+**Sharing with someone else:** use the *shareable* downloads (Report page): the replay pack and the project zip
+then leave the .PRN files out and list them by name and SHA-256, so the other person can check that their own copy
+is the same file. The private versions are for your own records only.
 
 | Variable | Meaning | Default |
 |---|---|---|
@@ -91,6 +116,7 @@ zips and any hosted copy private.
 | `APP_PASSWORD` | password for the browser | none |
 | `PROJECTS_DIR` | where projects are stored | `./projects` (`/data/projects` in the container) |
 | `HFTA_WORKERS` | calculation processes | number of CPUs |
+| `HOSTED` | `1` = server on a network: a password is then required | not set |
 | `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
 
 ## Development list
