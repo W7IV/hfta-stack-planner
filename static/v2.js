@@ -947,7 +947,7 @@ const TIPS = [
   // Stack Designer
   ["#cmSite", "Terrain used for the search."],
   ["#cmSw", "Stack switching assumed for every band, as on the tower."],
-  ["#cmMax", "Highest height any antenna may have. The only limit you need."],
+  ["#cmMax", "Height of the tower: the highest any antenna may go. Every group's To follows it."],
   ["#cmGap", "Smallest distance between antennas of different groups."],
   ["#cmOrder", "Force the groups in list order: first group on top, or at the bottom."],
   ["#cmGuy", "Reject heights where an antenna would touch an iced guy of this tower."],
@@ -1017,7 +1017,7 @@ function showHelp() {
   <ul>
     <li><b>One row = one kind of antenna.</b> A tribander or a 5-band is one row with elements on each of its bands; four rows for 40, 20, 15 and 10 m mean four separate monobanders.</li>
     <li><b>Count</b> is how many antennas of the type; <b>up to</b> lets the search also try more, so one run compares two tribanders against three.</li>
-    <li><b>Max height</b> is the only limit you need. From and To are optional; use them to hold one group within a band of heights, for example when guys or a mast limit where an antenna can go.</li>
+    <li><b>Tower height</b> is the highest any antenna may go. Each group's To follows it automatically; lower one group's To (or raise its From) to hold it within a band of heights, for example when guys or a mast section limit where it can go.</li>
     <li><b>Min gap between groups</b>: the smallest distance between antennas of different groups.</li>
     <li><b>Group order</b>: force one group above the other when the physical layout is fixed.</li>
     <li><b>Respect guys of</b>: reject heights where an antenna would touch an iced guy, using that tower's guy table.</li>
@@ -1046,6 +1046,8 @@ function compForm() {
   const f = p.settings.compromise;
   /* One-time clean-up for projects saved before From/To became optional: blank them, so Max height is the only limit. */
   if (!f.range_blanked) { f.groups.forEach(g => { g.lo = ""; g.hi = ""; }); f.range_blanked = true; save(); }
+  /* "To" starts at the tower height and follows it, unless the user typed a different value for that group. */
+  f.groups.forEach(g => { if (g.hi === "" || g.hi == null) g.hi = f.max_height; });
   return f;
 }
 function compCard() {
@@ -1056,7 +1058,7 @@ function compCard() {
   as in Compare. Score per target = mean over bands; overall = weighted mean over targets. Every number is HFTA runs plus this arithmetic.</p>
   <div class="row"><label>Site<select id="cmSite">${p.sites.map(x => `<option value="${x.id}" ${x.id === f.site ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <label>Switching<select id="cmSw"><option value="stackmatch" ${f.switching === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option><option value="full" ${f.switching === "full" ? "selected" : ""}>Whole stack only</option><option value="all" ${f.switching === "all" ? "selected" : ""}>Every combination</option></select></label>
-    <label>Max height (ft)<input type="number" id="cmMax" value="${f.max_height}" title="Upper limit for every group; a group's own To (ft) cannot go above it"></label>
+    <label>Tower height (ft)<input type="number" id="cmMax" value="${f.max_height}" title="Highest height any antenna may have. Every group's To (ft) follows it unless you change that group's To"></label>
     <label>Min gap between groups (ft)<input type="number" id="cmGap" value="${f.min_gap}"></label>
     <label>Group order<select id="cmOrder" title="Which group is above which. The list order of the groups below is used.">
       <option value="any" ${(f.order || "any") === "any" ? "selected" : ""}>Any (HFTA decides)</option>
@@ -1069,7 +1071,7 @@ function compCard() {
   <h3 class="small" style="margin:12px 0 4px">Antenna groups</h3>
   <p class="small mute" style="margin:0 0 4px">One row = one kind of antenna; Count = how many of it. Elements on several bands in the same row = a tribander or multiband antenna (one boom, one height for all its bands).
   Separate rows = separate antennas (monobanders). Use "Band set…" to fill a row for a common antenna, then adjust the element counts.</p>
-  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n" title="Optional. Also try more antennas of this type, up to this number; the result ranks all counts together">up to</th><th class="n" title="Optional lower limit for this group. Empty = from one step above ground">From (ft)</th><th class="n" title="Optional upper limit for this group. Empty = up to Max height">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
+  <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n" title="Optional. Also try more antennas of this type, up to this number; the result ranks all counts together">up to</th><th class="n" title="Optional lower limit for this group. Empty = from one step above ground">From (ft)</th><th class="n" title="Highest height for this group. Follows the tower height; lower it to keep this group below a guy, a mast section or another group">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
   ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"><br>${bandSetSelect(`data-gset="${j}"`)}</td>
     ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
     ${["count", "count_max", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : k === "lo" ? `placeholder="${g.step || 5}"` : k === "count_max" ? 'placeholder="–"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
@@ -1080,7 +1082,8 @@ function compCard() {
   <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
   const sv = () => save();
   $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
-  $("#cmMax").onchange = e => { f.max_height = Number(e.target.value); sv(); compCard(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
+  $("#cmMax").onchange = e => { const old = Number(f.max_height); f.max_height = Number(e.target.value);
+    f.groups.forEach(g => { if (g.hi === "" || g.hi == null || Number(g.hi) === old || Number(g.hi) > f.max_height) g.hi = f.max_height; }); sv(); compCard(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
   $("#cmGuy").onchange = e => { f.guys_from_tower = e.target.value; sv(); };
   $("#cmOrder").onchange = e => { f.order = e.target.value; sv(); };
   $$("[data-ct]").forEach(cb => cb.onchange = () => { f.weights[cb.dataset.ct] = cb.checked ? Number($(`[data-cw="${cb.dataset.ct}"]`).value || 1) : 0; sv(); });
@@ -1091,7 +1094,7 @@ function compCard() {
   $$("[data-ge]").forEach(sel => sel.onchange = () => { const g = f.groups[sel.dataset.ge]; g.el = g.el || {}; if (sel.value) g.el[sel.dataset.band] = Number(sel.value); else delete g.el[sel.dataset.band]; sv(); compCard(); });
   $$("[data-gf]").forEach(inp => inp.onchange = () => { f.groups[inp.dataset.gf][inp.dataset.key] = inp.value === "" ? (["turning_radius", "droop", "count_max"].includes(inp.dataset.key) ? null : "") : Number(inp.value); sv(); compCard(); });
   $$("[data-gx]").forEach(b => b.onclick = () => { f.groups.splice(Number(b.dataset.gx), 1); sv(); compCard(); });
-  $("#cmAddG").onclick = () => { f.groups.push({ name: "", el: {}, count: 1, lo: "", hi: "", step: 5, min_spacing: 30, equal_tol: "", turning_radius: null, droop: null }); sv(); compCard(); };
+  $("#cmAddG").onclick = () => { f.groups.push({ name: "", el: {}, count: 1, lo: "", hi: f.max_height, step: 5, min_spacing: 30, equal_tol: "", turning_radius: null, droop: null }); sv(); compCard(); };
   $("#cmGo").onclick = async () => {
     await save(true);
     const targets = p.targets.filter(t => f.weights[t.id] !== 0).map(t => t.id);
@@ -1112,8 +1115,8 @@ function compFormWarnings(f) {
   }
   for (const g of f.groups) {
     if (g.hi === "" || g.hi == null) continue;
-    if (Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but Max height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
-    else if (Number(g.hi) < Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft, so this group is searched only up to ${g.hi} ft, not to Max height ${f.max_height} ft. Clear the To field to search the full range.` });
+    if (Number(g.hi) > Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: "To" is ${g.hi} ft but the tower height is ${f.max_height} ft, so the search stops at ${f.max_height} ft. Raise Max height to search higher.` });
+    else if (Number(g.hi) < Number(f.max_height)) out.push({ level: "amber", text: `${g.name || describe(g)}: searched only up to ${g.hi} ft (its To), not to the tower height ${f.max_height} ft.` });
   }
   if (f.groups.length > 1 && Number(f.min_gap) < r.gap_amber_ft) out.push({ level: Number(f.min_gap) < r.gap_red_ft ? "red" : "amber", text: `Minimum gap between groups ${f.min_gap} ft is below ${r.gap_amber_ft} ft: antennas on different bands may interact; HFTA does not model this.` });
   return out;
@@ -1148,7 +1151,7 @@ function compResult(r) {
   <p class="small mute" style="margin:0 0 6px">Why a height was chosen. Solid line = overall (weighted over targets); thin lines = each target. For a stack, the best layout with its top antenna at that height.
   Rules between groups (gap, order, guys) can move the chosen height away from a group's own peak.</p>
   <p class="small" style="margin:0 0 6px"><b>Heights searched:</b> ${r.curves.map(c => `${esc(c.name)} ${Math.min(...c.heights)}–${Math.max(...c.heights)} ft`).join("; ")}.
-  The limit for each group is its own To (ft), capped by Max height. Heights outside this range were not calculated.</p>
+  The limit for each group is its own To (ft), which follows the tower height unless you changed it. Heights outside this range were not calculated.</p>
   <div class="row" style="align-items:center"><label>Group<select id="cmCurveSel">${r.curves.map((c, i) => `<option value="${i}">${esc(c.name)}</option>`).join("")}</select></label></div>
   <div id="cmCurve" class="plot sm"></div>` : ""}`;
   if (r.curves?.length) {
