@@ -19,19 +19,36 @@ async function api(method, url, body, isForm) {
   if (!r.ok) throw new Error(j.error || r.statusText); return j;
 }
 function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, ms); }
+/* Saving. Each save is tied to the project it was made for (a project switch within the 500 ms delay still saves
+   the edited project, not the new one). Saves run one after another, never out of order. save(true) returns a promise
+   that fails when the server refuses or cannot be reached, so actions that need the saved project stop there. */
+let saveChain = Promise.resolve(), pendingSave = null;
 function save(now) {
   $("#saveState").textContent = "Saving…"; clearTimeout(saveTimer);
-  /* Keep the same project object after saving: the page's inputs hold references into it. Replacing it with the
-     server's copy made later edits go to an old object and be lost. Only the file and result status come from the server. */
-  const go = async () => { try { const proj = P(), r = await api("PUT", `/api/v2/p/${SLUG}`, proj); if (r.slug === SLUG) { r.project = proj; S = r; }
-    $("#saveState").textContent = "Saved"; status(); } catch (e) { $("#saveState").textContent = "Not saved: " + e.message; } };
-  if (now) return go(); saveTimer = setTimeout(go, 500);
+  const slug = SLUG, proj = P();
+  const go = () => {
+    pendingSave = null;
+    const run = saveChain.then(async () => {
+      const r = await api("PUT", `/api/v2/p/${slug}`, proj);
+      /* Keep the same project object after saving: the page's inputs hold references into it. Only the file and
+         result status come from the server. */
+      if (slug === SLUG && r.slug === SLUG) { r.project = P(); S = r; $("#saveState").textContent = "Saved"; status(); }
+    }).catch(e => { $("#saveState").textContent = "Not saved: " + e.message; toast("Not saved: " + e.message, 7000); throw e; });
+    saveChain = run.catch(() => {});
+    return run;
+  };
+  if (now) return go();
+  pendingSave = go; saveTimer = setTimeout(go, 500);
+  return Promise.resolve();
 }
+/* Finish any waiting save now (before switching project or leaving the page). */
+function flushSave() { clearTimeout(saveTimer); return pendingSave ? pendingSave().catch(() => {}) : saveChain; }
+window.addEventListener("beforeunload", e => { if (pendingSave) { flushSave(); e.preventDefault(); } });
 function bind(el, obj, key, after, num) {
   el.addEventListener("change", () => { obj[key] = num ? (el.value === "" ? null : Number(el.value)) : (el.type === "checkbox" ? el.checked : el.value); save(); after && after(); });
 }
 function status() {
-  const p = P(), b = $("#hftaBadge"); b.className = "badge pure"; b.textContent = "Pure HFTA";
+  const p = P(), b = $("#hftaBadge"); b.className = "badge pure"; b.textContent = "OpenHFTA";
   b.title = "Every number shown can be reproduced in the original HFTA";
   const ready = p.sites.filter(s => (S.site_files[s.id] || {}).n).length;
   $("#st-sites").textContent = `${ready}/${p.sites.length} with terrain`;
@@ -697,12 +714,12 @@ async function rCompare() {
     Runs already computed with the same inputs are reused.</p><div class="row"><button id="evalBtn">Evaluate</button></div><div class="prog" hidden id="evProg"><i></i></div></div>
   <div class="card"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
     <p class="small">A <span class="sp red">&#9888;</span> or <span class="sp amber">&#9888;</span> beside a value: the antennas on that band are too close or close
-    (set the limits in step 3). HFTA has no mutual coupling, so the value is probably optimistic. The value itself is still the pure HFTA result.</p></div></div>
+    (set the limits in step 3). HFTA has no mutual coupling, so the value is probably optimistic. The value itself is still the plain HFTA-method result.</p></div></div>
   <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="cmpPlot" class="plot"></div></div>`;
   $("#evalBtn").onclick = async () => {
     await save(true); const bad = checkReady(); if (bad) return toast(bad, 5000);
     const { job } = await api("POST", `/api/v2/p/${SLUG}/evaluate`); const r = await poll(job, $("#evProg"));
-    if (r) { toast(`${r.cells} results from ${r.runs} HFTA runs (${r.reused} reused)`); S = await api("GET", `/api/v2/p/${SLUG}`); rCompare(); }
+    if (r) { toast(`${r.cells} results from ${r.runs} HFTA runs (${r.reused} reused)${r.failed ? `, ${r.failed} failed` : ""}${r.filled ? `, ${r.filled} with filled angles (marked *)` : ""}`); S = await api("GET", `/api/v2/p/${SLUG}`); rCompare(); }
   };
   RES = await api("GET", `/api/v2/p/${SLUG}/results`);
   if (!RES.cells.length) { $("#cmpTbl").innerHTML = `<tr><td class="mute">No results yet. Press Evaluate.</td></tr>`; return; }
@@ -757,6 +774,7 @@ function matrix() {
       let shown = fmt(v), cls = "n cell" + (Math.abs(v - best[b]) < 0.005 ? " best" : "");
       if (CMP.delta && r !== CMP.ref) { const rv = val(get(CMP.ref, b)); shown = rv === null ? "–" : (v - rv >= 0 ? "+" : "") + fmt(v - rv); }
       let sub = c.spacing ? ` <span class="sp ${c.spacing}" title="${esc(c.spacing_text.join("\n"))}">&#9888;</span>` : "";
+      if ((c.notes || []).length) sub += ` <span class="small amb" title="${esc(c.notes.join("\n"))}">*</span>`;
       h += `<td class="${cls}" data-i="${c.i}" title="Show the HFTA runs">${shown}${sub}</td><td class="small mute">${(c.use || []).join(" / ")}</td>`;
     }
     h += "</tr>";
@@ -769,8 +787,11 @@ function matrix() {
   Plotly.react("cmpPlot", tr, plotLayout({ barmode: "group", title: { text: "FOM by band", font: { size: 13 } }, yaxis: { title: "FOM (dB)", range: [Math.min(...all) - 2, Math.max(...all) + 1], gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
 }
 const WORLD = "__world__";
-/* Worldwide view: for each site/tower and band, the weighted mean FOM over all targets (weights from the Stack Designer,
-   1 when not set; weight 0 leaves a target out). Plus an all-bands mean. Same arithmetic as the Stack Designer's Overall. */
+/* Worldwide view. Band columns: for each site/tower and band, the weighted mean FOM over the targets (information).
+   Overall: for each target, the mean over its bands; then the weighted mean over the targets (weights from the Stack
+   Designer, 1 when not set; weight 0 leaves a target out). This is exactly the Stack Designer's Overall
+   (core/compromise.py), so a layout applied from the Designer gets the same value here.
+   A row is ranked only when it has a value on every target and on every band that target has in any row. */
 function worldwide(tg, site, tower) {
   const p = P(), W = p.settings.compromise?.weights || {}, wt = t => W[t.id] ?? 1;
   const used = tg.filter(t => wt(t) > 0);
@@ -788,30 +809,42 @@ function worldwide(tg, site, tower) {
     return den ? { v: num / den, n, warn } : null;
   };
   const data = Object.fromEntries(rows.map(r => [r, Object.fromEntries(bands.map(b => [b, cellOf(r, b)]))]));
-  const allb = r => { const v = bands.map(b => data[r][b]?.v).filter(x => x != null); return v.length === bands.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
-  const best = Object.fromEntries([...bands.map(b => [b, Math.max(...rows.map(r => data[r][b]?.v ?? -1e9))]), ["all", Math.max(...rows.map(r => allb(r) ?? -1e9))]]);
+  const tBands = Object.fromEntries(used.map(t => [t.id, META.bands.filter(b => cells.some(c => c.target === t.id && c.band === b))]));
+  const tMean = (r, t) => {
+    const v = tBands[t.id].map(b => cells.find(c => c.site + "|" + c.tower === r && c.band === b && c.target === t.id)?.hfta).filter(x => x != null);
+    return v.length ? { v: v.reduce((a, b) => a + b, 0) / v.length, complete: v.length === tBands[t.id].length } : null;
+  };
+  const OV = Object.fromEntries(rows.map(r => {
+    let num = 0, den = 0, complete = true;
+    for (const t of used) { const m = tMean(r, t); if (!m) { complete = false; continue; } num += wt(t) * m.v; den += wt(t); if (!m.complete) complete = false; }
+    return [r, { v: den ? num / den : null, complete }];
+  }));
+  const allb = r => OV[r].v;
+  const nB = b => used.filter(t => (t.bands || []).includes(b)).length;   /* targets that use band b */
+  /* Rows with complete coverage are ranked first; a row missing a target or a band is not comparable, so it goes below. */
+  const full = r => OV[r].complete;
+  /* Best markers only among comparable rows: a band value averaged over fewer targets is not the same quantity. */
+  const best = Object.fromEntries([...bands.map(b => [b, Math.max(...rows.map(r => data[r][b] && data[r][b].n === nB(b) ? data[r][b].v : -1e9))]), ["all", Math.max(...rows.map(r => full(r) ? allb(r) ?? -1e9 : -1e9))]]);
   const show = (r, v, refv, key) => {
     if (v == null) return `<td class="mute n">–</td>`;
     const cls = "n" + (Math.abs(v - best[key]) < 0.005 ? " best" : "");
     return `<td class="${cls}">${CMP.delta && r !== CMP.ref ? (refv == null ? "–" : (v - refv >= 0 ? "+" : "") + fmt(v - refv)) : fmt(v)}</td>`;
   };
-  /* Towers that serve every target are ranked first; a tower serving fewer targets is not comparable, so it goes below. */
-  const full = r => bands.every(b => !data[r][b] || data[r][b].n === used.length);
   rows.sort((a, b) => (full(b) - full(a)) || ((allb(b) ?? -1e9) - (allb(a) ?? -1e9)));
-  let h = `<tr><th>Ref.</th><th>#</th><th>Site</th><th>Tower</th><th class="n" title="Mean over the bands (each band already averaged over the targets). Rows are ranked by this value">Overall</th>${bands.map(b => `<th class="n">${b} m</th>`).join("")}</tr>`;
+  let h = `<tr><th>Ref.</th><th>#</th><th>Site</th><th>Tower</th><th class="n" title="For each target, the mean over its bands; then the weighted mean over the targets. Same as the Stack Designer's Overall. Rows are ranked by this value">Overall</th>${bands.map(b => `<th class="n">${b} m</th>`).join("")}</tr>`;
   for (const [k, r] of rows.entries()) {
     const [sid, tid] = r.split("|");
     h += `<tr><td><input type="radio" name="ref" value="${r}" ${r === CMP.ref ? "checked" : ""} aria-label="Reference row"></td><td class="mute">${k + 1}</td><td>${esc(site(sid))}</td><td>${esc(tower(tid))}</td>`
-      + show(r, allb(r), allb(CMP.ref), "all").replace(/>([^<]*)<\/td>$/, `><b>$1</b>${full(r) ? "" : ' <span class="small mute" title="Serves only some of the targets: not ranked with the others">partial</span>'}</td>`);
+      + show(r, allb(r), allb(CMP.ref), "all").replace(/>([^<]*)<\/td>$/, `><b>$1</b>${full(r) ? "" : ' <span class="small mute" title="No value on some targets or bands: not ranked with the others">partial</span>'}</td>`);
     for (const b of bands) {
       const d = data[r][b]; h += show(r, d?.v, data[CMP.ref][b]?.v, b).replace("</td>",
-        (d && d.n < used.length ? ` <span class="small mute" title="Only ${d.n} of ${used.length} targets: the tower does not serve the others">(${d.n}/${used.length})</span>` : "") +
+        (d && d.n < nB(b) ? ` <span class="small mute" title="Only ${d.n} of the ${nB(b)} targets that use ${b} m: the tower does not serve the others">(${d.n}/${nB(b)})</span>` : "") +
         (d?.warn ? ` <span class="sp ${d.warn}" title="Spacing warning on at least one target">&#9888;</span>` : "") + "</td>");
     }
     h += "</tr>";
   }
-  $("#cmpTbl").innerHTML = h + `<tr><td colspan="${bands.length + 5}" class="small mute">Worldwide = weighted mean of the HFTA FOM over ${used.map(t => `${esc(t.name)}${wt(t) !== 1 ? ` ×${wt(t)}` : ""}`).join(", ")}.
-    Weights come from the Stack Designer (1 if not set). "(n/N)" = the tower serves only n of the targets, so its value is not comparable with a tower that serves all of them.
+  $("#cmpTbl").innerHTML = h + `<tr><td colspan="${bands.length + 5}" class="small mute">Overall = for each target the mean over its bands, then the weighted mean over ${used.map(t => `${esc(t.name)}${wt(t) !== 1 ? ` ×${wt(t)}` : ""}`).join(", ")}.
+    Weights come from the Stack Designer (1 if not set). "(n/N)" = the tower serves only n of the N targets that use that band, so its value is not comparable with a tower that serves all of them.
     Click a target button to see the HFTA runs behind a value.</td></tr>`;
   $$("input[name=ref]").forEach(x => x.onchange = () => { CMP.ref = x.value; matrix(); });
   const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: ["Overall", ...bands.map(b => b + " m")], y: [allb(r), ...bands.map(b => data[r][b]?.v ?? null)], marker: { color: PAL[k % 8] } }; });
@@ -821,20 +854,25 @@ function worldwide(tg, site, tower) {
 async function cellDrawer(i) {
   const d = await api("GET", `/api/v2/p/${SLUG}/cell/${i}`), c = d.cell, p = P();
   const site = p.sites.find(s => s.id === c.site)?.name, tower = p.towers.find(t => t.id === c.tower)?.name, tgt = p.targets.find(t => t.id === c.target);
-  const st = p.settings, best = c.options[c.best];
+  const st = p.settings, best = c.best != null ? c.options[c.best] : null;
+  if (!best || !tgt) {
+    $("#drawerBody").innerHTML = `<h2>${esc(site)} · ${esc(tower)} · ${esc(tgt?.name || "?")} · ${c.band} m</h2><div class="note"><b>No result.</b> ${esc([...(c.issues || []), d.aoa_note || ""].filter(Boolean).join(" ")) || "No switch setting could be scored."}</div>`;
+    $("#drawer").hidden = false; return;
+  }
   let h = `<h2>${esc(site)} · ${esc(tower)} · ${esc(tgt.name)} · ${c.band} m</h2>
-    <p><b>HFTA FOM ${fmt(c.hfta_fom)} dB</b> with antennas at ${best.heights.join(" / ")} ft. </p>
-    ${(c.spacing || []).length ? `<h3>Spacing warnings</h3>${warnList(c.spacing)}<p class="small mute">HFTA has no mutual coupling. The FOM above is the pure HFTA value and is probably optimistic.</p>` : ""}
+    <p><b>FOM ${fmt(c.hfta_fom)} dB</b> with antennas at ${best.heights.join(" / ")} ft. </p>
+    ${(c.notes || []).length ? `<div class="note small"><b>Calculation notes.</b> ${c.notes.map(esc).join("<br>")}<br>Filled angles are estimates between their neighbours, not core output.</div>` : ""}
+    ${(c.spacing || []).length ? `<h3>Spacing warnings</h3>${warnList(c.spacing)}<p class="small mute">HFTA has no mutual coupling. The FOM above is the plain HFTA-method value and is probably optimistic.</p>` : ""}
     <h3>Switch settings</h3><div class="tbl"><table><tr><th>Antennas in use (ft)</th>${c.options[0].az.map(a => `<th class="n">${a.az}°</th>`).join("")}<th class="n">Weighted mean</th></tr>
-    ${c.options.map((o, k) => `<tr><td>${o.heights.join(" / ")}${k === c.best ? ' <span class="chip good">best</span>' : ""}</td>${o.az.map(a => `<td class="n">${fmt(a.fom)}</td>`).join("")}<td class="n"><b>${fmt(o.score)}</b></td></tr>`).join("")}</table></div>
+    ${c.options.map((o, k) => `<tr><td>${o.heights.join(" / ")}${k === c.best ? ' <span class="chip good">best</span>' : ""}</td>${o.az.map(a => `<td class="n">${a.fom == null ? '<span class="neg" title="Run failed">failed</span>' : fmt(a.fom)}${a.filled_deg ? ' <span class="small amb" title="Some angles filled by interpolation">*</span>' : ""}</td>`).join("")}<td class="n"><b>${fmt(o.score)}</b></td></tr>`).join("")}</table></div>
     <p class="small mute">Weights: ${c.options[0].az.map(a => a.weight).join(", ")}. Mean = Σ(weight × FOM) ÷ Σ weight. Best setting = highest mean.</p>
     <div id="cellPlot" class="plot"></div>
-    <h3>Reproduce in the original HFTA</h3><p class="small">Units feet. All antennas in phase. Ground: dielectric ${st.epsr}, conductivity ${st.sigma} S/m. Diffraction ${st.diffraction ? "on" : "off"}. Elevation file: <b>${esc(d.prn)}</b>.</p>
+    <h3>Reproduce in the original HFTA</h3><p class="small mute">Calculated with ${esc(d.engine?.name || "OpenHFTA")}${d.engine?.commit ? ` (commit ${esc(String(d.engine.commit).slice(0, 12))})` : ""}.</p><p class="small">Units feet. All antennas in phase. Ground: dielectric ${st.epsr}, conductivity ${st.sigma} S/m. Diffraction ${st.diffraction ? "on" : "off"}. Elevation file: <b>${esc(d.prn)}</b>.</p>
     <div class="tbl"><table><tr><th>Heading</th><th>Terrain file</th><th class="n">MHz</th><th>Type</th><th>Heights (ft)</th><th class="n">HFTA FOM</th></tr>
     ${best.az.map(a => { const r = d.runs[a.run]; return `<tr><td>${a.az}°</td><td>${esc(r.file)}</td><td class="n">${r.freq}</td><td>${r.hfta_type}</td><td>${r.heights_ft.join(" / ")}</td><td class="n">${fmt(a.fom)}</td></tr>`; }).join("")}</table></div>
     <button class="ghost small" id="copyRec">Copy these runs as text</button>`;
   $("#drawerBody").innerHTML = h; $("#drawer").hidden = false;
-  const tr = best.az.map((a, k) => ({ x: d.angles, y: d.patterns[a.run], name: `${a.az}° (${d.runs[a.run].file})`, mode: "lines", line: { color: PAL[k % 8] } }));
+  const tr = best.az.filter(a => d.patterns[a.run]).map((a, k) => ({ x: d.angles, y: d.patterns[a.run], name: `${a.az}° (${d.runs[a.run].file})`, mode: "lines", line: { color: PAL[k % 8] } }));
   const ang = Object.keys(d.aoa).map(Number); tr.push({ type: "bar", x: ang, y: ang.map(a => d.aoa[a]), name: "arrival angles (%)", yaxis: "y2", marker: { color: "rgba(127,140,141,.35)" } });
   Plotly.react("cellPlot", tr, plotLayout({ margin: { l: 50, r: 60, t: 34, b: 42 }, title: { text: "Elevation pattern of the best setting, with arrival angles", font: { size: 13 } }, xaxis: { title: "elevation (°)", range: [0, 35], gridcolor: css("--line") },
     yaxis: { title: "gain (dBi)", gridcolor: css("--line") }, yaxis2: { overlaying: "y", side: "right", title: "% of openings", showgrid: false } }), { displaylogo: false, responsive: true });
@@ -847,17 +885,17 @@ async function cellDrawer(i) {
 /* ---------------------------------------------------------------- 5. Report */
 function rReport() {
   const p = P();
-  const ex = (k, t, d) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && !["project", "bundle"].includes(k) ? "disabled" : ""}>Download</button></div>`;
-  $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">Every exported number is a pure HFTA result. Spacing warnings and the guy check are included as notes; they never change a number.</p>
+  const ex = (k, t, d, alt) => `<div class="card"><h2>${t}</h2><p class="small">${d}</p><button data-ex="${k}" ${!S.has_results && !["project", "bundle"].includes(k) ? "disabled" : ""}>Download</button>${alt ? ` <button class="ghost" data-ex="${alt[0]}" ${!S.has_results && !["project", "bundle"].includes(k) ? "disabled" : ""}>${alt[1]}</button>` : ""}</div>`;
+  $("#p-report").innerHTML = `<h1>Report and export</h1><p class="lead">Every exported number is an OpenHFTA result (the HFTA method; checked against original-HFTA output). Spacing warnings and the guy check are included as notes; they never change a number.</p>
   ${S.has_results ? "" : `<div class="note">Run the evaluation in step 4 first.</div>`}
   <p class="small mute">Calculations by OpenHFTA (RioDXGroup, github.com/RioDXGroup/openhfta), used unchanged. HFTA by R. Dean Straw, N6BV, published with
   <i>The ARRL Antenna Book</i>. ARRL elevation-angle files are copyright ARRL and are supplied by the user. Not affiliated with or endorsed by ARRL or the OpenHFTA authors.</p>
   <div class="exports">
     ${ex("html", "Report (HTML)", "One self-contained page to read, print or send: inputs, comparison tables, charts, guy check, and how to reproduce.")}
     ${ex("xlsx", "Workbook (Excel)", "Results, every HFTA run, and the combination of runs as live formulas, so each number can be traced.")}
-    ${ex("replay", "HFTA replay pack (zip)", "Every terrain and .PRN file used, each run with its exact HFTA inputs and FOM, expected patterns in OUT.PRN layout, and step-by-step instructions.")}
+    ${ex("replay", "HFTA replay pack (zip)", "Every terrain file used, each run with its exact HFTA inputs and FOM, expected patterns in OUT.PRN layout, and step-by-step instructions. <b>Download</b> = shareable: the .PRN files are left out (copyright ARRL) and listed by name and checksum. <b>With .PRN files</b> = private copy for your own records; do not share it.", ["replay?prn=1", "With .PRN files (private)"])}
     ${ex("csv", "Results (CSV)", "One row per site, tower, target and band, for your own spreadsheet.")}
-    ${ex("bundle", "Project with files (zip)", "The project with its terrain and .PRN files. Open it on another computer or on a hosted copy with “Open project zip”. Results are recomputed there.")}
+    ${ex("bundle", "Project with files (zip)", "The project with its terrain and .PRN files, for moving <b>your own</b> project to another of your computers (“Open project zip”). Results are recomputed there. <b>Shareable</b> leaves the .PRN files out, for giving the project to someone else.", ["bundle?prn=0", "Shareable (no .PRN)"])}
     ${ex("project", "Project file (settings only)", "The project settings without terrain or .PRN files.")}
   </div>`;
   $$("[data-ex]").forEach(b => b.onclick = () => { window.location = `/api/v2/p/${SLUG}/export/${b.dataset.ex}`; });
@@ -865,6 +903,7 @@ function rReport() {
 
 /* ---------------------------------------------------------------- start */
 async function openProject(slug) {
+  await flushSave();
   SLUG = slug; S = await api("GET", `/api/v2/p/${slug}`);
   try { localStorage.setItem("hfta-project", slug); } catch (e) { /* storage unavailable */ }
   /* Target called "South Asia" (the ARRL file's own wording) becomes "Asia", once, whichever page opens first. */
@@ -984,7 +1023,7 @@ new MutationObserver(() => applyTips()).observe(document.documentElement, { chil
 /* ---------------------------------------------------------------- help */
 function showHelp() {
   $("#drawerBody").innerHTML = `<h2>How to use the planner</h2>
-  <p class="small mute">Every number comes from HFTA runs. The planner only organises the runs and the arithmetic between them.</p>
+  <p class="small mute">Every number comes from OpenHFTA runs (the HFTA method). The planner only organises the runs and the arithmetic between them.</p>
 
   <h3>1. Sites</h3>
   <p>A site is one position where a tower could stand. Enter its latitude and longitude. Then give it terrain, one file per compass direction:</p>
@@ -1134,9 +1173,16 @@ function compResult(r) {
   const summary = !st ? "" : `<div class="note small"><b>Search summary.</b> ${n(st.hfta_runs)} HFTA runs (each one HFTA calculation of an elevation pattern:
     ${st.stages.map(x => `${esc(x.stage)} ${n(x.runs)}`).join("; ")}). ${n(st.fom_evaluations)} FOM evaluations against the .PRN files.
     Layouts scored per group: ${st.group_layouts.map(g => `${esc(g.name)} ${n(g.layouts)}`).join(", ")}.
-    ${n(st.combinations_checked)} combinations of groups checked, ${n(st.combinations_kept)} kept by the gap and order rules.
+    ${n(st.combinations_checked)} combinations of groups examined.
+    ${st.complete === undefined ? "" : st.complete
+      ? (st.coarse_grid
+          ? `<b>Best found.</b> The height grid was too large, so it was searched coarse first and then fine around the best coarse layouts; a layout between them could be slightly better.`
+          : `<b>Complete:</b> no other layout on this height grid scores higher. Combinations that could not beat the best were skipped by calculation, not by guess.`)
+      : `<b>Search limit reached:</b> best found, not proven best. Narrow the height ranges or use a larger step.`}
+    ${st.failed_runs ? `<span class="neg">${n(st.failed_runs)} run(s) failed in the calculation core; ${n(st.layouts_dropped)} layout(s) without a complete score were left out.</span>` : ""}
+    ${st.filled_runs ? `${n(st.filled_runs)} run(s) had a few invalid angles filled by interpolation.` : ""}
     Time ${st.seconds < 90 ? st.seconds + " s" : (st.seconds / 60).toFixed(1) + " min"}.
-    <span class="mute">In the original HFTA each run is one press of the Calculate button.</span></div>`;
+    <span class="mute">Each run is one OpenHFTA calculation, the same as one press of Calculate in the original HFTA.</span></div>`;
   /* Does the shown result match the form as it is now? */
   const f = compForm(), diffs = [];
   if (q.site !== f.site) diffs.push("site");
@@ -1154,7 +1200,7 @@ function compResult(r) {
     Press <b>Design the stack</b> to search with the inputs above.</div>` : "";
   $("#cmOut").innerHTML = `${stale}${summary}${inputs ? `<div class="note small"><b>Inputs of this run</b> (${esc(r.stamp || "")}): ${esc(inputs)}<br>A different result after a new run means one of these changed.</div>` : ""}
   <p class="small mute" style="margin-top:10px">Spacing column: hover a chip for details. Rows are ranked by HFTA only; a warning means HFTA is probably optimistic for that layout.
-    ${r.evaluated} layouts compared from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
+    Best ${r.evaluated} layouts shown, from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
   <div class="tbl"><table><tr><th>#</th><th>Layout</th><th>Spacing</th><th class="n">Overall</th>${r.targets.map(t => `<th class="n">${esc(t.name)} <span class="mute">(w ${r.weights[t.id]})</span></th>`).join("")}<th></th></tr>
   ${r.rows.map((x, k) => { const sw = worstOf(x.spacing || []); return `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}</td>
