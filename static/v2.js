@@ -653,10 +653,16 @@ function matrix() {
   const val = c => c ? c.hfta : null;
   const get = (row, b) => cells.find(c => c.site + "|" + c.tower === row && c.band === b);
   const best = Object.fromEntries(bands.map(b => [b, Math.max(...rows.map(r => val(get(r, b)) ?? -1e9))]));
-  let h = `<tr><th>Ref.</th><th>Site</th><th>Tower</th>${bands.map(b => `<th class="n">${b} m</th><th class="small mute">switch (ft)</th>`).join("")}</tr>`;
-  for (const r of rows) {
-    const [sid, tid] = r.split("|");
-    h += `<tr><td><input type="radio" name="ref" value="${r}" ${r === CMP.ref ? "checked" : ""} aria-label="Reference row"></td><td>${esc(site(sid))}</td><td>${esc(tower(tid))}</td>`;
+  /* Overall = mean over the bands, as in the Stack Designer. Only when the row has a value on every band. Rows ranked by it. */
+  const overall = r => { const v = bands.map(b => { const c = get(r, b); return c && !c.issues.length ? val(c) : null; }); return v.every(x => x != null) ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  rows.sort((a, b) => (overall(b) ?? -1e9) - (overall(a) ?? -1e9));
+  const bestAll = Math.max(...rows.map(r => overall(r) ?? -1e9));
+  let h = `<tr><th>Ref.</th><th>#</th><th>Site</th><th>Tower</th><th class="n" title="Mean over the bands. Rows are ranked by this value">Overall</th>${bands.map(b => `<th class="n">${b} m</th><th class="small mute">switch (ft)</th>`).join("")}</tr>`;
+  for (const [k, r] of rows.entries()) {
+    const [sid, tid] = r.split("|"), o = overall(r), ro = overall(CMP.ref);
+    const oShown = o == null ? "–" : CMP.delta && r !== CMP.ref ? (ro == null ? "–" : (o - ro >= 0 ? "+" : "") + fmt(o - ro)) : fmt(o);
+    h += `<tr><td><input type="radio" name="ref" value="${r}" ${r === CMP.ref ? "checked" : ""} aria-label="Reference row"></td><td class="mute">${k + 1}</td><td>${esc(site(sid))}</td><td>${esc(tower(tid))}</td>
+      <td class="n${o != null && Math.abs(o - bestAll) < 0.005 ? " best" : ""}"><b>${oShown}</b></td>`;
     for (const b of bands) {
       const c = get(r, b), v = val(c);
       if (!c) { h += `<td class="mute">–</td><td></td>`; continue; }
@@ -702,22 +708,26 @@ function worldwide(tg, site, tower) {
     const cls = "n" + (Math.abs(v - best[key]) < 0.005 ? " best" : "");
     return `<td class="${cls}">${CMP.delta && r !== CMP.ref ? (refv == null ? "–" : (v - refv >= 0 ? "+" : "") + fmt(v - refv)) : fmt(v)}</td>`;
   };
-  let h = `<tr><th>Ref.</th><th>Site</th><th>Tower</th>${bands.map(b => `<th class="n">${b} m</th>`).join("")}<th class="n" title="Mean over the bands, only when the tower has every band">All bands</th></tr>`;
-  for (const r of rows) {
+  /* Towers that serve every target are ranked first; a tower serving fewer targets is not comparable, so it goes below. */
+  const full = r => bands.every(b => !data[r][b] || data[r][b].n === used.length);
+  rows.sort((a, b) => (full(b) - full(a)) || ((allb(b) ?? -1e9) - (allb(a) ?? -1e9)));
+  let h = `<tr><th>Ref.</th><th>#</th><th>Site</th><th>Tower</th><th class="n" title="Mean over the bands (each band already averaged over the targets). Rows are ranked by this value">Overall</th>${bands.map(b => `<th class="n">${b} m</th>`).join("")}</tr>`;
+  for (const [k, r] of rows.entries()) {
     const [sid, tid] = r.split("|");
-    h += `<tr><td><input type="radio" name="ref" value="${r}" ${r === CMP.ref ? "checked" : ""} aria-label="Reference row"></td><td>${esc(site(sid))}</td><td>${esc(tower(tid))}</td>`;
+    h += `<tr><td><input type="radio" name="ref" value="${r}" ${r === CMP.ref ? "checked" : ""} aria-label="Reference row"></td><td class="mute">${k + 1}</td><td>${esc(site(sid))}</td><td>${esc(tower(tid))}</td>`
+      + show(r, allb(r), allb(CMP.ref), "all").replace(/>([^<]*)<\/td>$/, `><b>$1</b>${full(r) ? "" : ' <span class="small mute" title="Serves only some of the targets: not ranked with the others">partial</span>'}</td>`);
     for (const b of bands) {
       const d = data[r][b]; h += show(r, d?.v, data[CMP.ref][b]?.v, b).replace("</td>",
         (d && d.n < used.length ? ` <span class="small mute" title="Only ${d.n} of ${used.length} targets: the tower does not serve the others">(${d.n}/${used.length})</span>` : "") +
         (d?.warn ? ` <span class="sp ${d.warn}" title="Spacing warning on at least one target">&#9888;</span>` : "") + "</td>");
     }
-    h += show(r, allb(r), allb(CMP.ref), "all") + "</tr>";
+    h += "</tr>";
   }
-  $("#cmpTbl").innerHTML = h + `<tr><td colspan="${bands.length + 4}" class="small mute">Worldwide = weighted mean of the HFTA FOM over ${used.map(t => `${esc(t.name)}${wt(t) !== 1 ? ` ×${wt(t)}` : ""}`).join(", ")}.
+  $("#cmpTbl").innerHTML = h + `<tr><td colspan="${bands.length + 5}" class="small mute">Worldwide = weighted mean of the HFTA FOM over ${used.map(t => `${esc(t.name)}${wt(t) !== 1 ? ` ×${wt(t)}` : ""}`).join(", ")}.
     Weights come from the Stack Designer (1 if not set). "(n/N)" = the tower serves only n of the targets, so its value is not comparable with a tower that serves all of them.
     Click a target button to see the HFTA runs behind a value.</td></tr>`;
   $$("input[name=ref]").forEach(x => x.onchange = () => { CMP.ref = x.value; matrix(); });
-  const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: [...bands.map(b => b + " m"), "All bands"], y: [...bands.map(b => data[r][b]?.v ?? null), allb(r)], marker: { color: PAL[k % 8] } }; });
+  const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: ["Overall", ...bands.map(b => b + " m")], y: [allb(r), ...bands.map(b => data[r][b]?.v ?? null)], marker: { color: PAL[k % 8] } }; });
   const all = tr.flatMap(t => t.y).filter(v => v != null);
   Plotly.react("cmpPlot", tr, plotLayout({ barmode: "group", title: { text: "Worldwide FOM by band (weighted mean over targets)", font: { size: 13 } }, yaxis: { title: "FOM (dB)", range: [Math.min(...all) - 2, Math.max(...all) + 1], gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
 }
