@@ -101,6 +101,14 @@ Items waiting for the self-hosted server. Nothing here is started.
    the way N6BV made the ARRL files: VOACAP runs over 12 months × 24 hours × low/medium/high solar activity,
    histogram of the arrival angle of the strongest mode per band, written in the ARRL `.PRN` layout.
    Today the `.PRN` files exist only for US origins, so a station outside the US cannot use steps 2–5.
+   - Any origin: the station's own lat/lon, anywhere in the world (Europe, Asia, Oceania, Alaska, ...).
+   - First step: generate a file for the W1-MA origin and compare it with the ARRL W1 file, to prove the method
+     before anyone relies on it.
+   - Options beyond the ARRL files: chosen months (e.g. contest season, late October–November), chosen hours
+     (e.g. night-time for 40 m), expected solar activity instead of the whole-cycle average, and custom targets
+     (one entity or a narrow direction instead of a broad region).
+   - Generated files must be marked as VOACAP-generated, never presented as ARRL data.
+   - Limit: VOACAP gives one or a few modes per hour, so the angle histogram is coarser than measured data.
 
 2. **Terrain for any country.** "Fetch terrain online" uses USGS 3DEP, United States only. Research notes:
    - *SRTM* (Shuttle Radar Topography Mission, February 2000) is what MicroDEM used when HFTA was new.
