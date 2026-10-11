@@ -289,21 +289,69 @@ function computedBearing(t) {
   const c = regionCode(t.prn), h = homeSite(); if (!c || !h) return null;
   const q = REGION_POINT[c]; return { deg: bearingTo(Number(h.lat), Number(h.lon), q.lat, q.lon), where: q.where, site: h.name };
 }
-function regionOf(file) { const m = /-([A-Z]{2})\.PRN$/i.exec(file || ""); return m ? REGION[m[1].toUpperCase()] || null : null; }
+function regionOf(file) { const m = /-([A-Z]{2})(?:-VOACAP)?\.PRN$/i.exec(file || ""); return m ? REGION[m[1].toUpperCase()] || null : null; }
 function offsetsFrom(spread, step) {
   if (!spread || !step) return [0]; const o = []; for (let x = -spread; x <= spread + 1e-9; x += step) o.push(Math.round(x * 100) / 100); return o;
+}
+/* Dialog: make a .PRN table with VOACAP for a site of this project (or typed coordinates) and a region. */
+function prnGenDialog() {
+  const p = P(), sites = p.sites.filter(s => s.lat != null && s.lon != null), home = homeSite() || sites[0];
+  const regions = Object.entries(META.regions || {});
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  modal(`<h2>Generate an elevation-angle table with VOACAP</h2>
+  <p class="small mute">VOACAP is run for every chosen month, hour and solar level, to several points in the region; every propagation mode counts its
+  elevation angle, weighted by its reliability. For the W1 (Boston) origin this agrees with the ARRL files within about 1 dB of FOM on most bands
+  (details in Help). Files made here are marked "VOACAP-generated".</p>
+  <form id="genForm">
+  <div class="row"><label>Origin<select name="site">${sites.map(s => `<option value="${s.id}" ${s === home ? "selected" : ""}>${esc(s.name)} (${s.lat}, ${s.lon})</option>`).join("")}<option value="">typed position…</option></select></label>
+    <label>Latitude<input name="lat" type="number" step="0.0001" value="${home ? home.lat : ""}" style="width:110px"></label>
+    <label>Longitude<input name="lon" type="number" step="0.0001" value="${home ? home.lon : ""}" style="width:110px"></label></div>
+  <div class="row"><label>Region<select name="region">${regions.map(([k, v]) => `<option value="${k}">${esc(v)} (${k})</option>`).join("")}<option value="custom">custom points…</option></select></label>
+    <label style="flex:1">Custom points, one "lat, lon" per line<textarea name="points" rows="2" style="width:100%" placeholder="e.g. 51.5, -0.1"></textarea></label></div>
+  <div class="row"><label>File name<input name="name" value="" style="width:220px"></label></div>
+  <div class="row"><span class="small mute" style="align-self:center">Months:</span>${mon.map((m, i) => `<label style="flex-direction:row;align-items:center;gap:3px"><input type="checkbox" name="m" value="${i + 1}" checked>${m}</label>`).join("")}</div>
+  <div class="row"><label>Hours (UTC)<select name="hours"><option value="">all 24 hours</option><option value="0-12">00–12 (evening and night in the Americas)</option><option value="12-24">12–24</option><option value="custom">from–to below</option></select></label>
+    <label>From<input name="h1" type="number" min="0" max="23" value="0" style="width:70px"></label><label>To<input name="h2" type="number" min="1" max="24" value="24" style="width:70px"></label></div>
+  <div class="row"><span class="small mute" style="align-self:center">Solar activity (sunspot number):</span>${(META.ssn_levels || []).map(([k, v]) => `<label style="flex-direction:row;align-items:center;gap:3px"><input type="checkbox" name="ssn" value="${v}" checked>${k} (${v})</label>`).join("")}</div>
+  <p class="small mute">All months, all hours and all three solar levels give a table like the ARRL files. Fewer months or hours give a table for that season or time of day; one solar level gives a table for that part of the cycle. A table takes about half a minute.</p>
+  <div class="row"><button type="submit">Generate</button><button type="button" class="ghost" id="genCancel">Cancel</button></div></form>`);
+  const f = $("#genForm"), setName = () => { const r = f.region.value, s = sites.find(x => x.id === f.site.value); f.name.value = `${(s ? s.name : "origin").replace(/[^A-Za-z0-9_-]+/g, "-")}-${r === "custom" ? "custom" : r}-VOACAP.PRN`; };
+  f.site.onchange = () => { const s = sites.find(x => x.id === f.site.value); if (s) { f.lat.value = s.lat; f.lon.value = s.lon; } setName(); };
+  f.region.onchange = setName; setName();
+  $("#genCancel").onclick = closeModal;
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const body = { lat: Number(f.lat.value), lon: Number(f.lon.value), name: f.name.value.trim(), region: f.region.value,
+      origin_name: (sites.find(x => x.id === f.site.value) || {}).name || "", months: [...f.querySelectorAll("[name=m]:checked")].map(x => Number(x.value)),
+      ssn: [...f.querySelectorAll("[name=ssn]:checked")].map(x => Number(x.value)) };
+    if (f.region.value === "custom") body.points = f.points.value.split("\n").map(l => l.split(",").map(Number)).filter(a => a.length === 2 && a.every(Number.isFinite));
+    const hv = f.hours.value; if (hv === "custom") { const a = Number(f.h1.value), b = Number(f.h2.value); body.hours = [...Array(24).keys()].filter(h => a <= b ? (h >= a && h < b) : (h >= a || h < b)); }
+    else if (hv) { const [a, b] = hv.split("-").map(Number); body.hours = [...Array(24).keys()].filter(h => h >= a && h < b); }
+    if (!body.months.length || !body.ssn.length) return toast("Choose at least one month and one solar level");
+    if (!/\.prn$/i.test(body.name)) body.name += ".PRN";
+    closeModal();
+    try {
+      const { job } = await api("POST", `/api/v2/p/${SLUG}/prn/generate`, body); const r = await poll(job, $("#genProg"));
+      if (!r) return;
+      S = await api("GET", `/api/v2/p/${SLUG}`); rTargets();
+      toast(`${r.file} made (${r.describe})${r.empty_bands.length ? `. No openings found on ${r.empty_bands.join("/")} m` : ""}. Choose it in a target's file list.`, 8000);
+    } catch (err) { toast(err.message, 6000); }
+  };
 }
 function rTargets() {
   const p = P(), el = $("#p-targets");
 
-  el.innerHTML = `<h1>Targets</h1><p class="lead">A target is a path you want to work, for example Europe at 52°. Each target uses one ARRL elevation-angle file (.PRN)
-  and one or more headings around its bearing. The result is the weighted mean of the FOM at those headings, exactly as you would average several HFTA runs.</p>
+  el.innerHTML = `<h1>Targets</h1><p class="lead">A target is a path you want to work, for example Europe at 52°. Each target uses one elevation-angle file (.PRN: an ARRL file,
+  or one generated with VOACAP) and one or more headings around its bearing. The result is the weighted mean of the FOM at those headings, exactly as you would average several HFTA runs.</p>
   <div class="card"><h2>Elevation-angle files (.PRN)</h2>
     <p class="small mute">The ARRL files come with the ARRL Antenna Book (e.g. W1-MA-EU.PRN). They are not included in the program; add your own copies once and save them to the library.</p>
     <div class="row"><button id="prnBtn">Add .PRN files</button><input type="file" id="prnIn" multiple accept=".prn,.PRN" hidden>
       <button class="ghost" id="prnToLib" title="Keep a copy of these files in your library. Every new project then starts with them" ${S.prns.length ? "" : "disabled"}>Save to library</button>
-      <button class="ghost" id="prnFromLib" title="Add the library's .PRN files to this project">Add from library</button></div>
+      <button class="ghost" id="prnFromLib" title="Add the library's .PRN files to this project">Add from library</button>
+      ${META.voacap ? `<button class="ghost" id="prnGen" title="Make an elevation-angle table with VOACAP for any origin in the world: the method of the ARRL files, with your own choice of months, hours and solar activity">Generate with VOACAP…</button>` : ""}</div>
     <p class="small mute" id="prnLibInfo" style="margin:6px 0 0"></p>
+    ${META.voacap ? `<p class="small mute" style="margin:6px 0 0">No ARRL files? <b>Generate with VOACAP</b> makes a table for your own position and any region (checked against the ARRL W1 files; see Help). Such files are marked "VOACAP-generated".</p>` : ""}
+    <div class="prog" id="genProg" hidden><i></i></div>
     <div class="split" style="margin-top:10px"><div class="tbl"><table><tr><th>File</th><th></th></tr>
       ${S.prns.map(f => `<tr><td>${esc(f)}</td><td><button class="ghost small" data-prv="${esc(f)}">View</button></td></tr>`).join("") || `<tr><td class="mute">No files yet.</td><td></td></tr>`}</table></div>
       <div><div id="prnPlot" class="plot sm"></div></div></div></div>
@@ -321,6 +369,7 @@ function rTargets() {
     el.innerHTML = L.prns.length ? `Library: ${L.prns.length} files (${L.prns.map(esc).join(", ")}). They are copied into every new project.`
       : `Your library has no .PRN files yet. "Save to library" keeps these files for every new project. They stay on this computer and are not part of the program.`;
   });
+  if ($("#prnGen")) $("#prnGen").onclick = () => prnGenDialog();
   $("#prnToLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/prn/to-library`); toast(`${r.saved.length} files saved to the library. New projects will start with them.`, 5000); rTargets(); };
   $("#prnFromLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/library/prn`); const proj = P(); S = r; S.project = proj;
     toast(r.added.length ? `${r.added.length} files added from the library.` : "Nothing to add: the project already has every library file.", 4000); rTargets(); };
@@ -1035,6 +1084,13 @@ function showHelp() {
   </ul>
   <p>Add two or more sites to compare positions. <b>Copy, moved…</b> makes a second site a set distance away, to see how much the result depends on the exact position (HFTA's move-the-tower check).</p>
 
+  <p><b>Elevation-angle tables with VOACAP.</b> Targets → "Generate with VOACAP…" makes a .PRN table for any origin in the world, the way the
+  ARRL files were made: VOACAP is run for every month, hour and three solar levels to several points in the region, and every propagation mode
+  counts its elevation angle, weighted by its reliability. For the W1 (Boston) origin the result was checked against the ARRL W1 files: on
+  Europe, Japan, Asia, Africa, Oceania and South America the FOM ranking of test antennas agrees within about 1 dB on nearly every band
+  (worst 2 dB); USA agrees within 2 dB on 80–15 m, but on 12 and 10 m the two disagree (VOACAP predicts higher angles for domestic paths).
+  Fewer months or hours give a table for a season or a time of day; one solar level gives a table for that part of the cycle. The ARRL
+  files remain the reference where they exist.</p>
   <p><b>Library.</b> "Save to library" on a site or tower card keeps a named copy for all your projects (sites with their terrain files). "Add from library…" below the cards copies one into the current project.</p>
 
   <h3>2. Targets</h3>

@@ -311,6 +311,55 @@ def f21_atomic_write_leaves_no_partial_file():
     f = TMP / "a.json"; P.write_atomic(f, '{"a": 1}'); P.write_atomic(f, '{"a": 2}')
     assert json.loads(f.read_text()) == {"a": 2} and not list(TMP.glob(".a.json*"))
 
+# ------------------------------------------------------------------ VOACAP angle tables (core/aoa_gen.py)
+@test
+def voacap_deck_columns():
+    from core import aoa_gen as AG
+    d = AG.deck((42.4, -71.1), (-33.9, 151.2), [1, 11], 70, [3.6, 14.2], "W1 to Sydney")
+    lines = d.splitlines()
+    cir = next(l for l in lines if l.startswith("CIRCUIT"))
+    assert cir == "CIRCUIT   42.40N    71.10W    33.90S   151.20E  S     0", cir
+    assert next(l for l in lines if l.startswith("SUNSPOT")) == "SUNSPOT     70."
+    assert [l for l in lines if l.startswith("MONTH")] == ["MONTH      2026 1.00", "MONTH      202611.00"]
+    assert next(l for l in lines if l.startswith("FREQUENCY")) == "FREQUENCY  3.6014.20 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00"
+    assert d.count("EXECUTE") == 2 and lines[-1] == "QUIT"
+
+@test
+def voacap_parse_all_modes():
+    from core import aoa_gen as AG
+    rows = list(AG.parse_method25((DATA / "voacap_method25_sample.out").read_text()))
+    hours = {r[0] for r in rows}; freqs = {r[2] for r in rows}
+    assert len(hours) == 24 and {3.6, 14.2} <= freqs, (hours, freqs)
+    h1 = next(r for r in rows if r[0] == 1.0 and r[2] == 3.6)
+    assert h1[1] == "Jan" and len(h1[3]) == 5 and abs(h1[3][0]["angle"] - 6.58) < 0.01 and h1[3][0]["rel"] == 1.0
+    # to_prn: percentages per band add up to 100 where there is data; angles are whole degrees from 1
+    counts = {"80": {7: 2.0, 14: 1.0, 21: 1.0}, "20": {}}
+    txt = AG.to_prn({"counts": counts, "weight_total": {"80": 4.0, "20": 0.0}}, "test", bands=["80", "20"], max_angle=25)
+    lines = txt.splitlines(); assert lines[0].startswith("VOACAP-generated: test") and lines[1].split() == ["Elev", "80m", "20m"]
+    vals = {int(l.split()[0]): [float(x) for x in l.split()[1:]] for l in lines[2:]}
+    assert vals[7] == [50.0, 0.0] and vals[14] == [25.0, 0.0] and abs(sum(v[0] for v in vals.values()) - 100) < 0.01
+    assert engine.parse_aoa(txt, 3.6)[7] == 0.5          # OpenHFTA reads the file
+
+@test
+def voacap_generate_if_installed():
+    from core import aoa_gen as AG
+    if not AG.available(): print("     (voacapl not installed: generation not tested)"); return
+    slug, proj = new_project("Voacap")
+    proj["sites"] = [{"id": "s1", "name": "Home", "lat": 42.4, "lon": -71.1}]; put(slug, proj)
+    body = {"lat": 42.4, "lon": -71.1, "region": "JA", "name": "Home-JA-VOACAP.PRN", "months": [1, 7], "ssn": [70], "origin_name": "Home"}
+    jid = C.post(f"/api/v2/p/{slug}/prn/generate", json=body).get_json()["job"]
+    for _ in range(600):
+        j = C.get(f"/api/job/{jid}").get_json()
+        if j["state"] != "running": break
+        time.sleep(0.3)
+    assert j["state"] == "done", j
+    f = P.prn_file(slug, "Home-JA-VOACAP.PRN"); assert f.exists() and "20" in j["result"]["bands"]
+    txt = f.read_text(); assert txt.startswith("VOACAP-generated: Home to Japan (months Jan,Jul, all hours, SSN 70)"), txt[:90]
+    aoa = engine.parse_aoa(txt, 14.2); assert aoa and abs(sum(aoa.values()) - 1) < 0.01
+    assert sum(a * p for a, p in aoa.items()) < 12          # Japan from New England arrives low
+    jid = C.post(f"/api/v2/p/{slug}/prn/generate", json={**body, "name": "../x.PRN"}).get_json()["job"]
+    time.sleep(1); assert C.get(f"/api/job/{jid}").get_json()["state"] == "error"
+
 if __name__ == "__main__":
     print(f"\nPASS: {len(PASSED)} tests")
     if APP.POOL is not None: APP.POOL.shutdown(wait=True, cancel_futures=True)

@@ -119,22 +119,43 @@ is the same file. The private versions are for your own records only.
 | `HOSTED` | `1` = server on a network: a password is then required | not set |
 | `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
 
-## Development list
-Items waiting for the self-hosted server. Nothing here is started.
+## VOACAP angle tables (any origin in the world)
+Targets → **Generate with VOACAP…** makes a `.PRN` elevation-angle table for any origin and region, so that a station
+outside the US (or in Alaska) can use steps 2–5 without ARRL files. `voacapl` (public-domain VOACAP for Linux, port by
+M0DNS, github.com/jawatson/voacapl) is built into the Docker image; for a local run install it and run `makeitshfbc`
+(`VOACAPL` and `ITSHFBC` environment variables point to the binary and the data folder if they are not in the default
+places). Every generated file is titled "VOACAP-generated"; it is not an ARRL file.
 
-1. **Docker image with VOACAP.** Add `voacapl` (open-source VOACAP command line, ITS public domain) to the
-   image next to OpenHFTA. Then the planner can make `.PRN` elevation-angle files for any site and target,
-   the way N6BV made the ARRL files: VOACAP runs over 12 months × 24 hours × low/medium/high solar activity,
-   histogram of the arrival angle of the strongest mode per band, written in the ARRL `.PRN` layout.
-   Today the `.PRN` files exist only for US origins, so a station outside the US cannot use steps 2–5.
-   - Any origin: the station's own lat/lon, anywhere in the world (Europe, Asia, Oceania, Alaska, ...).
-   - First step: generate a file for the W1-MA origin and compare it with the ARRL W1 file, to prove the method
-     before anyone relies on it.
-   - Options beyond the ARRL files: chosen months (e.g. contest season, late October–November), chosen hours
-     (e.g. night-time for 40 m), expected solar activity instead of the whole-cycle average, and custom targets
-     (one entity or a narrow direction instead of a broad region).
-   - Generated files must be marked as VOACAP-generated, never presented as ARRL data.
-   - Limit: VOACAP gives one or a few modes per hour, so the angle histogram is coarser than measured data.
+**Method** (core/aoa_gen.py), after the way N6BV made the ARRL files: VOACAP method 25 (all modes) is run for every month,
+every hour and three sunspot numbers (10, 70, 150), from the origin to several receive points that stand for the region,
+with isotropic antennas, 1.5 kW and a required SNR of 24 dB. Every propagation mode of every hour contributes its
+elevation angle, weighted by that mode's reliability. The weighted counts at each whole degree are written as
+percentages per band. Options: a choice of months (e.g. the contest season), of UTC hours (e.g. night), of solar
+level, and custom receive points instead of a region.
+
+**Check against the ARRL files.** Tables for the W1 (Boston, MA) origin were compared with the seven ARRL W1-MA files
+(`tools/compare_prn.py`): for each band, the FOM of eight test antennas (single 4-element Yagis at 40–160 ft and
+stacks) over flat ground was computed with both files. A constant offset between two files does not change which
+antenna wins; the number that matters is the largest FOM difference after removing that offset ("ranking error").
+
+| Region | Mean angle, ARRL vs VOACAP (20 m) | Ranking error, worst band | Note |
+|---|---|---|---|
+| Europe | 11.1° vs 10.1° | 0.6 dB | all bands within 0.6 dB |
+| Japan | 5.6° vs 6.1° | 1.4 dB | |
+| Asia | 6.9° vs 5.3° | 1.2 dB | 40 m: ARRL has more at 1–2°, a 4 dB offset but the same ranking |
+| southern Africa | 7.3° vs 6.7° | 0.9 dB | ARRL 80 m column is nearly empty |
+| Oceania | 5.2° vs 4.6° | 2.0 dB | 10 m |
+| South America | 10.2° vs 10.8° | 1.0 dB | |
+| USA | 17.9° vs 17.1° | 1.9 dB on 80–15 m | 12 and 10 m disagree (4.8 and 7.8 dB): VOACAP predicts higher angles for domestic paths than the ARRL file |
+
+So for DX regions a VOACAP table ranks antennas the way the ARRL file does, within the 1 dB that matters in practice.
+For domestic 12 and 10 m the two methods differ; use the ARRL file there if you have it. The ARRL files remain the
+reference where they exist. The receive points per region are listed in core/aoa_gen.py; "Asia" is India to China.
+
+## Development list
+
+1. ~~Docker image with VOACAP~~: done, see "VOACAP angle tables" above. Still to do: a W1-MA comparison in the test
+   suite needs the ARRL files, which are not in the repository, so it stays a manual check (`tools/compare_prn.py`).
 
 2. **Terrain for any country.** "Fetch terrain online" uses USGS 3DEP, United States only. Research notes:
    - *SRTM* (Shuttle Radar Topography Mission, February 2000) is what MicroDEM used when HFTA was new.

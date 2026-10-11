@@ -4,7 +4,7 @@ import io, json, os, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
-from core import library as LB, antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP
+from core import library as LB, antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP, aoa_gen as AG
 
 bp = Blueprint("v2", __name__)
 CTX = {}   # set by app.py: pool(), JOBS
@@ -61,7 +61,8 @@ def index():
 def meta():
     return jsonify({"elements": A.ELEMENTS, "types": {str(k): v for k, v in A.TYPE.items()}, "spacing_defaults": P.SPACING_DEFAULTS, "bands": A.BANDS, "band_freq": A.BAND_FREQ, "soils": P.SOILS,
                     "wires": {k: {"lb_ft": v[0], "dia_in": v[1], "tension": v[2]} for k, v in G.WIRES.items()},
-                    "projects": P.list_projects()})
+                    "projects": P.list_projects(),
+                    "voacap": AG.available(), "regions": {k: v["name"] for k, v in AG.REGIONS.items()}, "ssn_levels": list(AG.SSN_LEVELS.items())})
 
 @bp.post("/api/v2/projects")
 def create():
@@ -331,6 +332,42 @@ def prn_get(slug, name):
             try: rows.append([float(x) for x in p])
             except ValueError: pass
     return jsonify({"title": lines[0].strip(), "columns": cols, "rows": rows})
+
+# ------------------------------------------------------------ VOACAP-generated elevation-angle tables
+def _run_prn_gen(job, slug, body):
+    try:
+        lat, lon = float(body["lat"]), float(body["lon"])
+        if not (-90 <= lat <= 90 and -180 <= lon <= 180): raise ValueError("Latitude must be -90..90 and longitude -180..180")
+        region = body.get("region")
+        if region in AG.REGIONS: reg = AG.REGIONS[region]
+        else:
+            pts = [(float(a), float(b)) for a, b in (body.get("points") or [])]
+            if not pts: raise ValueError("Choose a region or give at least one receive point")
+            if len(pts) > 40: raise ValueError("At most 40 receive points")
+            reg = {"name": str(body.get("region_name") or "custom points")[:40], "points": pts}
+        months = sorted({int(m) for m in (body.get("months") or range(1, 13))} & set(range(1, 13))) or list(range(1, 13))
+        hours = body.get("hours"); hours = sorted({int(h) % 24 for h in hours}) if hours else None
+        ssn = [float(x) for x in (body.get("ssn") or AG.SSN_LEVELS.values())]
+        if not 1 <= len(ssn) <= 6 or any(not 0 <= x <= 300 for x in ssn): raise ValueError("Sunspot numbers: 1 to 6 values between 0 and 300")
+        name = P.safe_file(str(body.get("name") or "").strip(), ".prn")
+        title = str(body.get("title") or f"{body.get('origin_name') or f'{lat:.2f},{lon:.2f}'} to {reg['name']}")[:60]
+        job.update(phase="VOACAP runs", done=0, total=len(reg["points"]) * len(ssn))
+        def progress(d, n): job["done"] = d
+        h = AG.generate((lat, lon), reg, P.prn_file(slug, name), title=title, months=months, hours=hours, ssns=ssn,
+                        workers=min(4, int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))), progress=progress, cancel=lambda: job["cancel"])
+        bands = [b for b in AG.BANDS if h["weight_total"].get(b, 0) > 0]
+        job["result"] = {"file": name, "bands": bands, "describe": AG.describe(h["meta"]), "empty_bands": [b for b in AG.BANDS if b not in bands]}
+        job["state"] = "done"
+    except Exception as e:  # noqa: BLE001
+        job["state"], job["error"] = "error", str(e)
+
+@bp.post("/api/v2/p/<slug>/prn/generate")
+def prn_generate(slug):
+    """Make a .PRN elevation-angle table with VOACAP. Body: {lat, lon, region | points, name, months?, hours?, ssn?, title?}."""
+    if not AG.available(): return err("VOACAP (voacapl) is not installed on this computer.")
+    if not (P.path(slug) / "project.json").exists(): return err("Project not found", 404)
+    jid, job = new_job(); threading.Thread(target=_run_prn_gen, args=(job, slug, request.get_json() or {}), daemon=True).start()
+    return jsonify({"job": jid})
 
 # ------------------------------------------------------------ evaluation
 def _run_eval(job, slug):
