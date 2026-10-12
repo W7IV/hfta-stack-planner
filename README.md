@@ -199,6 +199,20 @@ Both items for stations outside the US are done. Open points:
    0.2 ft in ordinary cases; the 2 ft margin covers it. Assumptions are listed at the top of core/guys.py. Wind,
    insulators and the guy load on the tower are not modelled; a tower engineer's calculation takes precedence.
 
+## Profile length: 4.4 km or 10 km
+HFTA reads at most 148 points per profile. The standard is 4.4 km at 30 m, as MicroDEM and K6TU make them.
+"Fetch terrain online" can instead make 10 km profiles at 68 m spacing. Two things to know before using them:
+- Coarser spacing changes the result on rough ground. On the KK6P test terrain, going from 30 m to 60 m moved
+  single-antenna FOMs by up to 1.5 dB, the same order as the differences being studied. Compare 10 km profiles only
+  with other 10 km profiles.
+- A 100 m ridge 8 km out changed the FOM at 1–3° by less than 1 dB in a test. Distant terrain matters only for a
+  real ridge above the antenna's horizon.
+
+So the planner also reports the **far horizon**: after each online fetch it scans the ground from the end of the
+profile out to 15 km in every direction and shows the highest elevation angle seen from 30 m up the tower (site
+card, and per target in "Compare terrain"). A value near or above 1° means a distant ridge that the HFTA profiles
+do not contain; that is the case for a 10 km profile. Below that, the standard 4.4 km profile is the better choice.
+
 ## Limits
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data
   must resolve features of about 1/8 wavelength.

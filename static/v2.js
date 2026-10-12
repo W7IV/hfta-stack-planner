@@ -100,7 +100,8 @@ function rSites() {
   const box = $("#siteCards");
   p.sites.forEach((s, i) => {
     const f = S.site_files[s.id] || { n: 0 }, c = document.createElement("div"); c.className = "card";
-    const tchip = f.n ? `<span class="chip good">${f.n} profiles${f.step ? `, every ${f.step}°` : ""}</span> <span class="chip">${esc(s.terrain?.source || "")}</span>`
+    const fh = s.terrain?.far_horizon, fhChip = fh && fh.max_deg != null ? ` <span class="chip ${fh.max_deg >= 1 ? "warn" : ""}" title="Ground between ${(fh.start_m / 1000).toFixed(1)} and ${(fh.end_m / 1000).toFixed(0)} km, which the HFTA profiles do not include, seen from ${Math.round(fh.antenna_m * 3.28)} ft up the tower. Above about 1° it can block the lowest arrival angles; HFTA cannot show that. Highest at ${fh.max_az}°">far horizon ${fh.max_deg.toFixed(1)}° at ${fh.max_az}°</span>` : "";
+    const tchip = f.n ? `<span class="chip good">${f.n} profiles${f.step ? `, every ${f.step}°` : ""}${s.terrain?.length_m && s.terrain.length_m > 5000 ? `, ${(s.terrain.length_m / 1000).toFixed(0)} km` : ""}</span> <span class="chip">${esc(s.terrain?.source || "")}</span>${fhChip}`
                       : `<span class="chip warn">No terrain yet</span>`;
     c.innerHTML = `<h2><input class="w" value="${esc(s.name)}" data-k="name" aria-label="Site name"> ${tchip}</h2>
       <div class="row"><label>Latitude<input type="number" step="0.00001" data-k="lat" value="${s.lat ?? ""}"></label>
@@ -112,6 +113,7 @@ function rSites() {
         <button class="ghost" data-act="dem">Generate from DEM file</button>
         <button class="ghost" data-act="auto" title="Downloads elevation data for this position and writes one profile per degree. Inside the United States: USGS 3DEP (1 m). Elsewhere: AWS Terrain Tiles (30 m, worldwide)">Fetch terrain online</button>
         <select data-autosrc title="Where the elevation data comes from"><option value="auto">source by position</option><option value="3dep">USGS 3DEP (US, 1 m)</option><option value="tiles">Terrain Tiles (worldwide, 30 m)</option></select>
+        <select data-autolen title="HFTA profiles hold at most 148 points. 4.4 km at 30 m is the HFTA standard. 10 km needs 68 m spacing, which changes results on rough ground by about 1 dB; use it only to see the effect of a distant ridge, and compare like with like"><option value="std">4.4 km, 30 m (HFTA standard)</option><option value="long">10 km, 68 m (coarser)</option></select>
         <button class="ghost" data-act="flat">Flat ground</button>
         ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
@@ -146,8 +148,8 @@ function rSites() {
       autoBtn.disabled = true; autoBtn.textContent = "Fetching…";
       try {
         const r = await api("POST", `/api/v2/p/${SLUG}/sites/${s.id}/auto`,
-          { lat, lon, prefix: s.name, az_step: 1, spacing_m: 30, length_m: 4410, source: $("[data-autosrc]", c).value });
-        s.terrain = { source: r.source || "USGS 3DEP (online)" };
+          { lat, lon, prefix: s.name, az_step: 1, ...($("[data-autolen]", c).value === "long" ? { spacing_m: 68, length_m: 10000 } : { spacing_m: 30, length_m: 4410 }), source: $("[data-autosrc]", c).value });
+        s.terrain = { source: r.source || "USGS 3DEP (online)", length_m: r.length_m, spacing_m: r.spacing_m, far_horizon: r.far_horizon || null };
         toast(`${r.written} profiles written from ${r.source}. Ground ${r.ground_elevation_m} m.${r.resolution_m ? ` Data spacing ${r.resolution_m} m.` : ""}${r.short_azimuths?.length ? ` ${r.short_azimuths.length} cut short at the data edge.` : ""}`, 7000);
         await save(true); rSites();
       } catch (e) { toast(e.message, 8000); autoBtn.disabled = false; autoBtn.textContent = "Fetch terrain online"; }
@@ -277,8 +279,9 @@ async function siteCompare() {
   const tg = p.targets;
   if (tg.length) {
     const near = (rows, az) => rows.reduce((a, b) => Math.abs(((b.az - az + 540) % 360) - 180) < Math.abs(((a.az - az + 540) % 360) - 180) ? b : a);
-    $("#siteSlopeTbl").innerHTML = `<tr><th>Site</th>${tg.map(t => `<th class="n">${esc(t.name)} ${t.heading}°<br><span class="mute">slope 1 km / horizon</span></th>`).join("")}</tr>` +
-      sums.map((sm, i) => `<tr><td>${esc(ready[i].name)}</td>${tg.map(t => { const r = near(sm.rows, t.heading); return `<td class="n">${fmt(r.slope1000, 1)} % / ${fmt(r.horizon_deg, 1)}°</td>`; }).join("")}</tr>`).join("");
+    $("#siteSlopeTbl").innerHTML = `<tr><th>Site</th>${tg.map(t => `<th class="n">${esc(t.name)} ${t.heading}°<br><span class="mute">slope 1 km / horizon / far horizon</span></th>`).join("")}</tr>` +
+      sums.map((sm, i) => `<tr><td>${esc(ready[i].name)}</td>${tg.map(t => { const r = near(sm.rows, t.heading), fh = ready[i].terrain?.far_horizon, fv = fh && fh.deg ? fh.deg[Math.round(((t.heading % 360) / fh.step)) % fh.deg.length] : null;
+        return `<td class="n">${fmt(r.slope1000, 1)} % / ${fmt(r.horizon_deg, 1)}°${fv != null ? ` <span class="small ${fv >= 1 ? "amb" : "mute"}" title="Far horizon: ground 4.4–15 km out, not in the HFTA profile">far ${fv.toFixed(1)}°</span>` : ""}</td>`; }).join("")}</tr>`).join("");
   }
 }
 

@@ -237,6 +237,24 @@ def generate_from_dem(dem: DEM, lat: float, lon: float, out_dir: Path, prefix: s
     return {"written": len(written), "spacing_m": spacing_m, "length_m": float(dist[-1]), "short_azimuths": short,
             "ground_elevation_m": round(float(dem.sample([lat], [lon])[0]), 1)}
 
+def far_horizon(dem, lat: float, lon: float, az_step: float = 5.0, start_m: float = 4410.0, end_m: float = 15000.0,
+                step_m: float = 100.0, antenna_m: float = 30.0) -> dict:
+    """Terrain beyond the HFTA profile: the highest elevation angle, seen from an antenna antenna_m above the site,
+    of ground between start_m and end_m in each direction. HFTA never sees this ground (its profile ends at
+    start_m); a value near or above the lowest arrival angles (about 1 degree) means a distant ridge that the
+    profiles do not show. Returns {"step": az_step, "deg": [per azimuth], "max_deg", "max_az"} (None where no data)."""
+    z0 = float(dem.sample([lat], [lon])[0])
+    dist = np.arange(start_m, end_m + 0.1, step_m); out = []
+    for az in np.arange(0, 360, az_step):
+        la, lo = _destination(lat, lon, az, dist); z = dem.sample(la, lo); ok = ~np.isnan(z)
+        if ok.sum() < 3: out.append(None); continue
+        ang = np.degrees(np.arctan2(z[ok] - (z0 + antenna_m), dist[ok]))
+        out.append(round(float(ang.max()), 2))
+    vals = [(v, i) for i, v in enumerate(out) if v is not None]
+    best = max(vals) if vals else (None, None)
+    return {"step": az_step, "start_m": start_m, "end_m": end_m, "antenna_m": antenna_m, "deg": out,
+            "max_deg": best[0], "max_az": None if best[1] is None else float(best[1] * az_step)}
+
 def write_flat(out_dir: Path, prefix: str = "FLAT"):
     """Replace the site's whole terrain set by flat ground (one profile per degree)."""
     out_dir.mkdir(parents=True, exist_ok=True); stage = _stage_dir(out_dir)
@@ -297,6 +315,18 @@ def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
                              "Try a position a few metres away.")
         result = generate_from_dem(dem, lat, lon, out_dir, prefix, az_step, spacing_m, length_m)
         result["source"] = "USGS 3DEP (online)"
+        # Far horizon to 15 km from a second, coarse image (30 km across, about 60 m per pixel): enough for the
+        # elevation angle of distant ridges, not used for the profiles.
+        try:
+            fb = 15_500 / 111_320.0; fbl = fb / max(0.15, math.cos(math.radians(lat)))
+            url2 = _3DEP_URL.format(west=lon - fbl, south=lat - fb, east=lon + fbl, north=lat + fb).replace("size=1024,1024", "size=512,512")
+            with urllib.request.urlopen(urllib.request.Request(url2, headers={"User-Agent": "hfta-stack-planner/1.0"}), timeout=180) as resp:
+                ctype2, data2 = resp.headers.get("Content-Type", ""), resp.read()
+            if "tiff" in ctype2.lower():
+                tmp.write_bytes(data2); far = DEM(tmp, crs="geographic"); far.z[(far.z < -1000) | (far.z > 20000)] = np.nan
+                result["far_horizon"] = far_horizon(far, lat, lon, end_m=15000)
+        except Exception as e:  # noqa: BLE001  (the horizon is extra information; the profiles are already written)
+            result["far_horizon_error"] = str(e)[:200]
         return result
     finally:
         if tmp.exists():
@@ -394,6 +424,8 @@ def fetch_tiles_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
         raise ValueError(f"Terrain Tiles has no data for {tile_name(int(math.floor(lat)), int(math.floor(lon)))} (open sea?).")
     result = generate_from_dem(dem, lat, lon, out_dir, prefix, az_step, spacing_m, length_m)
     result["source"] = TERRAIN_TILES_SOURCE
+    for la, lo in tiles_needed(lat, lon, 15000): dem.tile(la, lo)
+    result["far_horizon"] = far_horizon(dem, lat, lon, start_m=length_m, end_m=15000)
     result["tiles"] = [tile_name(*k) for k in need if dem.tiles.get(k) is not None]
     result["resolution_m"] = round(30.9 * 3601 / dem.tile(int(math.floor(lat)), int(math.floor(lon))).n, 1)
     return result

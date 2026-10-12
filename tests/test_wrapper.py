@@ -404,6 +404,21 @@ def hgt_tiles_sample_and_generate():
     assert TR.in_usa(43.67, -72.01) and TR.in_usa(55.3, -131.6) and not TR.in_usa(51.2, 6.8)
 
 @test
+def far_horizon_sees_distant_ridge():
+    class Ridge:
+        """Flat ground, a 300 m ridge 8 km north of the site."""
+        def sample(self, la, lo):
+            la, lo = np.atleast_1d(np.asarray(la, float)), np.atleast_1d(np.asarray(lo, float))
+            north_m = (la - 50.0) * 111_320; return 300.0 * np.exp(-((north_m - 8000) / 500) ** 2)
+    fh = TR.far_horizon(Ridge(), 50.0, 8.0, az_step=45, antenna_m=30)
+    assert fh["max_az"] == 0.0 and 1.8 < fh["max_deg"] < 2.0, fh         # atan((300-30)/8000) = 1.93 deg
+    assert fh["deg"][4] < 0                                                # south: flat ground below the antenna
+    d = TMP / "far"; d.mkdir()
+    r = TR.generate_from_dem(Ridge(), 50.0, 8.0, d, "R", az_step=90, spacing_m=68, length_m=10000)
+    dist, h = TR.load_profile(d, TR.profile_index(d)[0.0])
+    assert len(dist) == 148 and abs(dist[-1] / 3.28084 - 9996) < 1 and max(h) / 3.28084 > 290   # the ridge is inside a 10 km profile
+
+@test
 def hgt_fetch_route_uses_cache():
     n = 1201; z = (np.full((n, n), 250)).astype(">i2").tobytes()
     calls = []
@@ -418,6 +433,7 @@ def hgt_fetch_route_uses_cache():
         slug, proj = new_project("Tiles"); proj["sites"] = [{"id": "s1", "name": "DL", "lat": 51.23, "lon": 6.78}]; put(slug, proj)
         r = C.post(f"/api/v2/p/{slug}/sites/s1/auto", json={"lat": 51.23, "lon": 6.78, "prefix": "DL", "az_step": 30}).get_json()
         assert r["written"] == 12 and r["source"] == TR.TERRAIN_TILES_SOURCE and r["ground_elevation_m"] == 250 and r["resolution_m"] > 90, r
+        assert r["far_horizon"]["max_deg"] is not None and r["far_horizon"]["max_deg"] < 0   # flat tiles: the horizon is below the antenna
         assert (P.DATA_DIR / "_cache" / "hgt" / "N51E006.hgt").exists()
         r2 = C.post(f"/api/v2/p/{slug}/sites/s1/auto", json={"lat": 51.23, "lon": 6.78, "prefix": "DL", "az_step": 30, "source": "tiles"}).get_json()
         assert r2["written"] == 12

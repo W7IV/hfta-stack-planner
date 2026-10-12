@@ -140,7 +140,18 @@ def validate(p: dict) -> dict:
         uid(s.setdefault("id", new_id("s")), "site id"); s["name"] = _txt(s.get("name") or "Site", 80); s["notes"] = _txt(s.get("notes"), 500)
         s["lat"] = _num(s.get("lat"), "Latitude", -90, 90, True); s["lon"] = _num(s.get("lon"), "Longitude", -180, 180, True)
         if s.get("terrain") is not None and not isinstance(s["terrain"], dict): s["terrain"] = {}
-        if isinstance(s.get("terrain"), dict) and "source" in s["terrain"]: s["terrain"]["source"] = _txt(s["terrain"]["source"], 120)
+        if isinstance(s.get("terrain"), dict):
+            t = s["terrain"]
+            if "source" in t: t["source"] = _txt(t["source"], 120)
+            for k in ("length_m", "spacing_m"):
+                if k in t: t[k] = _num(t[k], f"{s['name']}: terrain {k}", 0, 100000, True)
+            fh = t.get("far_horizon")
+            if fh is not None:
+                if not isinstance(fh, dict) or not isinstance(fh.get("deg"), list) or len(fh["deg"]) > 720: t["far_horizon"] = None
+                else:
+                    fh["deg"] = [(_num(v, "far horizon", -90, 90, True)) for v in fh["deg"]]
+                    for k in ("step", "start_m", "end_m", "antenna_m", "max_deg", "max_az"):
+                        if k in fh: fh[k] = _num(fh[k], f"far horizon {k}", -100000, 100000, True)
     for t in p["targets"]:
         uid(t.setdefault("id", new_id("t")), "target id"); t["name"] = _txt(t.get("name") or "Target", 80)
         if t.get("prn") not in (None, ""): safe_file(t["prn"], ".prn")
