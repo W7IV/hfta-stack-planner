@@ -65,6 +65,10 @@ def index():
     v = int(max(p.stat().st_mtime for p in (st / "v2.js", st / "v2.css")))
     return render_template("v2.html", asset_v=v, build=build_info())
 
+@bp.get("/guide")
+def guide():
+    return render_template("guide.html")
+
 @bp.get("/api/v2/meta")
 def meta():
     return jsonify({"elements": A.ELEMENTS, "types": {str(k): v for k, v in A.TYPE.items()}, "spacing_defaults": P.SPACING_DEFAULTS, "bands": A.BANDS, "band_freq": A.BAND_FREQ, "soils": P.SOILS,

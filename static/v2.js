@@ -1136,7 +1136,8 @@ new MutationObserver(() => applyTips()).observe(document.documentElement, { chil
 /* ---------------------------------------------------------------- help */
 function showHelp() {
   $("#drawerBody").innerHTML = `<h2>How to use the planner</h2>
-  <p class="small mute">Every number comes from OpenHFTA runs (the HFTA method). The planner only organises the runs and the arithmetic between them.</p>
+  <p class="small mute">Every number comes from OpenHFTA runs (the HFTA method). The planner only organises the runs and the arithmetic between them.
+  New here? Read the one-page <a href="/guide" target="_blank" rel="noopener">getting-started guide</a> (it prints well).</p>
 
   <h3>1. Sites</h3>
   <p>A site is one position where a tower could stand. Enter its latitude and longitude. Then give it terrain, one file per compass direction:</p>

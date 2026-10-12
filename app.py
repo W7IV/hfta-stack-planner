@@ -70,7 +70,7 @@ def _login():
     P.set_root(None); g.user = None
     if not APP_PASSWORD or request.path == "/healthz" or request.path.startswith("/static/"):
         return None
-    if request.path in ("/login", "/logout"):
+    if request.path in ("/login", "/logout", "/guide"):
         return None
     import hmac
     a = request.authorization
