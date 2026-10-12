@@ -95,7 +95,8 @@ function rSites() {
         <label>Source of the files you import<select data-src><option>MicroDEM .PRO</option><option>K6TU terrain set</option><option>Other .PRO files</option></select></label>
         <button data-act="import">Import .PRO or .zip</button><input type="file" multiple accept=".pro,.PRO,.zip" hidden data-file>
         <button class="ghost" data-act="dem">Generate from DEM file</button>
-        <button class="ghost" data-act="auto" title="Downloads USGS 3DEP elevation data for this position (United States only) and writes one profile per degree">Fetch terrain online (USGS)</button>
+        <button class="ghost" data-act="auto" title="Downloads elevation data for this position and writes one profile per degree. Inside the United States: USGS 3DEP (1 m). Elsewhere: AWS Terrain Tiles (30 m, worldwide)">Fetch terrain online</button>
+        <select data-autosrc title="Where the elevation data comes from"><option value="auto">source by position</option><option value="3dep">USGS 3DEP (US, 1 m)</option><option value="tiles">Terrain Tiles (worldwide, 30 m)</option></select>
         <button class="ghost" data-act="flat">Flat ground</button>
         ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
@@ -130,11 +131,11 @@ function rSites() {
       autoBtn.disabled = true; autoBtn.textContent = "Fetching…";
       try {
         const r = await api("POST", `/api/v2/p/${SLUG}/sites/${s.id}/auto`,
-          { lat, lon, prefix: s.name, az_step: 1, spacing_m: 30, length_m: 4410 });
+          { lat, lon, prefix: s.name, az_step: 1, spacing_m: 30, length_m: 4410, source: $("[data-autosrc]", c).value });
         s.terrain = { source: r.source || "USGS 3DEP (online)" };
-        toast(`${r.written} profiles written. Ground ${r.ground_elevation_m} m.${r.short_azimuths?.length ? ` ${r.short_azimuths.length} cut short at DEM edge.` : ""}`, 6000);
+        toast(`${r.written} profiles written from ${r.source}. Ground ${r.ground_elevation_m} m.${r.resolution_m ? ` Data spacing ${r.resolution_m} m.` : ""}${r.short_azimuths?.length ? ` ${r.short_azimuths.length} cut short at the data edge.` : ""}`, 7000);
         await save(true); rSites();
-      } catch (e) { toast(e.message, 8000); autoBtn.disabled = false; autoBtn.textContent = "Fetch terrain online (USGS)"; }
+      } catch (e) { toast(e.message, 8000); autoBtn.disabled = false; autoBtn.textContent = "Fetch terrain online"; }
     };
     box.appendChild(c);
   });
@@ -186,7 +187,7 @@ async function libAddDialog(kind) {
 function moveDialog(s) {
   if (s.lat == null || s.lon == null) { toast("Enter latitude and longitude for this site first.", 4000); return; }
   modal(`<h2>Copy site, moved</h2>
-  <p class="small mute">Makes a new site at the given distance and bearing from "${esc(s.name)}", then fetches its terrain online (USGS, United States only).
+  <p class="small mute">Makes a new site at the given distance and bearing from "${esc(s.name)}", then fetches its terrain online (USGS inside the United States, Terrain Tiles elsewhere).
   Use it to see how much the result changes when the tower moves, as with HFTA's move-the-tower check.</p>
   <form id="mvForm" class="row">
     <label>Distance (ft)<input type="number" name="dist" value="100" min="1" required></label>
@@ -1077,7 +1078,9 @@ function showHelp() {
   <h3>1. Sites</h3>
   <p>A site is one position where a tower could stand. Enter its latitude and longitude. Then give it terrain, one file per compass direction:</p>
   <ul>
-    <li><b>Fetch terrain online (USGS)</b>: one click, United States only.</li>
+    <li><b>Fetch terrain online</b>: one click. Inside the United States it uses USGS 3DEP (1 m lidar where available). Anywhere else it uses
+    AWS Terrain Tiles (Tilezen): SRTM worldwide, better national data in much of Europe, Canada, Australia and New Zealand, and ArcticDEM north of 60°,
+    about 30 m spacing, which the ARRL HFTA notes call sufficient for HF. All of these measure tree tops, not the ground.</li>
     <li><b>Import .PRO or .zip</b>: files from MicroDEM or a K6TU terrain set.</li>
     <li><b>Generate from DEM file</b>: a GeoTIFF or ASCII grid you downloaded yourself.</li>
     <li><b>Flat ground</b>: no terrain, for a reference run.</li>

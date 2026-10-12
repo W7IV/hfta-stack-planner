@@ -311,6 +311,61 @@ def f21_atomic_write_leaves_no_partial_file():
     f = TMP / "a.json"; P.write_atomic(f, '{"a": 1}'); P.write_atomic(f, '{"a": 2}')
     assert json.loads(f.read_text()) == {"a": 2} and not list(TMP.glob(".a.json*"))
 
+# ------------------------------------------------------------------ worldwide terrain from .hgt tiles
+@test
+def hgt_tiles_sample_and_generate():
+    """Synthetic 1201-node tiles (3 arc-second): z = 100 * lat + 10 * lon (in degrees) so every sample is checkable,
+    and a tile edge inside the profile set."""
+    n = 1201
+    def make(la, lo):
+        lat = la + 1 - np.arange(n) / (n - 1); lon = lo + np.arange(n) / (n - 1)
+        z = (100 * lat[:, None] + 10 * lon[None, :]).round().astype(">i2"); return z.tobytes()
+    served = {}
+    def loader(la, lo):
+        served[(la, lo)] = served.get((la, lo), 0) + 1
+        return make(la, lo) if (la, lo) in ((51, 6), (51, 7), (50, 6), (50, 7)) else None
+    dem = TR.TerrainTiles(loader)
+    z = dem.sample([51.5, 51.0, 50.9999, 51.999], [6.5, 7.0, 6.5, 7.9])
+    assert np.allclose(z, [5215.0, 5170.0, 5165.0, 5278.9], atol=0.6), z
+    assert np.isnan(dem.sample([49.5], [6.5])[0])                   # no tile there
+    assert TR.tile_name(51, 6) == "N51E006" and TR.tile_name(-34, -59) == "S34W059"
+    assert TR.tile_url(55, -132).endswith("/skadi/N55/N55W132.hgt.gz")
+    assert set(TR.tiles_needed(51.02, 6.98, 4410)) == {(50, 6), (50, 7), (51, 6), (51, 7)}
+    d = TMP / "tiles"; d.mkdir()
+    r = TR.generate_from_dem(dem, 51.02, 6.98, d, "DL", az_step=45)   # profiles cross both tile edges
+    assert r["written"] == 8 and not r["short_azimuths"], r
+    idx = TR.profile_index(d); dist, h = TR.load_profile(d, idx[0.0])
+    assert abs(h[0] / 3.28084 - (100 * 51.02 + 10 * 6.98)) < 1 and h[-1] > h[0]   # north: higher lat, higher z
+    assert all(v == 1 for v in served.values())                      # each tile loaded once
+    assert TR.in_usa(43.67, -72.01) and TR.in_usa(55.3, -131.6) and not TR.in_usa(51.2, 6.8)
+
+@test
+def hgt_fetch_route_uses_cache():
+    n = 1201; z = (np.full((n, n), 250)).astype(">i2").tobytes()
+    calls = []
+    orig = TR.download_tile
+    def fake(la, lo, cache_dir, timeout=180):
+        calls.append((la, lo)); cache_dir.mkdir(parents=True, exist_ok=True)
+        f = cache_dir / f"{TR.tile_name(la, lo)}.hgt"
+        if not f.exists(): f.write_bytes(z)
+        return f.read_bytes()
+    TR.download_tile = fake
+    try:
+        slug, proj = new_project("Tiles"); proj["sites"] = [{"id": "s1", "name": "DL", "lat": 51.23, "lon": 6.78}]; put(slug, proj)
+        r = C.post(f"/api/v2/p/{slug}/sites/s1/auto", json={"lat": 51.23, "lon": 6.78, "prefix": "DL", "az_step": 30}).get_json()
+        assert r["written"] == 12 and r["source"] == TR.TERRAIN_TILES_SOURCE and r["ground_elevation_m"] == 250 and r["resolution_m"] > 90, r
+        assert (P.ROOT / "_cache" / "hgt" / "N51E006.hgt").exists()
+        r2 = C.post(f"/api/v2/p/{slug}/sites/s1/auto", json={"lat": 51.23, "lon": 6.78, "prefix": "DL", "az_step": 30, "source": "tiles"}).get_json()
+        assert r2["written"] == 12
+    finally:
+        TR.download_tile = orig
+
+@test
+def hgt_bad_tile_rejected():
+    try: TR.HGT(b"\x00" * 1000, 0, 0)
+    except ValueError: pass
+    else: raise AssertionError("accepted a tile of the wrong size")
+
 # ------------------------------------------------------------------ VOACAP angle tables (core/aoa_gen.py)
 @test
 def voacap_deck_columns():

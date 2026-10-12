@@ -41,9 +41,10 @@ models. Two checks are added as notes only; they never change a number:
 | Guy and ice check | Turning antennas against guy wires, with guy sag and element droop under radial ice. |
 
 ## Workflow (five steps)
-1. **Sites**: one or more tower positions on the property. Terrain from MicroDEM .PRO files, K6TU one-degree
-   terrain sets (https://www.k6tu.net), or generated on this computer from a DEM file (GeoTIFF or ESRI ASCII grid;
-   USGS 3DEP 1 m LiDAR works). Compare the sites' profiles and ground slope side by side.
+1. **Sites**: one or more tower positions on the property. Terrain fetched online for any place in the world (USGS
+   3DEP in the US, AWS Terrain Tiles elsewhere), from MicroDEM .PRO files, K6TU one-degree terrain sets
+   (https://www.k6tu.net), or generated from a DEM file (GeoTIFF or ESRI ASCII grid). Compare the sites' profiles
+   and ground slope side by side.
 2. **Targets**: a path (e.g. Europe 52°), its ARRL elevation-angle file (.PRN), headings and bands.
    The ARRL .PRN files come with the ARRL Antenna Book and are not included.
 3. **Towers**: stacks of antennas (height and elements per band, as in HFTA), with spacing warnings, the targets each
@@ -153,28 +154,21 @@ For domestic 12 and 10 m the two methods differ; use the ARRL file there if you 
 reference where they exist. The receive points per region are listed in core/aoa_gen.py; "Asia" is India to China.
 
 ## Development list
+Both items for stations outside the US are done. Open points:
 
 1. ~~Docker image with VOACAP~~: done, see "VOACAP angle tables" above. Still to do: a W1-MA comparison in the test
    suite needs the ARRL files, which are not in the repository, so it stays a manual check (`tools/compare_prn.py`).
 
-2. **Terrain for any country.** "Fetch terrain online" uses USGS 3DEP, United States only. Research notes:
-   - *SRTM* (Shuttle Radar Topography Mission, February 2000) is what MicroDEM used when HFTA was new.
-     The ARRL HFTA notes say 30 m data is enough for HF and 90 m is acceptable. SRTM covers 56°S to 60°N only:
-     Ketchikan (55°N) is inside, Anchorage, Fairbanks and most of Scandinavia north of Oslo are outside.
-     The radar measures tree tops, not the ground, as do all the global sets below.
-     NASA's own copies (Earthdata, SRTMGL1 v3, 1 arc-second, voids filled) need a free login, so they cannot be
-     fetched by one button.
-   - *AWS Terrain Tiles* (`elevation-tiles-prod` bucket, Mapzen/Tilezen) is the practical source. The `skadi`
-     folder holds 1°×1° tiles in the SRTM `.hgt` layout (3601×3601, 16-bit big-endian metres, gzip, about 25 MB),
-     no key, no account. The tiles merge SRTM worldwide, 3DEP for the US including Alaska, national open DEMs for
-     much of Europe, Canada, Australia and New Zealand, and ArcticDEM/GMTED north of 60°, so one reader covers
-     US and overseas sites and closes the SRTM gap in the north. There is no service guarantee; attribution is
-     required (Tilezen lists the sources). URL: `https://elevation-tiles-prod.s3.amazonaws.com/skadi/N55/N55W132.hgt.gz`.
-   - *Copernicus GLO-30* (TanDEM-X, 2011–2015) is the newer alternative: global including the poles, 30 m,
-     free on AWS without a key, Cloud-Optimised GeoTIFF tiles. Larger files; the existing GeoTIFF reader works.
-   - Plan: add an `.hgt` reader (about ten lines: `np.fromfile('>i2')`, 3601×3601, no-data −32768,
-     origin at the tile's south-west corner) and a second fetch route that picks Terrain Tiles for any lat/lon
-     and keeps 3DEP for the US. Profiles that cross a tile edge need the neighbouring tile.
+2. ~~Terrain for any country~~: done. "Fetch terrain online" uses USGS 3DEP inside the United States and AWS
+   Terrain Tiles (Tilezen `skadi` tiles in the SRTM `.hgt` layout) anywhere else: SRTM worldwide, better national
+   open data in much of Europe, Canada, Australia and New Zealand, ArcticDEM/GMTED north of 60°. About 30 m
+   spacing (the ARRL HFTA notes call 30 m enough for HF). Tiles are cached under `<PROJECTS_DIR>/_cache/hgt`
+   (about 25 MB per degree square). All of these sets measure tree tops, not the ground. Attribution: Tilezen /
+   Mapzen Terrain Tiles and the sources listed at github.com/tilezen/joerd; no service guarantee.
+
+3. Before any public hosting: stricter browser rules (content security policy), a container that runs without
+   administrator rights, and a warning when two browser tabs edit the same project.
+4. An independent check of the guy-wire model (sag, ice, droop) against a structural calculation.
 
 ## Limits
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data

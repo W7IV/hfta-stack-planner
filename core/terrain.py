@@ -301,3 +301,103 @@ def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
     finally:
         if tmp.exists():
             tmp.unlink()
+
+# ---------------- AWS Terrain Tiles (worldwide) ----------------
+# 1 degree x 1 degree tiles in the SRTM .hgt layout (Mapzen/Tilezen "skadi": SRTM worldwide, 3DEP in the US, national
+# open DEMs in much of Europe, Canada, Australia and New Zealand, ArcticDEM/GMTED north of 60 degrees). No key, no account.
+# Attribution: Tilezen / Mapzen Terrain Tiles; data from the sources listed at github.com/tilezen/joerd.
+_TILES_URL = "https://elevation-tiles-prod.s3.amazonaws.com/skadi/{ns}{lat:02d}/{ns}{lat:02d}{ew}{lon:03d}.hgt.gz"
+TERRAIN_TILES_SOURCE = "AWS Terrain Tiles (Tilezen; SRTM/3DEP/national DEMs, 30 m)"
+
+def tile_name(lat_floor: int, lon_floor: int) -> str:
+    ns, ew = ("N" if lat_floor >= 0 else "S"), ("E" if lon_floor >= 0 else "W")
+    return f"{ns}{abs(lat_floor):02d}{ew}{abs(lon_floor):03d}"
+
+def tile_url(lat_floor: int, lon_floor: int) -> str:
+    ns, ew = ("N" if lat_floor >= 0 else "S"), ("E" if lon_floor >= 0 else "W")
+    return _TILES_URL.format(ns=ns, lat=abs(lat_floor), ew=ew, lon=abs(lon_floor))
+
+class HGT:
+    """One .hgt tile: a square grid of 16-bit big-endian metres, 3601 (1 arc-second) or 1201 (3 arc-second) per side,
+    first row at the north edge, nodes exactly on the degree lines (the south-west node is the tile's corner)."""
+    NODATA = -32768
+    def __init__(self, data: bytes, lat_floor: int, lon_floor: int):
+        n = int(round(math.sqrt(len(data) / 2)))
+        if n * n * 2 != len(data) or n < 2: raise ValueError(f"Not an .hgt tile ({len(data)} bytes)")
+        self.n, self.lat0, self.lon0 = n, lat_floor, lon_floor
+        z = np.frombuffer(data, dtype=">i2").astype(np.float64).reshape(n, n)
+        z[z == self.NODATA] = np.nan; self.z = z
+    def sample(self, lat, lon):
+        lat, lon = np.asarray(lat, dtype=float), np.asarray(lon, dtype=float); m = self.n - 1
+        c = (lon - self.lon0) * m; r = (self.lat0 + 1 - lat) * m
+        c0, r0 = np.clip(np.floor(c).astype(int), 0, m - 1), np.clip(np.floor(r).astype(int), 0, m - 1)
+        fc, fr = np.clip(c - c0, 0, 1), np.clip(r - r0, 0, 1)
+        z = self.z
+        return (z[r0, c0] * (1 - fc) * (1 - fr) + z[r0, c0 + 1] * fc * (1 - fr) + z[r0 + 1, c0] * (1 - fc) * fr + z[r0 + 1, c0 + 1] * fc * fr)
+
+class TerrainTiles:
+    """A DEM made of .hgt tiles, loaded on demand through `loader(lat_floor, lon_floor) -> bytes or None`.
+    Has the same sample(lat, lon) interface as DEM, so generate_from_dem works unchanged."""
+    def __init__(self, loader):
+        self.loader, self.tiles = loader, {}
+    def tile(self, la: int, lo: int):
+        k = (la, lo)
+        if k not in self.tiles:
+            data = self.loader(la, lo)
+            self.tiles[k] = HGT(data, la, lo) if data else None
+        return self.tiles[k]
+    def sample(self, lat, lon):
+        lat, lon = np.atleast_1d(np.asarray(lat, dtype=float)), np.atleast_1d(np.asarray(lon, dtype=float))
+        lon = ((lon + 180) % 360) - 180
+        out = np.full(lat.shape, np.nan)
+        la, lo = np.floor(lat).astype(int), np.floor(lon).astype(int)
+        for key in set(zip(la.tolist(), lo.tolist())):
+            t = self.tile(*key)
+            if t is None: continue
+            m = (la == key[0]) & (lo == key[1]); out[m] = t.sample(lat[m], lon[m])
+        return out
+
+def tiles_needed(lat: float, lon: float, length_m: float) -> list:
+    """Tiles that the profiles around (lat, lon) can touch."""
+    half = length_m * 1.05 / 111_320.0; half_lon = half / max(0.15, math.cos(math.radians(lat)))
+    las = range(int(math.floor(lat - half)), int(math.floor(lat + half)) + 1)
+    los = range(int(math.floor(lon - half_lon)), int(math.floor(lon + half_lon)) + 1)
+    return [(a, ((b + 180) % 360) - 180) for a in las for b in los if -90 <= a < 90]
+
+def download_tile(la: int, lo: int, cache_dir: Path, timeout: int = 180):
+    """The tile's bytes (unpacked), from the cache folder or downloaded. None when the service has no tile there
+    (open ocean), which the service answers with 403/404."""
+    import gzip, urllib.error
+    cache_dir.mkdir(parents=True, exist_ok=True); f = cache_dir / f"{tile_name(la, lo)}.hgt"
+    if f.exists(): return f.read_bytes()
+    req = urllib.request.Request(tile_url(la, lo), headers={"User-Agent": "hfta-stack-planner/1.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp: raw = resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (403, 404): return None
+        raise ValueError(f"Terrain Tiles: HTTP {e.code} for {tile_name(la, lo)}")
+    data = gzip.decompress(raw)
+    if len(data) > 40_000_000: raise ValueError("Terrain tile larger than expected")
+    tmp = f.with_suffix(".tmp"); tmp.write_bytes(data); os.replace(tmp, f)
+    return data
+
+def fetch_tiles_and_generate(lat: float, lon: float, out_dir: Path, prefix: str, cache_dir: Path,
+                             az_step: float = 1.0, spacing_m: float = 30.0, length_m: float = 4410.0) -> dict:
+    """Terrain profiles for any place in the world from AWS Terrain Tiles. Tiles are kept in cache_dir (about 25 MB
+    each) so a second site in the same degree square needs no download."""
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        raise ValueError("Latitude must be -90..90 and longitude -180..180 (decimal degrees, west negative).")
+    need = tiles_needed(lat, lon, length_m)
+    dem = TerrainTiles(lambda la, lo: download_tile(la, lo, cache_dir))
+    for la, lo in need: dem.tile(la, lo)                      # download first, so a network error comes before any writing
+    if dem.tile(int(math.floor(lat)), int(math.floor(lon))) is None:
+        raise ValueError(f"Terrain Tiles has no data for {tile_name(int(math.floor(lat)), int(math.floor(lon)))} (open sea?).")
+    result = generate_from_dem(dem, lat, lon, out_dir, prefix, az_step, spacing_m, length_m)
+    result["source"] = TERRAIN_TILES_SOURCE
+    result["tiles"] = [tile_name(*k) for k in need if dem.tiles.get(k) is not None]
+    result["resolution_m"] = round(30.9 * 3601 / dem.tile(int(math.floor(lat)), int(math.floor(lon))).n, 1)
+    return result
+
+def in_usa(lat: float, lon: float) -> bool:
+    """Rough test for USGS 3DEP coverage: the 48 states, Alaska and Hawaii."""
+    return (24 <= lat <= 49.5 and -125 <= lon <= -66.5) or (51 <= lat <= 72 and (lon <= -129 or lon >= 172)) or (18.5 <= lat <= 22.5 and -161 <= lon <= -154)

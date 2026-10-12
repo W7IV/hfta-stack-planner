@@ -254,20 +254,21 @@ def site_dem(slug, sid):
 
 @bp.post("/api/v2/p/<slug>/sites/<sid>/auto")
 def site_auto(slug, sid):
-    """Fetch a DEM patch from USGS 3DEP and generate terrain profiles. Body: {lat, lon, prefix?, az_step?, spacing_m?, length_m?}."""
+    """Fetch elevation data online and generate terrain profiles. Body: {lat, lon, source?, prefix?, az_step?, spacing_m?, length_m?}.
+    source: "3dep" (USGS, United States, 1 m), "tiles" (AWS Terrain Tiles, worldwide, 30 m) or "auto" (3DEP inside the US)."""
     body = request.get_json() or {}
     lat, lon = body.get("lat"), body.get("lon")
     if lat is None or lon is None:
         return err("lat and lon are required.")
     try:
-        out = TR.fetch_dem_and_generate(
-            float(lat), float(lon),
-            P.site_dir(slug, sid),
-            P.slug(body.get("prefix") or "SITE"),
-            float(body.get("az_step", 1)),
-            float(body.get("spacing_m", 30)),
-            float(body.get("length_m", 4410)),
-        )
+        lat, lon = float(lat), float(lon)
+        src = body.get("source") or "auto"
+        if src == "auto": src = "3dep" if TR.in_usa(lat, lon) else "tiles"
+        args = (lat, lon, P.site_dir(slug, sid), P.slug(body.get("prefix") or "SITE"))
+        opts = (float(body.get("az_step", 1)), float(body.get("spacing_m", 30)), float(body.get("length_m", 4410)))
+        if src == "3dep": out = TR.fetch_dem_and_generate(*args, *opts)
+        elif src == "tiles": out = TR.fetch_tiles_and_generate(*args, P.ROOT / "_cache" / "hgt", *opts)
+        else: return err("source must be 3dep, tiles or auto")
     except Exception as e:  # noqa: BLE001
         return err(f"Auto terrain: {e}")
     return jsonify(out)
