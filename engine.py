@@ -61,6 +61,8 @@ def engine_info() -> dict:
         if lib and Path(lib).exists():
             sha = hashlib.sha256(Path(lib).read_bytes()).hexdigest()
         commit = os.environ.get("OPENHFTA_COMMIT") or "unknown"
+        if commit == "unknown" and (OPENHFTA_DIR / "COMMIT").exists():      # written by the packaged builds
+            commit = (OPENHFTA_DIR / "COMMIT").read_text().strip() or "unknown"
         if commit == "unknown" and (OPENHFTA_DIR / ".git").exists():
             try:
                 commit = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(OPENHFTA_DIR), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip() or "unknown"

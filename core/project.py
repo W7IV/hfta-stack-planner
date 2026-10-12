@@ -43,9 +43,12 @@ def safe_id(x, what="id") -> str:
     if not isinstance(x, str) or not ID_RE.fullmatch(x): raise ValueError(f"Invalid {what}: {str(x)[:40]!r}")
     return x
 
+_RESERVED = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+
 def safe_file(x, ext=None) -> str:
-    """A plain file name: no folder part, no '..', no drive letter."""
+    """A plain file name: no folder part, no '..', no drive letter, not a Windows device name (PRN.PRN would be one)."""
     if not isinstance(x, str) or not FILE_RE.fullmatch(x) or ".." in x: raise ValueError(f"Invalid file name: {str(x)[:60]!r}")
+    if x.split(".")[0].lower() in _RESERVED: raise ValueError(f"{x!r} is a reserved name on Windows; rename the file")
     if ext and not x.lower().endswith(ext): raise ValueError(f"Not a {ext} file: {x}")
     return x
 
@@ -99,7 +102,11 @@ def list_projects():
     r = root(); r.mkdir(parents=True, exist_ok=True)
     return sorted([d.name for d in r.iterdir() if (d / "project.json").exists()])
 def site_dir(pslug, site_id): return path(pslug) / "sites" / safe_id(site_id, "site id")
-def prn_dir(pslug): return path(pslug) / "prn"
+def prn_dir(pslug):
+    """Folder of the project's elevation-angle files. Named 'angles': Windows refuses a folder called 'prn' (a reserved
+    device name). Projects made before this change keep their 'prn' folder."""
+    d = path(pslug)
+    return d / "prn" if (d / "prn").is_dir() and not (d / "angles").is_dir() else d / "angles"
 def prn_file(pslug, name): return prn_dir(pslug) / safe_file(name, ".prn")
 
 # ---------------- schema check for a project received from the browser or from an imported zip

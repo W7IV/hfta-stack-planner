@@ -115,7 +115,7 @@ def import_project():
         if infos[n_].file_size > 5_000_000: continue
         if len(parts) == 3 and parts[0] == "sites" and parts[1] in site_ids and re.fullmatch(r"[\w.\- ]+\.pro", parts[2], re.I) and ".." not in parts[2]:
             take.append((n_, ("sites", parts[1], parts[2])))
-        elif len(parts) == 2 and parts[0] == "prn" and re.fullmatch(r"[\w.\- ]+\.prn", parts[1], re.I) and ".." not in parts[1]:
+        elif len(parts) == 2 and parts[0] in ("prn", "angles") and re.fullmatch(r"[\w.\- ]+\.prn", parts[1], re.I) and ".." not in parts[1]:
             take.append((n_, ("prn", parts[1])))
     base = P.slug(proj.get("name") or "Imported"); slug = base; n = 2
     while P.path(slug).exists(): slug = f"{base}-{n}"; n += 1

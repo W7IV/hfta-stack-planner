@@ -95,7 +95,9 @@ def delete_site(lib_id: str):
 
 # ---------------- elevation-angle files (.PRN): copied into every new project
 def prn_root() -> Path:
-    d = root() / "prn"; d.mkdir(exist_ok=True); return d
+    """'angles' (Windows refuses a folder named 'prn'); an older library keeps its 'prn' folder."""
+    r = root(); d = r / "prn" if (r / "prn").is_dir() and not (r / "angles").is_dir() else r / "angles"
+    d.mkdir(exist_ok=True); return d
 
 def list_prns() -> list:
     return sorted(f.name for f in prn_root().iterdir() if f.is_file() and f.suffix.lower() == ".prn")
