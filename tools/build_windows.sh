@@ -8,7 +8,7 @@
 # Needs: gfortran-mingw-w64-x86-64, gcc-mingw-w64-x86-64, automake, autoconf, wine (the package that provides the `wine` command; wine64 alone does not), python3 + pip, curl, zip.
 # Usage: tools/build_windows.sh [output dir]   -> HFTA-Stack-Planner-windows-<version>.zip
 set -euo pipefail
-REPO=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:-"$REPO/dist"}; mkdir -p "$OUT"
+REPO=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:-"$REPO/dist"}; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)   # absolute: the zip is written from another directory
 WORK=${WORK:-/tmp/hfta-winbuild}; PKG="$WORK/HFTA-Stack-Planner"; rm -rf "$PKG"; mkdir -p "$WORK" "$PKG"
 OPENHFTA_COMMIT=${OPENHFTA_COMMIT:-7d62e863f1d27372c97df3ac6ef53092fb58bd50}
 VOACAPL_COMMIT=${VOACAPL_COMMIT:-c12a98b}
