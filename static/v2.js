@@ -101,7 +101,7 @@ function rSites() {
   p.sites.forEach((s, i) => {
     const f = S.site_files[s.id] || { n: 0 }, c = document.createElement("div"); c.className = "card";
     const fh = s.terrain?.far_horizon, fhChip = fh && fh.max_deg != null ? ` <span class="chip ${fh.max_deg >= 1 ? "warn" : ""}" title="Ground between ${(fh.start_m / 1000).toFixed(1)} and ${(fh.end_m / 1000).toFixed(0)} km, which the HFTA profiles do not include, seen from ${Math.round(fh.antenna_m * 3.28)} ft up the tower. Above about 1° it can block the lowest arrival angles; HFTA cannot show that. Highest at ${fh.max_az}°">far horizon ${fh.max_deg.toFixed(1)}° at ${fh.max_az}°</span>` : "";
-    const tchip = f.n ? `<span class="chip good">${f.n} profiles${f.step ? `, every ${f.step}°` : ""}${s.terrain?.length_m && s.terrain.length_m > 5000 ? `, ${(s.terrain.length_m / 1000).toFixed(0)} km` : ""}</span> <span class="chip">${esc(s.terrain?.source || "")}</span>${fhChip}`
+    const tchip = f.n ? `<span class="chip good">${f.n} profiles${f.step ? `, every ${f.step}°` : ""}${s.terrain?.length_m && s.terrain.length_m > 5000 ? `, ${(s.terrain.length_m / 1000).toFixed(0)} km` : ""}</span>${s.terrain?.source ? ` <span class="chip">${esc(s.terrain.source)}</span>` : ""}${fhChip}`
                       : `<span class="chip warn">No terrain yet</span>`;
     c.innerHTML = `<h2><input class="w" value="${esc(s.name)}" data-k="name" aria-label="Site name"> ${tchip}</h2>
       <div class="row"><label>Latitude<input type="number" step="0.00001" data-k="lat" value="${s.lat ?? ""}"></label>
@@ -1040,7 +1040,23 @@ const TIPS = [
   ["#addSite", "Another possible tower position."],
   ["#cmpAz", "Compass direction for the profile plot."],
   // Targets
-  ["#prnBtn", "ARRL elevation-angle files (.PRN), one per path. They come with the ARRL Antenna Book."],
+  ["#prnBtn", "Elevation-angle files (.PRN), one per path: ARRL files from the Antenna Book, or tables made here with VOACAP."],
+  ["#prnGen", "Make an elevation-angle table with VOACAP for any origin in the world, for a region, a season, a time of day or a single DX path."],
+  ["#prnToLib", "Keep these files in your library, so every new project starts with them."],
+  ["#prnFromLib", "Copy the library's .PRN files into this project."],
+  ["[data-prv]", "Plot the file: how often openings arrive at each elevation angle, per band."],
+  ["#tgBrg", "Set each target's bearing from the site position to a reference point in its region."],
+  ["[data-act=auto]", "Download elevation data for this position and write one profile per degree. USGS 3DEP inside the United States, Terrain Tiles anywhere else."],
+  ["[data-act=lib]", "Keep this site, with its terrain files, in your library for other projects."],
+  ["[data-act=move]", "A copy of this site a set distance and bearing away, to test how much the result depends on the exact position."],
+  ["#libSite", "Add a site saved in your library, with its terrain."],
+  ["#libTw", "Add a tower saved in your library."],
+  ["#addTw", "A new tower with one antenna. Towers can stand at one site or at every site."],
+  ["[data-k=name]", "Name shown in tables and reports."],
+  ["[data-k=notes]", "Free text, shown in the report."],
+  ["#evalBtn", "Run OpenHFTA for every site, tower, target and band. Runs with unchanged inputs are reused."],
+  ["#cmpDelta", "Show each value as the difference from the reference row instead of the absolute FOM."],
+  ["#delProj", "Remove this project and all its files from the server. The library is not touched."],
   ["[data-k=prn]", "Elevation-angle file for this path. It says how often openings arrive at each angle, per band."],
   ["[data-k=heading]", "Great-circle bearing from your site to the target, degrees true."],
   ["[data-sp]", "Also judge the target this many degrees either side of the bearing. 0 = bearing only."],
@@ -1081,6 +1097,17 @@ const TIPS = [
   ["[data-gn]", "Name used in the results."],
   ["[data-ge]", "Elements on this band. Several bands in one row = one multiband antenna."],
   ["[data-gf][data-key=count]", "How many antennas of this kind."],
+  ["[data-gf][data-key=count_max]", "Also try up to this many antennas of this kind, so one search compares two against three. Empty = exactly Count."],
+  ["[data-gf][data-key=lo]", "Lowest height tried for this group. Empty = from one step above the ground."],
+  ["[data-gf][data-key=hi]", "Highest height tried for this group. Follows the tower height; lower it when guys or a mast section limit this group."],
+  ["#scGo", "Run one antenna at each height between From and To against the chosen target and band."],
+  ["[data-del]", "Remove this target."],
+  ["[data-azsel]", "Choose the target to set on the map: click or drag on the map for its bearing, slider for its spread."],
+  ["[data-act=del]", "Delete this site and its terrain files."],
+  ["[data-ex]", "Download this export."],
+  ["[data-ex='replay?prn=1']", "Private copy with your .PRN files inside: for your own records only, do not share."],
+  ["[data-ex='bundle?prn=0']", "Project zip without the .PRN files, for giving the project to someone else."],
+  ["input[name=ref]", "Reference row: with 'Show differences' on, every other row is shown relative to this one."],
   ["[data-gf][data-key=step]", "Height step of the search, feet. Smaller = slower and finer."],
   ["[data-gf][data-key=min_spacing]", "Smallest distance between two antennas of this group."],
   ["[data-gf][data-key=equal_tol]", "Keep the gaps inside the stack equal within this many feet. Empty = any spacing."],
@@ -1122,6 +1149,7 @@ function showHelp() {
     <li><b>Flat ground</b>: no terrain, for a reference run.</li>
   </ul>
   <p>Add two or more sites to compare positions. <b>Copy, moved…</b> makes a second site a set distance away, to see how much the result depends on the exact position (HFTA's move-the-tower check).</p>
+  <p><b>Profile length and far horizon.</b> HFTA reads at most 148 points per profile: 4.4 km at 30 m is the standard. The fetch can also make 10 km profiles at 68 m, but coarser spacing changes results on rough ground by about 1 dB, so compare 10 km profiles only with other 10 km profiles. After every fetch the site card shows the <b>far horizon</b>: the highest elevation angle of ground between the end of the profile and 15 km, seen from 30 m up the tower. Near or above 1° means a distant ridge that the standard profile does not contain; that is when the 10 km profile is worth a run.</p>
 
   <p><b>Elevation-angle tables with VOACAP.</b> Targets → "Generate with VOACAP…" makes a .PRN table for any origin in the world, the way the
   ARRL files were made: VOACAP is run for every month, hour and three solar levels to several points in the region, and every propagation mode
@@ -1133,7 +1161,7 @@ function showHelp() {
   <p><b>Library.</b> "Save to library" on a site or tower card keeps a named copy for all your projects (sites with their terrain files). "Add from library…" below the cards copies one into the current project.</p>
 
   <h3>2. Targets</h3>
-  <p>A target is a region you want to work: a bearing and an ARRL elevation-angle file (.PRN) for that path. Choosing the file sets the bearing from your site's position to a reference point in that region (shown under the bearing); "Bearings from site position" recomputes them all. The <b>map of targets</b> below the table is a great-circle map centred on your site: choose a target, click or drag on the map to set its bearing, and use the slider for its spread. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
+  <p>A target is a region you want to work: a bearing and an elevation-angle file (.PRN) for that path, either an ARRL file from the Antenna Book or a table made here with VOACAP. Choosing the file sets the bearing from your site's position to a reference point in that region (shown under the bearing); "Bearings from site position" recomputes them all. The <b>map of targets</b> below the table is a great-circle map centred on your site: choose a target, click or drag on the map to set its bearing, and use the slider for its spread. Tick the bands that matter for it. Headings: the bearing plus or minus a spread, so a target is judged over several directions, not one.</p>
 
   <h3>3. Towers</h3>
   <p>A tower is a set of antennas at given heights. On each band, the antennas that work on that band form one HFTA stack.</p>
@@ -1167,7 +1195,20 @@ function showHelp() {
   <b>Worldwide</b> shows all targets together (weighted mean, weights from the Stack Designer): the view for one tower that must work everywhere. Report exports the tables, the charts, and a replay pack: the exact .PRO files and settings, so any number can be reproduced in HFTA itself.</p>
 
   <h3>Reading the scores</h3>
-  <p>FOM is HFTA's figure of merit: antenna gain at each elevation angle, weighted by how often openings arrive at that angle on that path. A difference under 0.5 dB is small. On a hill that falls away towards the target, HFTA often prefers a lower antenna than you expect: the slope already acts as height, and more height adds nulls at useful angles.</p>`;
+  <p>FOM is HFTA's figure of merit: antenna gain at each elevation angle, weighted by how often openings arrive at that angle on that path. A difference under 0.5 dB is small; about 1 dB is where a difference starts to matter on the air. On a hill that falls away towards the target, HFTA often prefers a lower antenna than you expect: the slope already acts as height, and more height adds nulls at useful angles.</p>
+  <p>Marks in the tables: <b>*</b> beside a value = a few angles of that run were filled by interpolation after the calculation core returned invalid values (the result is an estimate at those angles); <span class="neg">failed</span> = the run could not be calculated and gives no FOM; ⚠ = a spacing warning.</p>
+
+  <h3>What HFTA cannot model</h3>
+  <ul>
+    <li>Generic antennas by element count, not your actual antenna.</li>
+    <li>No mutual coupling between stacked antennas: close spacing is rated too well (hence the spacing warnings).</li>
+    <li>Perfect power split and phasing, no feedline loss.</li>
+    <li>One terrain slice per heading; ground to the side is ignored. Terrain data measures tree tops.</li>
+    <li>Validated for 7–30 MHz; below 7 MHz diffraction is less reliable.</li>
+  </ul>
+
+  <h3>Accounts, sharing and privacy</h3>
+  <p>On a hosted copy each user has a login and a project store of their own; nothing is shared between users. The ARRL .PRN files are copyright: keep them in your own account, and give other people the <b>shareable</b> exports (Report page), which leave the files out and list them by checksum. "Delete project" on the Report page removes a project with all its files.</p>`;
   $("#drawer").hidden = false;
 }
 
