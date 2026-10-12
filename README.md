@@ -77,6 +77,19 @@ antenna type, heights, ground, diffraction, FOM), `combination.csv` (how runs co
 ## Running it (on your own computer)
 The app runs locally; nothing is sent to a server.
 
+**Windows (no installation):** download `HFTA-Stack-Planner-windows-<version>.zip` from the Releases page, unzip it
+anywhere, double-click **Start HFTA Stack Planner.bat**, and the browser opens http://localhost:5055. The package
+holds its own Python, the OpenHFTA core and VOACAP; your projects stay in its `data` folder. Windows may show
+"Windows protected your PC" the first time: choose More info → Run anyway. The package is built by
+`tools/build_windows.sh` and checked against the original-HFTA output before it is zipped.
+
+**macOS, Linux, Windows with Docker:**
+```
+docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/w7iv/hfta-stack-planner:latest
+```
+Then open http://localhost:5055. Projects are kept in the Docker volume `hfta-data`.
+
+**From source:**
 1. Install Python 3.10+ and gfortran. On Windows, use WSL (Ubuntu): `sudo apt install python3-pip gfortran`.
 2. Build the OpenHFTA core next to this folder (`../openhfta`), following its README.
 3. `pip install -r requirements.txt`
@@ -87,13 +100,15 @@ The app runs locally; nothing is sent to a server.
 Projects are stored in `projects/<name>/` (project.json, terrain, .PRN files, results).
 The previous single-page optimiser (multi-antenna height search, tribander trade-off matrix) is still at `/classic`.
 
-**With Docker (any system, no compiler needed):**
+**Building the Docker image yourself:**
 ```
 docker build -t hfta-planner .
 docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data hfta-planner
 ```
-Then open http://localhost:5055. Projects are kept in the Docker volume `hfta-data`. `127.0.0.1:` keeps the app on
-this computer only; without it Docker opens the port to the whole network, with no password. The image builds the OpenHFTA
+`127.0.0.1:` keeps the app on this computer only; without it Docker opens the port to the whole network, with no
+password. The image builds the OpenHFTA core at a pinned commit and checks it against the original HFTA during the
+build. A tag `v*` pushed to GitHub builds the Windows package and the image (`.github/workflows/release.yml`) and
+publishes a release; the image is on GitHub Container Registry (set the package to public once in its settings). The image builds the OpenHFTA
 core at a pinned commit and checks it against the original HFTA during the build.
 
 ## Hosted test copy (Railway)

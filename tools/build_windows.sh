@@ -15,14 +15,16 @@ VOACAPL_COMMIT=${VOACAPL_COMMIT:-c12a98b}
 PBS_URL=${PBS_URL:-https://github.com/astral-sh/python-build-standalone/releases/download/20241219/cpython-3.12.8%2B20241219-x86_64-pc-windows-msvc-install_only.tar.gz}
 VERSION=$(git -C "$REPO" describe --tags --always 2>/dev/null || echo dev)
 export WINEDEBUG=-all
+# Wine's Python needs a terminal for its standard streams; `script` provides one when the build runs unattended.
+wpy() { script -qec "wine \"$PKG/runtime/python.exe\" $*" /dev/null | tr -d '\r'; }
 
 echo "== Python runtime"
 [ -f "$WORK/pbs.tgz" ] || curl -sSL -o "$WORK/pbs.tgz" "$PBS_URL"
 tar xzf "$WORK/pbs.tgz" -C "$PKG" && mv "$PKG/python" "$PKG/runtime"
 mkdir -p "$WORK/wheels"
 pip download -q --only-binary=:all: --platform win_amd64 --python-version 3.12 --implementation cp -d "$WORK/wheels" -r "$REPO/tools/requirements-windows.txt"
-wine "$PKG/runtime/python.exe" -m pip install -q --no-index --find-links "$WORK/wheels" --no-warn-script-location -r "$REPO/tools/requirements-windows.txt"
-wine "$PKG/runtime/python.exe" -m pip check
+wpy -m pip install -q --no-index --find-links "$WORK/wheels" --no-warn-script-location -r "$REPO/tools/requirements-windows.txt"
+wpy -m pip check | grep -q "No broken requirements"
 rm -rf "$PKG"/runtime/Lib/site-packages/pip* "$PKG"/runtime/Scripts "$PKG"/runtime/include "$PKG"/runtime/libs \
       "$PKG"/runtime/Lib/test "$PKG"/runtime/Lib/idlelib "$PKG"/runtime/Lib/tkinter "$PKG"/runtime/Lib/turtledemo "$PKG"/runtime/tcl \
       "$PKG"/runtime/DLLs/_tkinter.pyd "$PKG"/runtime/DLLs/tcl86t.dll "$PKG"/runtime/DLLs/tk86t.dll
@@ -57,7 +59,9 @@ cp "$REPO/tools/windows/Start HFTA Stack Planner.bat" "$REPO/tools/windows/READM
 echo "$VERSION" > "$PKG/VERSION"
 
 echo "== check: the Windows build must still match the original HFTA (under Wine)"
-( cd "$PKG" && OPENHFTA_DIR="$(winepath -w "$PKG/openhfta")" wine runtime/python.exe app/tests/test_hfta_match.py | tail -1 | grep -q PASS )
+# (script gives Wine a terminal; without one Python cannot open its standard streams)
+( cd "$PKG" && OPENHFTA_DIR="$(winepath -w "$PKG/openhfta")" wpy app/tests/test_hfta_match.py | tee "$WORK/check.log" | tail -2 )
+grep -q "PASS: matches the original HFTA" "$WORK/check.log"
 
 echo "== zip"
 ZIP="$OUT/HFTA-Stack-Planner-windows-$VERSION.zip"; rm -f "$ZIP"

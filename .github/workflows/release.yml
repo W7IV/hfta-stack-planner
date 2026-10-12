@@ -1,0 +1,59 @@
+# Builds the distributable versions when a tag v* is pushed (or by hand): the Windows package (zip) and the Docker
+# image (ghcr.io/<owner>/hfta-stack-planner), then attaches the zip to a GitHub release.
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+  packages: write
+jobs:
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Tools (MinGW gfortran, Wine, zip)
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -q
+          sudo apt-get install -y -q gfortran-mingw-w64-x86-64 gcc-mingw-w64-x86-64 automake autoconf wine64 zip python3-pip
+      - name: Build the Windows package
+        run: tools/build_windows.sh dist
+      - uses: actions/upload-artifact@v4
+        with: { name: windows-package, path: dist/*.zip }
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/hfta-stack-planner
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: RAILWAY_GIT_COMMIT_SHA=${{ github.sha }}
+  release:
+    needs: [windows, docker]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: windows-package, path: dist }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          body: |
+            **Windows:** download the zip, unzip, double-click "Start HFTA Stack Planner.bat". No installation.
+            **macOS / Linux / Windows with Docker:** `docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/${{ github.repository_owner }}/hfta-stack-planner:${{ github.ref_name }}` then open http://localhost:5055
+            Getting started: open Help in the planner, or /guide.
