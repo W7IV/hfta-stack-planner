@@ -177,6 +177,15 @@ def put_project(slug):
         out["stored_rev"] = e.stored_rev; return jsonify(out), 409
     return jsonify(state(slug))
 
+@bp.delete("/api/v2/p/<slug>")
+def delete_project(slug):
+    """Delete a project with all its files (terrain, .PRN, results). The library is not touched."""
+    import shutil
+    d = P.path(slug)
+    if not (d / "project.json").exists(): return err("Project not found", 404)
+    shutil.rmtree(d)
+    return jsonify({"ok": True, "projects": P.list_projects()})
+
 # ------------------------------------------------------------ library shared by all projects
 @bp.get("/api/v2/library")
 def lib_list():

@@ -324,6 +324,14 @@ def f21_second_window_cannot_overwrite():
     assert put(slug, legacy).status_code == 200                                  # a client without rev still saves
 
 @test
+def project_can_be_deleted():
+    slug, proj = setup_study("Gone")
+    assert P.prn_file(slug, "SYN.PRN").exists()
+    r = C.delete(f"/api/v2/p/{slug}"); assert r.status_code == 200 and slug not in r.get_json()["projects"]
+    assert not P.path(slug).exists() and C.delete(f"/api/v2/p/{slug}").status_code == 404
+    assert C.delete("/api/v2/p/..%2F..%2Fx").status_code in (400, 404)
+
+@test
 def csp_header_present():
     r = C.get("/"); assert "script-src 'self'" in r.headers.get("Content-Security-Policy", "") and r.headers.get("X-Frame-Options") == "DENY"
     assert "<script>" not in C.get("/classic").data.decode()                     # no inline script on the classic page

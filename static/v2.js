@@ -962,7 +962,21 @@ function rReport() {
     ${ex("csv", "Results (CSV)", "One row per site, tower, target and band, for your own spreadsheet.")}
     ${ex("bundle", "Project with files (zip)", "The project with its terrain and .PRN files, for moving <b>your own</b> project to another of your computers (“Open project zip”). Results are recomputed there. <b>Shareable</b> leaves the .PRN files out, for giving the project to someone else.", ["bundle?prn=0", "Shareable (no .PRN)"])}
     ${ex("project", "Project file (settings only)", "The project settings without terrain or .PRN files.")}
-  </div>`;
+  </div>
+  <div class="card" style="margin-top:14px"><h2>Delete this project</h2><p class="small">Removes the project “${esc(p.name)}” with all its files on the server: terrain, .PRN files and results.
+  The library is not touched. Download the project zip first if you may want it back.</p><button class="danger" id="delProj">Delete project…</button></div>`;
+  $("#delProj").onclick = () => {
+    modal(`<h2>Delete “${esc(p.name)}”?</h2><p>All its files on the server are removed. This cannot be undone.</p>
+      <div class="row"><button class="danger" id="delYes">Delete</button><button class="ghost" id="delNo">Keep</button></div>`);
+    $("#delNo").onclick = closeModal;
+    $("#delYes").onclick = async () => {
+      try {
+        const r = await api("DELETE", `/api/v2/p/${SLUG}`); closeModal(); META.projects = r.projects;
+        try { localStorage.removeItem("hfta-project"); } catch (e) { /* ignore */ }
+        toast("Project deleted"); location.reload();
+      } catch (e) { toast(e.message, 5000); }
+    };
+  };
   $$("[data-ex]").forEach(b => b.onclick = () => { window.location = `/api/v2/p/${SLUG}/export/${b.dataset.ex}`; });
 }
 

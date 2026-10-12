@@ -113,6 +113,19 @@ failed attempts an address must wait five minutes. Set `SECRET_KEY` to keep logi
 (otherwise a random key is kept on the volume, which does the same). Without `APP_PASSWORD` (own computer) there
 is no login and one store.
 
+**What a hosted copy stores, and where it goes** (for users who ask):
+- On the server, per user: project files (names, site positions, notes, antennas), terrain profiles, the
+  elevation-angle files the user adds or generates, calculation results, and the user name with a salted password
+  hash. Nothing else: no e-mail address, no analytics, no scripts from other sites.
+- Data is kept until the user deletes it (Report → Delete project; Sites → Remove profiles) or the administrator
+  removes the user's folder. There is no automatic retention or deletion. Railway volume backups, if enabled, keep
+  copies for as long as Railway's backup settings say.
+- Two requests leave the server, both only on the user's click: "Fetch terrain online" sends the site position to
+  USGS (3DEP) or to Amazon's Terrain Tiles service, which see that position and the server's address. The VOACAP
+  calculation and everything else run on the server.
+- The web server's access log (kept by Railway) records addresses, paths and times, not the contents of requests.
+- The login cookie holds only the user name, signed; it expires after 30 days or at logout.
+
 **Moving a project:** Report → "Project with files (zip)" on one copy, then "Open project zip" on the other.
 The zip holds the terrain and .PRN files; results are recomputed. The ARRL .PRN files are copyright: keep such
 zips and any hosted copy private.
