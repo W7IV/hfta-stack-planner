@@ -68,6 +68,7 @@ antenna type, heights, ground, diffraction, FOM), `combination.csv` (how runs co
   14.2 MHz, 4-element antennas): all agree within 0.1 dB, the precision HFTA prints. The test first checks itself:
   it must fail on invalid core output (NaN, infinite values, short output). This reference set covers one band and one
   antenna type only; other bands, types and FOM values are not yet compared with the original HFTA.
+- `python tests/test_accounts.py` checks logins, user management and the separation of users' project stores.
 - `python tests/test_wrapper.py` checks the planner's own guarantees with the real core and the synthetic test .PRN:
   safe file paths, input checks, recalculation when a terrain file changes, invalid-output policy, missing data,
   terrain replacement, the Stack Designer's exact search, guy limits, export safety, cross-site requests, and
@@ -99,9 +100,18 @@ core at a pinned commit and checks it against the original HFTA during the build
 1. Push this folder to a private GitHub repository.
 2. Railway: New project → Deploy from GitHub repo. Railway finds the `Dockerfile`.
 3. Add a volume mounted at `/data` (projects are stored there).
-4. Variables: `APP_PASSWORD` (the browser asks for it, any user name) and `HFTA_WORKERS` (number of vCPUs of the
+4. Variables: `APP_PASSWORD` (the administrator's password) and `HFTA_WORKERS` (number of vCPUs of the
    service). On Railway, or with `HOSTED=1`, the app **refuses to start without `APP_PASSWORD`**.
 5. Settings → Networking → Generate domain.
+
+**Accounts.** With `APP_PASSWORD` set, every page needs a login. The administrator logs in as **admin** with that
+password and creates users on the **Users** page (top right); each user has a name, a password, and a project store
+and library of their own under `users/<name>/` on the data volume. Users never see each other's projects or files,
+and the administrator's projects are the base store (the projects of a copy that ran before accounts existed are
+the administrator's). Removing a login keeps the user's files on the volume. Logins last 30 days; after eight
+failed attempts an address must wait five minutes. Set `SECRET_KEY` to keep logins valid across redeploys
+(otherwise a random key is kept on the volume, which does the same). Without `APP_PASSWORD` (own computer) there
+is no login and one store.
 
 **Moving a project:** Report → "Project with files (zip)" on one copy, then "Open project zip" on the other.
 The zip holds the terrain and .PRN files; results are recomputed. The ARRL .PRN files are copyright: keep such
@@ -118,6 +128,7 @@ is the same file. The private versions are for your own records only.
 | `PROJECTS_DIR` | where projects are stored | `./projects` (`/data/projects` in the container) |
 | `HFTA_WORKERS` | calculation processes | number of CPUs |
 | `HOSTED` | `1` = server on a network: a password is then required | not set |
+| `SECRET_KEY` | signing key for login cookies | random, kept on the data volume |
 | `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
 
 ## VOACAP angle tables (any origin in the world)

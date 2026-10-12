@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner: users</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+</head>
+<body class="login-body">
+<main class="login admin">
+  <h1>Users</h1>
+  <p class="small"><a href="/">Back to the planner</a> · <a href="/logout">Log out</a></p>
+  {% if msg %}<div class="note">{{ msg }}</div>{% endif %}
+  <h2>Existing users</h2>
+  <table>
+    <tr><th>User</th><th>Since</th><th>New password</th><th></th></tr>
+    {% for u in users %}
+    <tr>
+      <td><b>{{ u.name }}</b></td><td class="mute">{{ u.created }}</td>
+      <td><form method="post" action="/admin/users" class="row"><input type="hidden" name="action" value="password"><input type="hidden" name="name" value="{{ u.name }}">
+        <input name="password" type="password" minlength="8" placeholder="at least 8 characters" required style="width:200px"><button class="ghost">Set</button></form></td>
+      <td><form method="post" action="/admin/users"><input type="hidden" name="action" value="delete"><input type="hidden" name="name" value="{{ u.name }}">
+        <button class="danger">Remove login</button></form></td>
+    </tr>
+    {% else %}
+    <tr><td colspan="4" class="mute">No users yet. Only the administrator can log in.</td></tr>
+    {% endfor %}
+  </table>
+  <h2>New user</h2>
+  <form method="post" action="/admin/users" class="row">
+    <input type="hidden" name="action" value="create">
+    <label>User name<input name="name" pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,30}" required placeholder="e.g. dl1abc"></label>
+    <label>Password<input name="password" type="password" minlength="8" required placeholder="at least 8 characters"></label>
+    <button>Create</button>
+  </form>
+  <p class="small mute">A user name has 2–31 letters, digits, '-' or '_' (saved in lower case). Each user gets an empty project store and library;
+  they add their own elevation-angle files or generate them with VOACAP. Removing a login keeps the user's files on the server
+  under <code>users/&lt;name&gt;</code>; delete that folder yourself if you want them gone.</p>
+</main>
+</body>
+</html>

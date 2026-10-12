@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner: log in</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+</head>
+<body class="login-body">
+<main class="login">
+  <h1>HFTA Stack Planner</h1>
+  <p class="small mute">Log in with the user name and password you were given. The administrator logs in as <b>admin</b>.</p>
+  {% if error %}<div class="note" style="border-left-color:#b33a3a">{{ error }}</div>{% endif %}
+  <form method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>User name<input name="user" autocomplete="username" required autofocus></label>
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    <button type="submit">Log in</button>
+  </form>
+  <p class="small mute">Each user has their own projects and files. Nothing is shared between users.</p>
+</main>
+</body>
+</html>

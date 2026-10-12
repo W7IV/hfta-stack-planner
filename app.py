@@ -51,16 +51,92 @@ def _same_origin():
     return None
 
 
+# ---------------------------------------------------------------- accounts (hosted copy)
+from flask import session, redirect, g, abort  # noqa: E402
+from core import project as P, users as U  # noqa: E402
+
+if APP_PASSWORD:
+    app.secret_key = U.secret_key()
+    app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
+                      SESSION_COOKIE_SECURE=bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("HOSTED") == "1"),
+                      PERMANENT_SESSION_LIFETIME=30 * 24 * 3600)
+
+
 @app.before_request
-def _password():
-    """Simple protection for a hosted copy: HTTP basic authentication, password from APP_PASSWORD."""
-    if not APP_PASSWORD or request.path == "/healthz":
+def _login():
+    """Hosted copy (APP_PASSWORD set): every page needs a login. 'admin' with APP_PASSWORD, or a user made by the
+    admin. Each user works in their own project store. Basic authentication with APP_PASSWORD still works for the
+    admin (scripts). Without APP_PASSWORD (own computer) there is no login and one store."""
+    P.set_root(None); g.user = None
+    if not APP_PASSWORD or request.path == "/healthz" or request.path.startswith("/static/"):
+        return None
+    if request.path in ("/login", "/logout"):
         return None
     import hmac
     a = request.authorization
-    if a and a.password and hmac.compare_digest(a.password, APP_PASSWORD):
-        return None
-    return ("Password required", 401, {"WWW-Authenticate": 'Basic realm="HFTA Stack Planner"'})
+    if a and a.password and a.type == "basic" and hmac.compare_digest(a.password, APP_PASSWORD):
+        g.user = U.ADMIN; return None
+    user = session.get("user")
+    if user == U.ADMIN or (user and user in {u["name"] for u in U.listing()}):
+        g.user = user; P.set_root(U.root_for(user)); return None
+    session.clear()
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Please log in", "login": True}), 401
+    return redirect("/login?next=" + request.path)
+
+
+@app.get("/login")
+def login_page():
+    if not APP_PASSWORD: return redirect("/")
+    return render_template("login.html", error=None, next=request.args.get("next", "/"))
+
+
+@app.post("/login")
+def login_post():
+    if not APP_PASSWORD: return redirect("/")
+    key = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    if U.too_many_failures(key):
+        return render_template("login.html", error="Too many failed attempts. Wait five minutes.", next="/"), 429
+    name = U.authenticate(request.form.get("user", ""), request.form.get("password", ""), APP_PASSWORD)
+    if not name:
+        U.note_failure(key); time.sleep(0.5)
+        return render_template("login.html", error="Wrong user name or password.", next=request.form.get("next", "/")), 401
+    U.clear_failures(key); session.clear(); session["user"] = name; session.permanent = True
+    nxt = request.form.get("next") or "/"
+    return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/")
+
+
+@app.route("/logout", methods=["GET", "POST"])
+def logout():
+    session.clear(); return redirect("/login" if APP_PASSWORD else "/")
+
+
+@app.get("/api/whoami")
+def whoami():
+    return jsonify({"user": g.user, "admin": g.user == U.ADMIN, "accounts": bool(APP_PASSWORD)})
+
+
+def _admin_only():
+    if not APP_PASSWORD or g.user != U.ADMIN: abort(403)
+
+
+@app.get("/admin")
+def admin_page():
+    _admin_only(); return render_template("admin.html", users=U.listing(), msg=request.args.get("msg", ""))
+
+
+@app.post("/admin/users")
+def admin_users():
+    _admin_only(); f = request.form; act = f.get("action")
+    try:
+        if act == "create": U.create(f.get("name"), f.get("password")); msg = f"User {f.get('name', '').strip().lower()} created."
+        elif act == "password": U.set_password(f.get("name"), f.get("password")); msg = f"Password of {f.get('name')} changed."
+        elif act == "delete": U.delete(f.get("name")); msg = f"Login of {f.get('name')} removed. Their files stay on the server under users/{f.get('name')}."
+        else: msg = "Unknown action."
+    except (ValueError, KeyError) as e:
+        msg = f"Not done: {e}"
+    from urllib.parse import quote
+    return redirect("/admin?msg=" + quote(msg))
 
 
 @app.after_request
@@ -267,8 +343,8 @@ def optimise():
             grids["free"] = engine.height_grid(specs, step, c["min_spacing_ft"], c["max_tower_ft"])
         if mode in ("equal", "both"):
             grids["equal"] = engine.equal_grid(len(ants), bottom, spacing, step, c["min_spacing_ft"], c["max_tower_ft"])
-        for k, g in grids.items():
-            if not g:
+        for k, grid in grids.items():
+            if not grid:
                 raise ValueError(f"No height combination satisfies the {k} search ranges, minimum spacing "
                                  "and maximum tower height")
     except (KeyError, ValueError, TypeError) as e:
@@ -359,13 +435,15 @@ def job_status(jid):
     job = JOBS.get(jid)
     if not job:
         return err("Unknown job", 404)
+    if job.get("owner") not in (None, str(P.root())):
+        return err("Unknown job", 404)
     return jsonify({k: job[k] for k in ("state", "phase", "done", "total", "result", "error")})
 
 
 @app.post("/api/job/<jid>/cancel")
 def job_cancel(jid):
     job = JOBS.get(jid)
-    if job:
+    if job and job.get("owner") in (None, str(P.root())):
         job["cancel"] = True
     return jsonify({"ok": True})
 

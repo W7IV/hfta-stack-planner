@@ -4,7 +4,21 @@ from __future__ import annotations
 import json, math, os, re, tempfile, threading, time, uuid
 from pathlib import Path
 
-ROOT = Path(os.environ.get("PROJECTS_DIR") or Path(__file__).resolve().parent.parent / "projects")
+import contextvars
+BASE_ROOT = Path(os.environ.get("PROJECTS_DIR") or Path(__file__).resolve().parent.parent / "projects")
+DATA_DIR = BASE_ROOT.parent          # users.json, users/<name>/projects, the secret key, the shared terrain cache
+# The project store of the current request: the base store (one user, or the admin) or a user's own store.
+_ROOT_VAR = contextvars.ContextVar("hfta_root", default=None)
+
+def root() -> Path:
+    return _ROOT_VAR.get() or BASE_ROOT
+
+def set_root(p):
+    """Choose the project store for this context (request or thread). None = the base store."""
+    _ROOT_VAR.set(Path(p) if p else None)
+
+def user_root(name: str) -> Path:
+    return DATA_DIR / "users" / safe_id(name, "user name") / "projects"
 SOILS = {"Very poor soil": (0.001, 5), "Sandy, dry soil": (0.002, 10), "Poor soil": (0.002, 13), "Average soil": (0.005, 13),
          "Good soil": (0.010, 14), "Very good soil": (0.030, 20), "Fresh water": (0.001, 81), "Salt water": (5.000, 80)}
 
@@ -49,7 +63,7 @@ def write_atomic(f: Path, text: str):
 
 _LOCK = threading.Lock()
 
-def path(pslug): return ROOT / safe_id(pslug, "project")
+def path(pslug): return root() / safe_id(pslug, "project")
 def load(pslug) -> dict: return upgrade(json.loads((path(pslug) / "project.json").read_text()))
 
 def upgrade(p: dict) -> dict:
@@ -82,8 +96,8 @@ def save(pslug, p: dict, expect_rev=None):
 class RevisionConflict(Exception):
     def __init__(self, stored_rev): super().__init__("The project was changed in another window"); self.stored_rev = stored_rev
 def list_projects():
-    ROOT.mkdir(parents=True, exist_ok=True)
-    return sorted([d.name for d in ROOT.iterdir() if (d / "project.json").exists()])
+    r = root(); r.mkdir(parents=True, exist_ok=True)
+    return sorted([d.name for d in r.iterdir() if (d / "project.json").exists()])
 def site_dir(pslug, site_id): return path(pslug) / "sites" / safe_id(site_id, "site id")
 def prn_dir(pslug): return path(pslug) / "prn"
 def prn_file(pslug, name): return prn_dir(pslug) / safe_file(name, ".prn")

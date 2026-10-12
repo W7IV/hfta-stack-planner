@@ -410,7 +410,7 @@ def hgt_fetch_route_uses_cache():
         slug, proj = new_project("Tiles"); proj["sites"] = [{"id": "s1", "name": "DL", "lat": 51.23, "lon": 6.78}]; put(slug, proj)
         r = C.post(f"/api/v2/p/{slug}/sites/s1/auto", json={"lat": 51.23, "lon": 6.78, "prefix": "DL", "az_step": 30}).get_json()
         assert r["written"] == 12 and r["source"] == TR.TERRAIN_TILES_SOURCE and r["ground_elevation_m"] == 250 and r["resolution_m"] > 90, r
-        assert (P.ROOT / "_cache" / "hgt" / "N51E006.hgt").exists()
+        assert (P.DATA_DIR / "_cache" / "hgt" / "N51E006.hgt").exists()
         r2 = C.post(f"/api/v2/p/{slug}/sites/s1/auto", json={"lat": 51.23, "lon": 6.78, "prefix": "DL", "az_step": 30, "source": "tiles"}).get_json()
         assert r2["written"] == 12
     finally:

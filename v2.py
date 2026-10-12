@@ -1,6 +1,6 @@
 """HFTA Stack Planner v2: five-step workflow (Sites, Targets, Towers, Compare, Report). Runs locally."""
 from __future__ import annotations
-import io, json, os, threading, time, uuid
+import contextvars, io, json, os, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
@@ -18,6 +18,11 @@ def _bad_value(e):
 def layers(proj): return {}   # no layers beyond HFTA in this version
 def results_path(slug): return P.path(slug) / "results.json"
 
+def start_thread(fn, *args):
+    """Run fn in a background thread with the same project store (contextvars) as the request that started it."""
+    ctx = contextvars.copy_context()
+    threading.Thread(target=ctx.run, args=(fn, *args), daemon=True).start()
+
 def new_job() -> tuple:
     """Register a background job. Finished jobs older than one hour are forgotten, so memory stays bounded."""
     now = time.time(); jobs = CTX["jobs"]
@@ -25,7 +30,8 @@ def new_job() -> tuple:
     if sum(1 for j in jobs.values() if j["state"] == "running") >= 4:
         raise ValueError("Four calculations are already running. Wait for one to finish.")
     jid = uuid.uuid4().hex[:8]
-    job = {"state": "running", "phase": "Planning", "done": 0, "total": 0, "result": None, "error": None, "cancel": False, "started": now}
+    job = {"state": "running", "phase": "Planning", "done": 0, "total": 0, "result": None, "error": None, "cancel": False, "started": now,
+           "owner": str(P.root())}
     jobs[jid] = job; return jid, job
 def load_results(slug):
     p = results_path(slug); return json.loads(p.read_text()) if p.exists() else None
@@ -275,7 +281,7 @@ def site_auto(slug, sid):
         args = (lat, lon, P.site_dir(slug, sid), P.slug(body.get("prefix") or "SITE"))
         opts = (float(body.get("az_step", 1)), float(body.get("spacing_m", 30)), float(body.get("length_m", 4410)))
         if src == "3dep": out = TR.fetch_dem_and_generate(*args, *opts)
-        elif src == "tiles": out = TR.fetch_tiles_and_generate(*args, P.ROOT / "_cache" / "hgt", *opts)
+        elif src == "tiles": out = TR.fetch_tiles_and_generate(*args, P.DATA_DIR / "_cache" / "hgt", *opts)
         else: return err("source must be 3dep, tiles or auto")
     except Exception as e:  # noqa: BLE001
         return err(f"Auto terrain: {e}")
@@ -375,7 +381,7 @@ def prn_generate(slug):
     """Make a .PRN elevation-angle table with VOACAP. Body: {lat, lon, region | points, name, months?, hours?, ssn?, title?}."""
     if not AG.available(): return err("VOACAP (voacapl) is not installed on this computer.")
     if not (P.path(slug) / "project.json").exists(): return err("Project not found", 404)
-    jid, job = new_job(); threading.Thread(target=_run_prn_gen, args=(job, slug, request.get_json() or {}), daemon=True).start()
+    jid, job = new_job(); start_thread(_run_prn_gen, job, slug, request.get_json() or {})
     return jsonify({"job": jid})
 
 # ------------------------------------------------------------ evaluation
@@ -405,7 +411,7 @@ def _run_eval(job, slug):
 
 @bp.post("/api/v2/p/<slug>/evaluate")
 def evaluate(slug):
-    jid, job = new_job(); threading.Thread(target=_run_eval, args=(job, slug), daemon=True).start()
+    jid, job = new_job(); start_thread(_run_eval, job, slug)
     return jsonify({"job": jid})
 
 @bp.get("/api/v2/p/<slug>/results")
@@ -476,7 +482,7 @@ def _run_scan(job, slug, body):
 
 @bp.post("/api/v2/p/<slug>/scan")
 def scan(slug):
-    jid, job = new_job(); threading.Thread(target=_run_scan, args=(job, slug, request.get_json()), daemon=True).start()
+    jid, job = new_job(); start_thread(_run_scan, job, slug, request.get_json())
     return jsonify({"job": jid})
 
 # ------------------------------------------------------------ one-tower compromise
@@ -491,7 +497,7 @@ def _run_comp(job, slug, body):
 
 @bp.post("/api/v2/p/<slug>/compromise")
 def compromise(slug):
-    jid, job = new_job(); threading.Thread(target=_run_comp, args=(job, slug, request.get_json()), daemon=True).start()
+    jid, job = new_job(); start_thread(_run_comp, job, slug, request.get_json())
     return jsonify({"job": jid})
 
 @bp.get("/api/v2/p/<slug>/compromise")

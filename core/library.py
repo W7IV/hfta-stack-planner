@@ -9,7 +9,7 @@ from pathlib import Path
 from . import project as P
 
 def root() -> Path:
-    d = P.ROOT / "_library"; (d / "sites").mkdir(parents=True, exist_ok=True); return d
+    d = P.root() / "_library"; (d / "sites").mkdir(parents=True, exist_ok=True); return d
 
 def _load(name) -> list:
     f = root() / name

@@ -16,6 +16,7 @@ async function api(method, url, body, isForm) {
   const o = { method, headers: {} };
   if (body !== undefined) { if (isForm) o.body = body; else { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(body); } }
   const r = await fetch(url, o); const j = await r.json().catch(() => ({}));
+  if (r.status === 401 && j.login) { location.href = "/login?next=" + encodeURIComponent(location.pathname); throw new Error("Please log in"); }
   if (!r.ok) { const e = new Error(j.error || r.statusText); e.status = r.status; e.body = j; throw e; } return j;
 }
 function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, ms); }
@@ -23,8 +24,9 @@ function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.h
    the edited project, not the new one). Saves run one after another, never out of order. save(true) returns a promise
    that fails when the server refuses or cannot be reached, so actions that need the saved project stop there. */
 let saveChain = Promise.resolve(), pendingSave = null;
+function saveState(text, cls) { const e = $("#saveState"); e.textContent = text; e.className = cls || "mute"; }
 function save(now) {
-  $("#saveState").textContent = "Saving…"; clearTimeout(saveTimer);
+  saveState("Saving…"); clearTimeout(saveTimer);
   const slug = SLUG, proj = P();
   const go = () => {
     pendingSave = null;
@@ -32,9 +34,9 @@ function save(now) {
       const r = await api("PUT", `/api/v2/p/${slug}`, proj);
       /* Keep the same project object after saving: the page's inputs hold references into it. Only the file and
          result status come from the server. */
-      if (slug === SLUG && r.slug === SLUG) { const rev = r.project.rev; r.project = P(); P().rev = rev; S = r; $("#saveState").textContent = "Saved"; status(); }
+      if (slug === SLUG && r.slug === SLUG) { const rev = r.project.rev; r.project = P(); P().rev = rev; S = r; saveState("Saved ✓", "ok"); status(); }
     }).catch(e => {
-      $("#saveState").textContent = "Not saved: " + e.message;
+      saveState("Not saved: " + e.message, "bad");
       if (e.status === 409) conflictBanner(); else toast("Not saved: " + e.message, 7000);
       throw e;
     });
@@ -975,6 +977,10 @@ async function openProject(slug) {
 }
 async function init() {
   META = await api("GET", "/api/v2/meta");
+  try {
+    const who = await api("GET", "/api/whoami");
+    if (who.accounts) $("#userBox").innerHTML = `${esc(who.user)} · ${who.admin ? `<a href="/admin">Users</a> · ` : ""}<a href="/logout">Log out</a>`;
+  } catch (e) { /* no accounts */ }
   const sel = $("#projSel"), fill = () => sel.innerHTML = META.projects.map(n => `<option ${n === SLUG ? "selected" : ""}>${esc(n)}</option>`).join("");
   let last = null; try { last = localStorage.getItem("hfta-project"); } catch (e) { last = null; }
   if (!META.projects.length) { const r = await api("POST", "/api/v2/projects", { name: "My station" }); META.projects = [r.slug]; }
