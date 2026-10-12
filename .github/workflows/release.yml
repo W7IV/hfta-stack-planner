@@ -21,6 +21,7 @@ jobs:
           sudo apt-get install -y -q gfortran-mingw-w64-x86-64 gcc-mingw-w64-x86-64 automake autoconf wine wine64 zip python3-pip
           wine --version
       - name: Build the Windows package
+        shell: bash   # the explicit bash shell sets pipefail, so a failed build is not hidden by tee
         run: tools/build_windows.sh dist 2>&1 | tee build.log
       - name: Report a failed build (last lines of the log as a commit comment)
         if: failure()
@@ -29,7 +30,7 @@ jobs:
           { echo '```'; tail -c 5000 build.log | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g'; echo '```'; } > body.md
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@body.md >/dev/null && echo "posted" || cat body.md
       - uses: actions/upload-artifact@v4
-        with: { name: windows-package, path: dist/*.zip }
+        with: { name: windows-package, path: dist/*.zip, if-no-files-found: error }
   docker:
     runs-on: ubuntu-24.04
     steps:
