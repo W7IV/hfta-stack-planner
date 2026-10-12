@@ -5,7 +5,7 @@
 #   openhfta/  hfta.py + OpenYTWCore.dll cross-compiled with MinGW gfortran from the pinned OpenHFTA commit
 #   voacap/    voacapl.exe cross-compiled with MinGW + its data folder (coefficient binaries made by the Windows tools under Wine)
 #   Start HFTA Stack Planner.bat, README-Windows.txt
-# Needs: gfortran-mingw-w64-x86-64, gcc-mingw-w64-x86-64, automake, autoconf, wine64, python3 + pip, curl, zip.
+# Needs: gfortran-mingw-w64-x86-64, gcc-mingw-w64-x86-64, automake, autoconf, wine (the package that provides the `wine` command; wine64 alone does not), python3 + pip, curl, zip.
 # Usage: tools/build_windows.sh [output dir]   -> HFTA-Stack-Planner-windows-<version>.zip
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:-"$REPO/dist"}; mkdir -p "$OUT"
@@ -15,6 +15,10 @@ VOACAPL_COMMIT=${VOACAPL_COMMIT:-c12a98b}
 PBS_URL=${PBS_URL:-https://github.com/astral-sh/python-build-standalone/releases/download/20241219/cpython-3.12.8%2B20241219-x86_64-pc-windows-msvc-install_only.tar.gz}
 VERSION=$(git -C "$REPO" describe --tags --always 2>/dev/null || echo dev)
 export WINEDEBUG=-all
+for t in x86_64-w64-mingw32-gfortran x86_64-w64-mingw32-gcc autoreconf wine winepath script curl pip zip; do
+  command -v "$t" >/dev/null || { echo "missing tool: $t (on Ubuntu: apt-get install gfortran-mingw-w64-x86-64 gcc-mingw-w64-x86-64 automake autoconf wine zip python3-pip)"; exit 1; }
+done
+wineboot -u >/dev/null 2>&1 || true   # first run creates the Wine prefix; done here so its messages do not land in the build output
 # Wine's Python needs a terminal for its standard streams; `script` provides one when the build runs unattended.
 wpy() { script -qec "wine \"$PKG/runtime/python.exe\" $*" /dev/null | tr -d '\r'; }
 
@@ -24,7 +28,7 @@ tar xzf "$WORK/pbs.tgz" -C "$PKG" && mv "$PKG/python" "$PKG/runtime"
 mkdir -p "$WORK/wheels"
 pip download -q --only-binary=:all: --platform win_amd64 --python-version 3.12 --implementation cp -d "$WORK/wheels" -r "$REPO/tools/requirements-windows.txt"
 wpy -m pip install -q --no-index --find-links "$WORK/wheels" --no-warn-script-location -r "$REPO/tools/requirements-windows.txt"
-wpy -m pip check | grep -q "No broken requirements"
+CHECK=$(wpy -m pip check); echo "$CHECK" | grep -q "No broken requirements" || { echo "$CHECK"; exit 1; }
 rm -rf "$PKG"/runtime/Lib/site-packages/pip* "$PKG"/runtime/Scripts "$PKG"/runtime/include "$PKG"/runtime/libs \
       "$PKG"/runtime/Lib/test "$PKG"/runtime/Lib/idlelib "$PKG"/runtime/Lib/tkinter "$PKG"/runtime/Lib/turtledemo "$PKG"/runtime/tcl \
       "$PKG"/runtime/DLLs/_tkinter.pyd "$PKG"/runtime/DLLs/tcl86t.dll "$PKG"/runtime/DLLs/tk86t.dll
