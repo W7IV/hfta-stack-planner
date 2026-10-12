@@ -39,10 +39,12 @@ def build_info() -> dict:
     global _BUILD
     if _BUILD is None:
         sha = os.environ.get("RAILWAY_GIT_COMMIT_SHA") or os.environ.get("SOURCE_COMMIT") or ""
+        here = Path(__file__).parent
+        if not sha and (here / "COMMIT").exists(): sha = (here / "COMMIT").read_text().strip()
         if not sha:
             try:
                 import subprocess
-                sha = subprocess.run(["git", "-C", str(Path(__file__).parent), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip()
+                sha = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(here), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip()
             except Exception:  # noqa: BLE001
                 sha = ""
         e = engine.engine_info()
@@ -161,7 +163,13 @@ def get_project(slug):
 def put_project(slug):
     if not (P.path(slug) / "project.json").exists(): return err("Project not found", 404)
     proj = P.validate(P.upgrade(request.get_json()))
-    P.save(slug, proj); return jsonify(state(slug))
+    rev = proj.get("rev")
+    try:
+        P.save(slug, proj, expect_rev=int(rev) if rev is not None else None)
+    except P.RevisionConflict as e:
+        out = state(slug); out["error"] = "This project was changed in another window or on another device. Reload the page to see the latest version; the change you just made was not saved."
+        out["stored_rev"] = e.stored_rev; return jsonify(out), 409
+    return jsonify(state(slug))
 
 # ------------------------------------------------------------ library shared by all projects
 @bp.get("/api/v2/library")

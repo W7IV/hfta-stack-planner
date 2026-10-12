@@ -38,7 +38,7 @@ models. Two checks are added as notes only; they never change a number:
 | Check | What it shows |
 |---|---|
 | Spacing warnings | Stack spacing in wavelengths (HFTA has no mutual coupling, so close stacks look too good) and the gap between antennas on different bands. Red = too close, amber = close. Limits can be changed per project (default: red below 0.30 wavelength, amber below 0.40; gap red below 10 ft, amber below 15 ft). |
-| Guy and ice check | Turning antennas against guy wires, with guy sag and element droop under radial ice. |
+| Guy and ice check | Turning antennas against guy wires, with guy sag and element droop under radial ice (assumptions and range: core/guys.py). |
 
 ## Workflow (five steps)
 1. **Sites**: one or more tower positions on the property. Terrain fetched online for any place in the world (USGS
@@ -166,9 +166,14 @@ Both items for stations outside the US are done. Open points:
    (about 25 MB per degree square). All of these sets measure tree tops, not the ground. Attribution: Tilezen /
    Mapzen Terrain Tiles and the sources listed at github.com/tilezen/joerd; no service guarantee.
 
-3. Before any public hosting: stricter browser rules (content security policy), a container that runs without
-   administrator rights, and a warning when two browser tabs edit the same project.
-4. An independent check of the guy-wire model (sag, ice, droop) against a structural calculation.
+3. ~~Hardening before public hosting~~: done. Browser rules (content security policy: scripts and styles only from
+   the planner itself, no framing), the container runs as an unprivileged user (the entrypoint starts as root only to
+   make the data volume writable, then drops root), and a project keeps a revision number: when two windows edit
+   the same project, the second save is refused with a notice to reload instead of overwriting the first.
+4. ~~Check of the guy-wire model~~: the sag formula (parabola, constant initial tension) was compared with an exact
+   catenary in the tests: within 0.7 ft in the worst case tried (steep guy, 1.25 in ice, thin wire) and within
+   0.2 ft in ordinary cases; the 2 ft margin covers it. Assumptions are listed at the top of core/guys.py. Wind,
+   insulators and the guy load on the tower are not modelled; a tower engineer's calculation takes precedence.
 
 ## Limits
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data

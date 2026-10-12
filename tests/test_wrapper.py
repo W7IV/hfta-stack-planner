@@ -311,6 +311,62 @@ def f21_atomic_write_leaves_no_partial_file():
     f = TMP / "a.json"; P.write_atomic(f, '{"a": 1}'); P.write_atomic(f, '{"a": 2}')
     assert json.loads(f.read_text()) == {"a": 2} and not list(TMP.glob(".a.json*"))
 
+# ------------------------------------------------------------------ F21 revisions: two windows
+@test
+def f21_second_window_cannot_overwrite():
+    slug, proj = new_project("Rev")
+    a = json.loads(json.dumps(proj)); b = json.loads(json.dumps(proj))        # two browser windows with the same copy
+    a["name"] = "from window A"; r = put(slug, a); assert r.status_code == 200 and r.get_json()["project"]["rev"] == a["rev"] + 1
+    b["name"] = "from window B"; r = put(slug, b); assert r.status_code == 409, r.status_code
+    assert "another window" in r.get_json()["error"] and P.load(slug)["name"] == "from window A"
+    a2 = r.get_json()["project"]; a2["name"] = "B after reload"; assert put(slug, a2).status_code == 200
+    legacy = json.loads(json.dumps(P.load(slug))); legacy.pop("rev"); legacy["name"] = "old client"
+    assert put(slug, legacy).status_code == 200                                  # a client without rev still saves
+
+@test
+def csp_header_present():
+    r = C.get("/"); assert "script-src 'self'" in r.headers.get("Content-Security-Policy", "") and r.headers.get("X-Frame-Options") == "DENY"
+    assert "<script>" not in C.get("/classic").data.decode()                     # no inline script on the classic page
+
+# ------------------------------------------------------------------ guy model against an exact catenary
+def _catenary_sag(H, R, r, wl, d, tension, ice_in, density=56.0):
+    """Exact inclined catenary from (0, H) to (R, 0), weight per foot wl + ice, cable tension at mid-span = tension.
+    Independent of core/guys.py (closed-form shape, bisection on the horizontal tension)."""
+    wi = math.pi * ((d / 2 + ice_in) ** 2 - (d / 2) ** 2) / 144 * density if ice_in > 0 else 0.0
+    w = wl + wi
+    def shape(Th):
+        a = Th / w; s = -H / (2 * a * math.sinh(R / (2 * a))); u = (R - 2 * a * math.asinh(s)) / 2
+        c = -a * math.cosh((R - u) / a); return (lambda x: a * math.cosh((x - u) / a) + c), u, a
+    def mid_tension(Th):
+        y, u, a = shape(Th); return Th * math.cosh((R / 2 - u) / a)
+    lo, hi = w * R / 500, tension
+    for _ in range(100):
+        m = (lo + hi) / 2
+        if mid_tension(m) > tension: hi = m
+        else: lo = m
+    y, u, a = shape((lo + hi) / 2)
+    return H * (1 - r / R) - y(r)
+
+@test
+def guys_parabola_matches_catenary():
+    worst = 0.0
+    for H, R, ice in ((50, 100, 1.0), (100, 80, 1.25), (150, 120, 0.5), (40, 150, 1.0), (120, 60, 1.25), (100, 100, 0.0)):
+        for wire, (wl, d, T) in G.WIRES.items():
+            for r in (10, 25, 40):
+                if r >= R: continue
+                worst = max(worst, abs(_catenary_sag(H, R, r, wl, d, T, ice) - G.sag_at(H, R, r, wire, T, ice)))
+    assert worst < 0.75, worst
+    # geometry: zero anchor radius refused; a turning radius past the anchor is reported, not computed
+    try: G.check([{"name": "a", "h": 50, "turning_radius": 20, "droop": 0}], [{"h": 60, "r": 0, "wire": "1/4 EHS steel", "tension": 670}])
+    except ValueError: pass
+    else: raise AssertionError("zero anchor radius accepted")
+    row = G.check([{"name": "a", "h": 50, "turning_radius": 90, "droop": 0}], [{"h": 60, "r": 80, "wire": "1/4 EHS steel", "tension": 670}])[0]
+    assert row["clearance"] is None and "anchor" in row["limit"]
+    # no ice: the antenna below a 60 ft guy with 80 ft anchors, 20 ft out: straight wire at 45 ft, minus the wire's own
+    # small sag; antenna at 40 ft, margin 2 -> a little under 3 ft
+    row = G.check([{"name": "a", "h": 40, "turning_radius": 20, "droop": 0}], [{"h": 60, "r": 80, "wire": "1/4 EHS steel", "tension": 670}], ice_in=0, margin=2)[0]
+    assert 2.6 < row["clearance"] <= 3.0, row
+
 # ------------------------------------------------------------------ worldwide terrain from .hgt tiles
 @test
 def hgt_tiles_sample_and_generate():

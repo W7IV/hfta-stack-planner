@@ -27,11 +27,19 @@ ENV SOURCE_COMMIT=$RAILWAY_GIT_COMMIT_SHA
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt gunicorn==23.0.0
 COPY . .
+RUN echo "$RAILWAY_GIT_COMMIT_SHA" > /app/COMMIT
 
 # The core must still agree with the original HFTA inside the image
 ENV OPENHFTA_DIR=/opt/openhfta OPENHFTA_COMMIT=$OPENHFTA_COMMIT PROJECTS_DIR=/data/projects PYTHONUNBUFFERED=1 \
     VOACAPL=/opt/voacap/bin/voacapl ITSHFBC=/opt/itshfbc
 RUN python tests/test_hfta_match.py
 
+# The app runs as an unprivileged user. The entrypoint starts as root only to make /data writable for that user,
+# then drops root (setpriv). The code and the engine are read-only for it.
+RUN useradd --system --uid 10001 --create-home --home-dir /home/planner planner \
+    && mkdir -p /data/projects && chown -R planner:planner /data \
+    && chmod +x /app/docker-entrypoint.sh
+ENV HOME=/home/planner
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 # One web process (jobs are kept in memory); calculations run in HFTA_WORKERS processes.
-CMD gunicorn app:app --workers 1 --threads 8 --timeout 0 --bind 0.0.0.0:${PORT:-5055}
+CMD ["sh", "-c", "exec gunicorn app:app --workers 1 --threads 8 --timeout 0 --bind 0.0.0.0:${PORT:-5055}"]

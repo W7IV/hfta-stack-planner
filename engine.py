@@ -63,7 +63,7 @@ def engine_info() -> dict:
         commit = os.environ.get("OPENHFTA_COMMIT") or "unknown"
         if commit == "unknown" and (OPENHFTA_DIR / ".git").exists():
             try:
-                commit = subprocess.run(["git", "-C", str(OPENHFTA_DIR), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip() or "unknown"
+                commit = subprocess.run(["git", "-c", "safe.directory=*", "-C", str(OPENHFTA_DIR), "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5).stdout.strip() or "unknown"
             except Exception:  # noqa: BLE001
                 pass
         _ENGINE = {"name": "OpenHFTA", "commit": commit, "library_sha256": sha, "wrapper": WRAPPER_NUMERIC_VERSION}

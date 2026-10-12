@@ -67,8 +67,20 @@ def upgrade(p: dict) -> dict:
                 u = A.upgrade({"model": g.pop("model")}, hint); g["el"] = u["el"]
                 g.setdefault("turning_radius", u.get("turning_radius")); g.setdefault("droop", u.get("droop"))
     return p
-def save(pslug, p: dict):
-    with _LOCK: write_atomic(path(pslug) / "project.json", json.dumps(p, indent=1))
+def save(pslug, p: dict, expect_rev=None):
+    """Write the project. Every save increases 'rev'. With expect_rev, the save is refused (RevisionConflict, carrying the
+    stored project) when the stored revision is different: another window saved in between."""
+    with _LOCK:
+        f = path(pslug) / "project.json"
+        if expect_rev is not None and f.exists():
+            cur = json.loads(f.read_text()).get("rev", 0)
+            if int(expect_rev) != cur: raise RevisionConflict(cur)
+        p["rev"] = int(p.get("rev") or 0) + 1 if expect_rev is None else int(expect_rev) + 1
+        write_atomic(f, json.dumps(p, indent=1))
+    return p["rev"]
+
+class RevisionConflict(Exception):
+    def __init__(self, stored_rev): super().__init__("The project was changed in another window"); self.stored_rev = stored_rev
 def list_projects():
     ROOT.mkdir(parents=True, exist_ok=True)
     return sorted([d.name for d in ROOT.iterdir() if (d / "project.json").exists()])

@@ -1,3 +1,4 @@
+const ANT_TYPES = JSON.parse(document.getElementById('antTypes').textContent);
 // HFTA Stack Planner - browser side
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];

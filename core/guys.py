@@ -4,6 +4,17 @@ line when bare; under radial ice it sags (parabolic, constant initial tension: a
 circle of its turning radius r.
   Antenna below a guy:  clearance = iced wire height at r - h - margin            (element droop not credited)
   Antenna above a guy:  clearance = min(h - H - margin, h - droop - bare wire height at r - margin)
+
+Assumptions and range (checked in tests/test_wrapper.py against an exact catenary):
+- Sag is the parabola of an inclined cable with weight per foot (wire + radial ice) and constant tension equal to
+  the entered initial tension. Within 0.7 ft of the exact catenary for the worst case tried (steep guy, 1.25 in
+  ice, thin wire, sag 11 ft) and within 0.2 ft for ordinary cases; the 2 ft margin covers this.
+- The tension under ice is taken as the initial tension. Ice load raises the tension and so reduces the sag; using
+  the initial value gives a larger sag, i.e. the safe side.
+- Ice is a uniform radial layer on the wire; wind, insulators, guy weight on the tower and element flexing under wind
+  are not modelled. A tower engineer's calculation takes precedence for construction.
+- Geometry: the guy attach height H and anchor radius R must be positive; an antenna whose turning radius reaches
+  the anchor radius (r >= R) sweeps beyond the guy and is reported as not computable.
 """
 import math
 
@@ -25,11 +36,16 @@ def sag_at(H, R, r, wire, tension, ice_in, density=56.0):
 
 def check(antennas, levels, ice_in=1.0, margin=2.0, density=56.0):
     """antennas: [{name, h, turning_radius, droop}], levels: [{h, r, wire, tension}]. Returns rows per antenna."""
+    for lv in levels:
+        if not (lv.get("h") and lv.get("r")) or lv["h"] <= 0 or lv["r"] <= 0: raise ValueError("Guy height and anchor radius must be greater than zero")
+        if lv.get("wire") not in WIRES: raise ValueError(f"Unknown guy wire {lv.get('wire')!r}")
     out = []
     for a in antennas:
         r, h = a["turning_radius"], a["h"]
         if not r:
             out.append({**a, "clearance": None, "limit": "turning radius unknown", "detail": []}); continue
+        if any(r >= lv["r"] for lv in levels):
+            out.append({**a, "clearance": None, "limit": "turning radius reaches the guy anchor: not computable", "detail": []}); continue
         detail = []
         for lv in levels:
             H, R = lv["h"], lv["r"]

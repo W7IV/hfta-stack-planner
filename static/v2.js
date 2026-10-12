@@ -16,7 +16,7 @@ async function api(method, url, body, isForm) {
   const o = { method, headers: {} };
   if (body !== undefined) { if (isForm) o.body = body; else { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(body); } }
   const r = await fetch(url, o); const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || r.statusText); return j;
+  if (!r.ok) { const e = new Error(j.error || r.statusText); e.status = r.status; e.body = j; throw e; } return j;
 }
 function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, ms); }
 /* Saving. Each save is tied to the project it was made for (a project switch within the 500 ms delay still saves
@@ -32,14 +32,27 @@ function save(now) {
       const r = await api("PUT", `/api/v2/p/${slug}`, proj);
       /* Keep the same project object after saving: the page's inputs hold references into it. Only the file and
          result status come from the server. */
-      if (slug === SLUG && r.slug === SLUG) { r.project = P(); S = r; $("#saveState").textContent = "Saved"; status(); }
-    }).catch(e => { $("#saveState").textContent = "Not saved: " + e.message; toast("Not saved: " + e.message, 7000); throw e; });
+      if (slug === SLUG && r.slug === SLUG) { const rev = r.project.rev; r.project = P(); P().rev = rev; S = r; $("#saveState").textContent = "Saved"; status(); }
+    }).catch(e => {
+      $("#saveState").textContent = "Not saved: " + e.message;
+      if (e.status === 409) conflictBanner(); else toast("Not saved: " + e.message, 7000);
+      throw e;
+    });
     saveChain = run.catch(() => {});
     return run;
   };
   if (now) return go();
   pendingSave = go; saveTimer = setTimeout(go, 500);
   return Promise.resolve();
+}
+/* Another window saved this project after this page loaded. Editing continues locally but nothing more is saved until
+   the page is reloaded, so the two versions cannot overwrite each other in turns. */
+function conflictBanner() {
+  if ($("#conflict")) return;
+  const d = document.createElement("div"); d.id = "conflict"; d.className = "note"; d.style.cssText = "position:fixed;top:56px;left:50%;transform:translateX(-50%);z-index:60;max-width:640px;border-left-color:#b33a3a";
+  d.innerHTML = `<b>This project was changed in another window or on another device.</b> Your last change was not saved. Reload to see the latest version
+    (your unsaved edits here will be lost), or copy them first. <button id="conflictReload" style="margin-left:8px">Reload</button>`;
+  document.body.appendChild(d); $("#conflictReload").onclick = () => location.reload();
 }
 /* Finish any waiting save now (before switching project or leaving the page). */
 function flushSave() { clearTimeout(saveTimer); return pendingSave ? pendingSave().catch(() => {}) : saveChain; }
@@ -372,7 +385,7 @@ function rTargets() {
   });
   if ($("#prnGen")) $("#prnGen").onclick = () => prnGenDialog();
   $("#prnToLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/prn/to-library`); toast(`${r.saved.length} files saved to the library. New projects will start with them.`, 5000); rTargets(); };
-  $("#prnFromLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/library/prn`); const proj = P(); S = r; S.project = proj;
+  $("#prnFromLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/library/prn`); const proj = P(); proj.rev = r.project.rev; S = r; S.project = proj;
     toast(r.added.length ? `${r.added.length} files added from the library.` : "Nothing to add: the project already has every library file.", 4000); rTargets(); };
   $("#prnIn").onchange = async () => { const fd = new FormData(); [...$("#prnIn").files].forEach(x => fd.append("files", x));
     const r = await api("POST", `/api/v2/p/${SLUG}/prn`, fd, true); const bad = r.filter(x => x.error); toast(`${r.length - bad.length} added${bad.length ? `, ${bad.length} rejected: ${bad[0].error}` : ""}`, 4000);

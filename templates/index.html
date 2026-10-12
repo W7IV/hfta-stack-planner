@@ -204,7 +204,7 @@
   </div>
 </template>
 
-<script>window.ANT_TYPES = {{ antenna_types|tojson }};</script>
+<script id="antTypes" type="application/json">{{ antenna_types|tojson }}</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
