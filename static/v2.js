@@ -1024,7 +1024,7 @@ init().catch(e => { document.body.innerHTML = `<p style="padding:20px">Could not
 /* ---------------------------------------------------------------- hover help */
 const TIPS = [
   // Sites
-  ["#soil", "Ground type under and in front of the tower. Sets the two values beside it."],
+  ["#soil", "Ground type under and in front of the tower. Sets the two values beside it. For horizontal antennas the choice changes the FOM by under 0.2 dB (80 m) and under 0.1 dB from 40 m up; leave it at Average unless the path crosses water."],
   ["#epsr", "Dielectric constant of the ground (HFTA input). 13 = average soil."],
   ["#sigma", "Ground conductivity in siemens per metre (HFTA input). 0.005 = average soil."],
   ["#diff", "HFTA's diffraction model over hill tops. Leave on unless you are comparing with an old HFTA run made without it."],

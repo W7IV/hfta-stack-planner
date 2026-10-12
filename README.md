@@ -234,3 +234,9 @@ do not contain; that is the case for a 10 km profile. Below that, the standard 4
 - HFTA has no mutual coupling between stacked antennas; close spacing (under about 0.3 wavelength) is rated
   too well.
 - At most 4 antennas of one type per band, as in HFTA.
+- The soil presets are the original HFTA list, which descends from the 1940 FCC broadcast-band table that
+  K6STI's "HF ground constants" page shows to be unsuitable for HF. This does not matter here: measured on the
+  test terrain and on flat ground with every preset and with K6STI's frequency-dependent values for his five
+  terrain types, the FOM of horizontal antennas moves by under 0.2 dB on 80 m and under 0.1 dB from 40 m up.
+  The ground reflection at low angles is nearly total for horizontal polarisation whatever the soil. Use
+  K6STI's constants for verticals and NEC ground-loss work; for this planner, "Average soil" is enough.
