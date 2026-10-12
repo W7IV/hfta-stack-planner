@@ -3,3 +3,4 @@ __pycache__/
 projects/
 samples/prn/
 COMMIT
+dist/

@@ -1,0 +1,65 @@
+#!/bin/bash
+# Builds the Windows package of the HFTA Stack Planner on a Linux machine (no Windows needed):
+#   runtime/   Python 3.12 for Windows (python-build-standalone) with the pinned wheels
+#   app/       this repository (working tree, without .git)
+#   openhfta/  hfta.py + OpenYTWCore.dll cross-compiled with MinGW gfortran from the pinned OpenHFTA commit
+#   voacap/    voacapl.exe cross-compiled with MinGW + its data folder (coefficient binaries made by the Windows tools under Wine)
+#   Start HFTA Stack Planner.bat, README-Windows.txt
+# Needs: gfortran-mingw-w64-x86-64, gcc-mingw-w64-x86-64, automake, autoconf, wine64, python3 + pip, curl, zip.
+# Usage: tools/build_windows.sh [output dir]   -> HFTA-Stack-Planner-windows-<version>.zip
+set -euo pipefail
+REPO=$(cd "$(dirname "$0")/.." && pwd); OUT=${1:-"$REPO/dist"}; mkdir -p "$OUT"
+WORK=${WORK:-/tmp/hfta-winbuild}; PKG="$WORK/HFTA-Stack-Planner"; rm -rf "$PKG"; mkdir -p "$WORK" "$PKG"
+OPENHFTA_COMMIT=${OPENHFTA_COMMIT:-7d62e863f1d27372c97df3ac6ef53092fb58bd50}
+VOACAPL_COMMIT=${VOACAPL_COMMIT:-c12a98b}
+PBS_URL=${PBS_URL:-https://github.com/astral-sh/python-build-standalone/releases/download/20241219/cpython-3.12.8%2B20241219-x86_64-pc-windows-msvc-install_only.tar.gz}
+VERSION=$(git -C "$REPO" describe --tags --always 2>/dev/null || echo dev)
+export WINEDEBUG=-all
+
+echo "== Python runtime"
+[ -f "$WORK/pbs.tgz" ] || curl -sSL -o "$WORK/pbs.tgz" "$PBS_URL"
+tar xzf "$WORK/pbs.tgz" -C "$PKG" && mv "$PKG/python" "$PKG/runtime"
+mkdir -p "$WORK/wheels"
+pip download -q --only-binary=:all: --platform win_amd64 --python-version 3.12 --implementation cp -d "$WORK/wheels" -r "$REPO/tools/requirements-windows.txt"
+wine "$PKG/runtime/python.exe" -m pip install -q --no-index --find-links "$WORK/wheels" --no-warn-script-location -r "$REPO/tools/requirements-windows.txt"
+wine "$PKG/runtime/python.exe" -m pip check
+rm -rf "$PKG"/runtime/Lib/site-packages/pip* "$PKG"/runtime/Scripts "$PKG"/runtime/include "$PKG"/runtime/libs \
+      "$PKG"/runtime/Lib/test "$PKG"/runtime/Lib/idlelib "$PKG"/runtime/Lib/tkinter "$PKG"/runtime/Lib/turtledemo "$PKG"/runtime/tcl \
+      "$PKG"/runtime/DLLs/_tkinter.pyd "$PKG"/runtime/DLLs/tcl86t.dll "$PKG"/runtime/DLLs/tk86t.dll
+find "$PKG/runtime" -name "*.pdb" -delete; find "$PKG/runtime" -name "__pycache__" -type d -prune -exec rm -rf {} +
+
+echo "== OpenHFTA core (DLL)"
+[ -d "$WORK/openhfta" ] || git clone -q https://github.com/RioDXGroup/openhfta.git "$WORK/openhfta"
+git -C "$WORK/openhfta" checkout -q "$OPENHFTA_COMMIT"
+mkdir -p "$WORK/openhfta/build/win64" "$PKG/openhfta"
+FF="-O0 -g -mfpmath=387 -fexcess-precision=fast -ffast-math -fno-associative-math -fno-reciprocal-math -fcheck=all -ffree-line-length-none"
+for f in "$WORK"/openhfta/src/*.f90; do x86_64-w64-mingw32-gfortran $FF -c -o "$WORK/openhfta/build/win64/$(basename "${f%.f90}").o" "$f"; done
+printf 'LIBRARY OpenYTWCore\nEXPORTS\n  YTWCore1=ytwcore1_\n  ytwcore1_=ytwcore1_\n' > "$WORK/OpenYTWCore.def"
+x86_64-w64-mingw32-gfortran $FF -shared -o "$PKG/openhfta/OpenYTWCore.dll" "$WORK"/openhfta/build/win64/*.o -Wl,"$WORK/OpenYTWCore.def" -static -static-libgfortran -static-libgcc
+cp "$WORK/openhfta/hfta.py" "$PKG/openhfta/"; cp "$WORK"/openhfta/LICENSE* "$PKG/openhfta/" 2>/dev/null || true
+echo "$OPENHFTA_COMMIT" > "$PKG/openhfta/COMMIT"
+
+echo "== VOACAP (voacapl.exe)"
+rm -rf "$WORK/voacapl"; git clone -q https://github.com/jawatson/voacapl.git "$WORK/voacapl"; git -C "$WORK/voacapl" checkout -q "$VOACAPL_COMMIT"
+( cd "$WORK/voacapl" && autoreconf -fi >/dev/null 2>&1 && ./configure --host=x86_64-w64-mingw32 --prefix="$WORK/vcwin" FC=x86_64-w64-mingw32-gfortran F77=x86_64-w64-mingw32-gfortran CC=x86_64-w64-mingw32-gcc FCFLAGS="-O2 -static" FFLAGS="-O2 -static" LDFLAGS="-static" >/dev/null && make -j4 >/dev/null && make install >/dev/null 2>&1 || true )
+mkdir -p "$PKG/voacap/bin"; cp "$WORK/voacapl/src/voacapw/voacapl.exe" "$PKG/voacap/bin/"
+cp -r "$WORK/vcwin/share/voacapl/itshfbc" "$PKG/voacap/itshfbc"
+rm -f "$PKG"/voacap/itshfbc/coeffs/*.bin "$PKG"/voacap/itshfbc/coeffs/*.da "$PKG"/voacap/itshfbc/coeffs/*.daw
+WPATH=$(winepath -w "$PKG/voacap/itshfbc/coeffs")
+for x in coeffbin coefbinw fof2bin fof2binw; do wine "$WORK/vcwin/bin/$x.exe" "$WPATH" >/dev/null 2>&1; done
+find "$PKG/voacap" \( -name "*.exe" -o -name "*.o" -o -name "Makefile*" -o -name "*.f" \) ! -path "*/bin/voacapl.exe" -delete
+[ "$(ls "$PKG"/voacap/itshfbc/coeffs/*.bin | wc -l)" -ge 24 ] || { echo "coefficient binaries missing"; exit 1; }
+
+echo "== app"
+mkdir -p "$PKG/app" "$PKG/data/projects"
+( cd "$REPO" && tar c --exclude=.git --exclude=__pycache__ --exclude=projects --exclude=COMMIT --exclude=dist --exclude=Dockerfile --exclude=docker-entrypoint.sh . ) | tar x -C "$PKG/app"
+cp "$REPO/tools/windows/Start HFTA Stack Planner.bat" "$REPO/tools/windows/README-Windows.txt" "$PKG/"
+echo "$VERSION" > "$PKG/VERSION"
+
+echo "== check: the Windows build must still match the original HFTA (under Wine)"
+( cd "$PKG" && OPENHFTA_DIR="$(winepath -w "$PKG/openhfta")" wine runtime/python.exe app/tests/test_hfta_match.py | tail -1 | grep -q PASS )
+
+echo "== zip"
+ZIP="$OUT/HFTA-Stack-Planner-windows-$VERSION.zip"; rm -f "$ZIP"
+( cd "$WORK" && zip -qr "$ZIP" "HFTA-Stack-Planner" )
+ls -la "$ZIP"

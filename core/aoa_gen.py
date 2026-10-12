@@ -116,11 +116,20 @@ def _private_itshfbc() -> Path:
     d = getattr(_LOCAL, "its", None)
     if d is None or not d.exists():
         src = _itshfbc(); d = Path(tempfile.mkdtemp(prefix="itshfbc-")); _LOCAL.its = d
+        def copy_tree(a: Path, b: Path):
+            """Plain read/write copy (shutil's Windows copy needs an API that Wine lacks; the files are small)."""
+            b.mkdir(parents=True, exist_ok=True)
+            for x in a.iterdir():
+                if x.is_dir(): copy_tree(x, b / x.name)
+                elif x.is_file(): (b / x.name).write_bytes(x.read_bytes())
         for child in src.iterdir():
-            if child.name == "run": (d / "run").mkdir()
-            else: os.symlink(child, d / child.name)
-        for f in (src / "run").iterdir():
-            if f.is_file(): shutil.copy2(f, d / "run" / f.name)
+            if child.name == "run": continue
+            if os.name == "nt":                                # Windows: copy (a few MB); the Fortran core does not follow links
+                if child.is_dir(): copy_tree(child, d / child.name)
+                else: (d / child.name).write_bytes(child.read_bytes())
+            else:
+                os.symlink(child, d / child.name)
+        copy_tree(src / "run", d / "run")
     return d
 
 def run_deck(text: str, tag: str) -> str:
@@ -146,7 +155,7 @@ def histogram(origin, points, bands=BANDS, months=range(1, 13), ssns=tuple(SSN_L
     def one(job):
         p, s = job
         if cancel and cancel(): return []
-        txt = run_deck(deck(origin, p, list(months), s, freqs, method=25, **deck_kw), f"{abs(p[0]):.0f}{abs(p[1]):.0f}{s}")
+        txt = run_deck(deck(origin, p, list(months), s, freqs, method=25, **deck_kw), f"{abs(p[0]):.0f}{abs(p[1]):.0f}{int(s)}")
         return list(parse_method25(txt))
     with ThreadPoolExecutor(max_workers=workers) as ex:
         for rows in ex.map(one, jobs):
