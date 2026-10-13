@@ -428,8 +428,10 @@ function rTargets() {
       <td><input class="s" style="width:110px" data-w value="${t.weights.every(w => w === t.weights[0]) ? "" : t.weights.join(", ")}" placeholder="equal"></td>
       <td><div class="bandbox">${META.bands.filter(b => b !== "6").map(b => `<label><input type="checkbox" data-b="${b}" ${t.bands.includes(b) ? "checked" : ""}>${b}</label>`).join("")}</div></td>
       <td><button class="danger small" data-del>Delete</button></td>`;
+    let prevPrn = t.prn;   // a name the planner gave from the file name follows the file when the file changes
     $$("[data-k]", tr).forEach(inp => bind(inp, t, inp.dataset.k, inp.dataset.k === "prn" ? () => {
-      const r = regionOf(t.prn); if (r && (t.name === "New target" || !t.name)) t.name = r;
+      const r = regionOf(t.prn); if (r && (t.name === "New target" || !t.name || t.name === regionOf(prevPrn))) t.name = r;
+      prevPrn = t.prn;
       const c = computedBearing(t); if (c) t.heading = c.deg;
       const sp = REGION_POINT[regionCode(t.prn)]?.spread; if (sp) { t.offsets = offsetsFrom(sp, 8); t.weights = t.offsets.map(() => 1); }
       save(); rTargets();
@@ -447,6 +449,8 @@ function rTargets() {
   $("#tgBrg").onclick = () => {
     const ch = [];
     p.targets.forEach(t => {
+      /* A target still carrying the region name of another file (named before its file was chosen) takes its own file's region. */
+      const r = regionOf(t.prn); if (r && t.name !== r && Object.values(REGION).includes(t.name)) { ch.push(`${t.name} → ${r}`); t.name = r; }
       const c = computedBearing(t); if (c && c.deg !== Number(t.heading)) { ch.push(`${t.name} ${t.heading}° → ${c.deg}°`); t.heading = c.deg; }
       const sp = REGION_POINT[regionCode(t.prn)]?.spread, cur = Math.max(...(t.offsets || [0]).map(Math.abs));
       if (sp && cur < sp) { t.offsets = offsetsFrom(sp, 8); t.weights = t.offsets.map(() => 1); ch.push(`${t.name} spread ±${cur}° → ±${sp}°`); }
@@ -455,7 +459,8 @@ function rTargets() {
     save(); rTargets(); toast(ch.length ? `Bearings changed: ${ch.join("; ")}. Run Evaluate again.` : "All bearings already match.", 8000);
   };
   $("#addTg").onclick = () => {
-    const id = uid("t"), nt = { id, name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["20", "15", "10"] };
+    /* Default bands: 40 to 10 m, the range HFTA is validated for; 80 m can be ticked. */
+    const id = uid("t"), nt = { id, name: "New target", prn: S.prns[0] || "", heading: 0, offsets: [-8, 0, 8], weights: [1, 1, 1], bands: ["40", "20", "15", "10"] };
     nt.name = regionOf(nt.prn) || nt.name; nt.heading = computedBearing(nt)?.deg ?? 0;
     const sp = REGION_POINT[regionCode(nt.prn)]?.spread; if (sp) { nt.offsets = offsetsFrom(sp, 8); nt.weights = nt.offsets.map(() => 1); }
     p.targets.push(nt);
@@ -1066,7 +1071,7 @@ const TIPS = [
   ["#prnToLib", "Keep these files in your library, so every new project starts with them."],
   ["#prnFromLib", "Copy the library's .PRN files into this project."],
   ["[data-prv]", "Plot the file: how often openings arrive at each elevation angle, per band."],
-  ["#tgBrg", "Set each target's bearing from the site position to a reference point in its region."],
+  ["#tgBrg", "Set each target's bearing and spread from the site position to a reference point in its region, and name it after its file if it still has another region's name."],
   ["[data-act=auto]", "Download elevation data for this position and write one profile per degree. USGS 3DEP inside the United States, Terrain Tiles anywhere else."],
   ["[data-act=lib]", "Keep this site, with its terrain files, in your library for other projects."],
   ["[data-act=move]", "A copy of this site a set distance and bearing away, to test how much the result depends on the exact position."],
