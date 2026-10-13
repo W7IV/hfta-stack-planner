@@ -154,7 +154,7 @@ def state(slug):
     sites = {}
     for s in proj["sites"]:
         idx = TR.profile_index(P.site_dir(slug, s["id"]))
-        sites[s["id"]] = {"n": len(idx), "step": _step(sorted(idx))}
+        sites[s["id"]] = {"n": len(idx), "step": _step(sorted(idx)), "dup": TR.duplicates(P.site_dir(slug, s["id"])) if idx else None}
     prns = sorted(p.name for p in P.prn_dir(slug).glob("*")) if P.prn_dir(slug).exists() else []
     res = load_results(slug)
     return {"slug": slug, "project": proj, "site_files": sites, "prns": prns, "has_results": res is not None,
@@ -323,6 +323,12 @@ def site_clear(slug, sid):
     for p in d.glob("*"):
         if p.suffix.lower() == ".pro": p.unlink()
     return jsonify({"ok": True})
+
+@bp.delete("/api/v2/p/<slug>/sites/<sid>/duplicates")
+def site_duplicates(slug, sid):
+    """Delete the extra files of headings that have more than one profile. ?keep=newer (the files in use) or older."""
+    n = TR.remove_duplicates(P.site_dir(slug, sid), request.args.get("keep", "newer"))
+    return jsonify({"ok": True, "deleted": n})
 
 @bp.get("/api/v2/p/<slug>/sites/<sid>/summary")
 def site_summary(slug, sid):

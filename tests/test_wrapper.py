@@ -495,6 +495,33 @@ def voacap_generate_if_installed():
     jid = C.post(f"/api/v2/p/{slug}/prn/generate", json={**body, "name": "../x.PRN"}).get_json()["job"]
     time.sleep(1); assert C.get(f"/api/job/{jid}").get_json()["state"] == "error"
 
+@test
+def f23_duplicate_headings_newest_wins_and_cleanup():
+    """Two files for one heading (an older import and a newer fetch): the newest is used, the site reports it,
+    and the cleanup keeps one set."""
+    tmp_path = Path(tempfile.mkdtemp()); d = tmp_path / "site"; d.mkdir()
+    body = "meters\n0 100\n30 101\n60 102\n"
+    (d / "Old-site-AZI-52.00.PRO").write_text(body); (d / "Old-site-AZI-60.00.PRO").write_text(body)
+    t0 = time.time() - 3600
+    os.utime(d / "Old-site-AZI-52.00.PRO", (t0, t0)); os.utime(d / "Old-site-AZI-60.00.PRO", (t0, t0))
+    (d / "AZI-52.00.PRO").write_text("meters\n0 100\n30 150\n60 200\n")
+    idx = TR.profile_index(d)
+    assert idx[52.0] == "AZI-52.00.PRO" and idx[60.0] == "Old-site-AZI-60.00.PRO"
+    rep = TR.duplicates(d)
+    assert rep["headings"] == 1 and rep["used"][0]["example"] == "AZI-52.00.PRO" and rep["unused"][0]["label"] == "old-site"
+    assert TR.remove_duplicates(d, "older") == 1 and not (d / "AZI-52.00.PRO").exists() and TR.duplicates(d) is None
+    (d / "AZI-60.00.PRO").write_text(body)
+    assert TR.remove_duplicates(d, "newer") == 1 and not (d / "Old-site-AZI-60.00.PRO").exists()
+    (tmp_path / "none").mkdir(); assert TR.duplicates(tmp_path / "none") is None
+    slug, proj = new_project("Dup")
+    sd = P.site_dir(slug, "s1"); sd.mkdir(parents=True, exist_ok=True)
+    (sd / "X-AZI-10.00.PRO").write_text(body); os.utime(sd / "X-AZI-10.00.PRO", (t0, t0)); (sd / "AZI-10.00.PRO").write_text(body)
+    proj["sites"] = [{"id": "s1", "name": "S", "lat": 42.4, "lon": -71.1}]; put(slug, proj)
+    st = C.get(f"/api/v2/p/{slug}").get_json()["site_files"]["s1"]; assert st["n"] == 1 and st["dup"]["headings"] == 1
+    r = C.delete(f"/api/v2/p/{slug}/sites/s1/duplicates?keep=newer").get_json(); assert r["deleted"] == 1
+    assert C.get(f"/api/v2/p/{slug}").get_json()["site_files"]["s1"]["dup"] is None and (sd / "AZI-10.00.PRO").exists()
+
+
 if __name__ == "__main__":
     print(f"\nPASS: {len(PASSED)} tests")
     if APP.POOL is not None: APP.POOL.shutdown(wait=True, cancel_futures=True)

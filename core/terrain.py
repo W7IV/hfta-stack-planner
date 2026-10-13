@@ -8,7 +8,7 @@ Imported files are stored unchanged under the site folder, so the replay pack po
 would load into HFTA. Generated files use the HFTA .PRO format: first line 'meters', then 'distance elevation'.
 """
 from __future__ import annotations
-import hashlib, io, math, os, re, shutil, urllib.request, uuid, zipfile
+import hashlib, io, math, os, re, shutil, time, urllib.request, uuid, zipfile
 from pathlib import Path
 import numpy as np
 import engine
@@ -90,14 +90,65 @@ def _stage_dir(out_dir: Path) -> Path:
     d = out_dir.parent / f".stage-{out_dir.name}-{uuid.uuid4().hex[:6]}"; d.mkdir(parents=True); return d
 
 def profile_index(site_dir: Path) -> dict:
-    """azimuth (float) -> file name."""
-    out = {}
+    """azimuth (float) -> file name. When a heading has more than one file (two imports with different name
+    prefixes, made before imports replaced same-heading files), the newest file is used: the same rule as an
+    import, where the latest file for a heading replaces the older one. duplicates() reports such sites."""
+    out, when = {}, {}
     for p in sorted(site_dir.glob("*")):
         if p.suffix.lower() == ".pro":
             az = azimuth_from_name(p.name)
             if az is not None:
-                out[az] = p.name
+                t = p.stat().st_mtime
+                if az not in out or t > when[az]:
+                    out[az], when[az] = p.name, t
     return out
+
+def set_label(name: str) -> str:
+    """The part of a profile file name that is not the azimuth: 'New-ROT-site-' for New-ROT-site-AZI-52.00.PRO,
+    '' for AZI-52.00.PRO. Files of one import or fetch share a label."""
+    stem = Path(name).stem; m = AZ_RE.search(stem)
+    head = (stem[:m.start()] if m else stem).rstrip("-_ ")
+    head = re.sub(r"(?i)[-_ ]*azi$", "", head)
+    return head.rstrip("-_ ").lower()
+
+def duplicates(site_dir: Path) -> "dict | None":
+    """Headings that have more than one profile file. None when every heading has one file. Otherwise
+    {"headings": n, "used": {"label", "n", "newest"}, "unused": {"label", "n", "newest"}} where used is the set
+    profile_index() chooses (the newest files) and unused the other files."""
+    by_az = {}
+    for p in site_dir.glob("*"):
+        if p.suffix.lower() == ".pro":
+            az = azimuth_from_name(p.name)
+            if az is not None:
+                by_az.setdefault(az, []).append(p)
+    dup = {az: ps for az, ps in by_az.items() if len(ps) > 1}
+    if not dup:
+        return None
+    used, unused = {}, {}
+    for ps in dup.values():
+        ps = sorted(ps, key=lambda p: p.stat().st_mtime)
+        for p, bucket in ((ps[-1], used), *((q, unused) for q in ps[:-1])):
+            lab = set_label(p.name) or "(no prefix)"; e = bucket.setdefault(lab, {"label": lab, "n": 0, "newest": 0.0, "example": p.name})
+            e["n"] += 1; e["newest"] = max(e["newest"], p.stat().st_mtime)
+    fmt = lambda d: [{**v, "newest": time.strftime("%Y-%m-%d %H:%M", time.gmtime(v["newest"]))} for v in sorted(d.values(), key=lambda v: -v["n"])]
+    return {"headings": len(dup), "used": fmt(used), "unused": fmt(unused)}
+
+def remove_duplicates(site_dir: Path, keep: str) -> int:
+    """Delete the other files of every heading that has more than one. keep='newer' keeps the file profile_index()
+    uses; keep='older' keeps the oldest file of each heading instead. Returns the number of files deleted."""
+    if keep not in ("newer", "older"):
+        raise ValueError("keep must be 'newer' or 'older'")
+    by_az = {}
+    for p in site_dir.glob("*"):
+        if p.suffix.lower() == ".pro" and azimuth_from_name(p.name) is not None:
+            by_az.setdefault(azimuth_from_name(p.name), []).append(p)
+    n = 0
+    for ps in by_az.values():
+        if len(ps) < 2: continue
+        ps = sorted(ps, key=lambda p: p.stat().st_mtime)
+        for p in (ps[:-1] if keep == "newer" else ps[1:]):
+            p.unlink(); n += 1
+    return n
 
 def nearest(index: dict, az: float):
     if not index:

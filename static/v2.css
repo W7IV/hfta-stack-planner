@@ -79,3 +79,6 @@ select.el{min-width:64px}
 #saveState{font-size:12px;padding:2px 10px;border-radius:999px;transition:opacity .4s}
 #saveState.ok{color:#2c7a4b;background:rgba(44,122,75,.12)}#saveState.bad{color:#b33a3a;background:rgba(179,58,58,.12)}
 #userBox{font-size:12px;margin-left:10px}#userBox a{color:var(--mute)}
+
+.warnbox{margin:10px 0 0;padding:8px 12px;border-left:3px solid var(--warn);background:rgba(154,95,0,.07);border-radius:0 5px 5px 0;font-size:13px;line-height:1.5}
+.warnbox button{margin-top:4px}

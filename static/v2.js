@@ -101,6 +101,10 @@ function rSites() {
   p.sites.forEach((s, i) => {
     const f = S.site_files[s.id] || { n: 0 }, c = document.createElement("div"); c.className = "card";
     const fh = s.terrain?.far_horizon, fhChip = fh && fh.max_deg != null ? ` <span class="chip ${fh.max_deg >= 1 ? "warn" : ""}" title="Ground between ${(fh.start_m / 1000).toFixed(1)} and ${(fh.end_m / 1000).toFixed(0)} km, which the HFTA profiles do not include, seen from ${Math.round(fh.antenna_m * 3.28)} ft up the tower. Above about 1° it can block the lowest arrival angles; HFTA cannot show that. Highest at ${fh.max_az}°">far horizon ${fh.max_deg.toFixed(1)}° at ${fh.max_az}°</span>` : "";
+    const dup = f.dup, dupBox = dup ? `<div class="warnbox" data-dup><b>Two files for ${dup.headings} heading${dup.headings > 1 ? "s" : ""}.</b> Using the newer set
+        (${esc(dup.used.map(u => `${u.example}, ${u.n} file${u.n > 1 ? "s" : ""}, ${u.newest} UTC`).join("; "))}); not used: ${esc(dup.unused.map(u => `${u.example}, ${u.n} file${u.n > 1 ? "s" : ""}, ${u.newest} UTC`).join("; "))}.
+        Older imports did not replace files of the same heading. Keep one set so the terrain in use is clear.
+        <button class="ghost small" data-act="dup-newer">Keep the newer set</button> <button class="ghost small" data-act="dup-older">Keep the older set instead</button></div>` : "";
     const tchip = f.n ? `<span class="chip good">${f.n} profiles${f.step ? `, every ${f.step}°` : ""}${s.terrain?.length_m && s.terrain.length_m > 5000 ? `, ${(s.terrain.length_m / 1000).toFixed(0)} km` : ""}</span>${s.terrain?.source ? ` <span class="chip">${esc(s.terrain.source)}</span>` : ""}${fhChip}`
                       : `<span class="chip warn">No terrain yet</span>`;
     c.innerHTML = `<h2><input class="w" value="${esc(s.name)}" data-k="name" aria-label="Site name"> ${tchip}</h2>
@@ -121,7 +125,7 @@ function rSites() {
         <button class="ghost" data-act="move" title="New site at a distance and bearing from this one, to test how sensitive the result is to the exact position (as HFTA's move-the-tower check)">Copy, moved…</button>
         <button class="danger" data-act="del">Delete site</button></div>
       <p class="small mute" style="margin:8px 0 0">K6TU sells HFTA-ready one-degree terrain sets: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
-      MicroDEM makes .PRO files from free elevation data. A DEM file is processed on this computer only.</p>`;
+      MicroDEM makes .PRO files from free elevation data. A DEM file is processed on this computer only.</p>${dupBox}`;
     $$("[data-k]", c).forEach(inp => bind(inp, s, inp.dataset.k, null, inp.type === "number"));
     const fileIn = $("[data-file]", c), srcSel = $("[data-src]", c);
     if ([...srcSel.options].some(o => o.text === s.terrain?.source)) srcSel.value = s.terrain.source;
@@ -134,6 +138,9 @@ function rSites() {
     };
     $("[data-act=flat]", c).onclick = async () => { await api("POST", `/api/v2/p/${SLUG}/sites/${s.id}/flat`); s.terrain = { source: "Flat ground" }; await save(true); rSites(); };
     const dl = $("[data-act=download]", c); if (dl) dl.onclick = () => { window.location.href = `/api/v2/p/${SLUG}/sites/${s.id}/download`; };
+    for (const keep of ["newer", "older"]) { const b = $(`[data-act=dup-${keep}]`, c); if (b) b.onclick = async () => {
+      if (!confirm(`Delete the ${keep === "newer" ? "older" : "newer"} file of every heading that has two? The other set stays.`)) return;
+      const r = await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/duplicates?keep=${keep}`); toast(`${r.deleted} files deleted`); await save(true); rSites(); }; }
     const clr = $("[data-act=clear]", c); if (clr) clr.onclick = async () => { await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/files`); s.terrain = { source: "" }; await save(true); rSites(); };
     $("[data-act=del]", c).onclick = async () => { p.sites.splice(i, 1); await save(true); rSites(); };
     $("[data-act=dem]", c).onclick = () => demDialog(s);
