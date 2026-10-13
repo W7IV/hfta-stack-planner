@@ -773,15 +773,24 @@ function scanCard() {
       plotLayout({ title: { text: `${r.type}, ${body.band} m, ${$("#scTg").selectedOptions[0].text}`, font: { size: 13 } }, xaxis: { title: "height (ft)", gridcolor: css("--line") }, yaxis: { title: "FOM (dB)", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
   };
 }
+/* Progress of a background job, with a Cancel link beside the bar. Cancel asks the server to stop the job at its next
+   step; the job then ends with the error "Cancelled", which is reported like any other. */
 async function poll(job, bar) {
   bar.hidden = false; const i = $("i", bar);
-  for (;;) {
-    const j = await api("GET", `/api/job/${job}`);
-    i.style.width = j.total ? `${100 * j.done / j.total}%` : "5%";
-    if (j.state === "done") { bar.hidden = true; return j.result; }
-    if (j.state === "error") { bar.hidden = true; toast(j.error, 6000); return null; }
-    await new Promise(r => setTimeout(r, 600));
-  }
+  let stop = bar.nextElementSibling && bar.nextElementSibling.classList.contains("jobctl") ? bar.nextElementSibling : null;
+  if (!stop) { stop = document.createElement("div"); stop.className = "jobctl small"; bar.insertAdjacentElement("afterend", stop); }
+  stop.innerHTML = `<span class="mute" data-ph></span> <a href="#" data-cancel>Cancel</a>`; stop.hidden = false;
+  $("[data-cancel]", stop).onclick = async e => { e.preventDefault(); $("[data-cancel]", stop).textContent = "Stopping…"; await api("POST", `/api/job/${job}/cancel`); };
+  try {
+    for (;;) {
+      const j = await api("GET", `/api/job/${job}`);
+      i.style.width = j.total ? `${100 * j.done / j.total}%` : "5%";
+      $("[data-ph]", stop).textContent = j.total ? `${j.phase}: ${j.done} of ${j.total} runs` : (j.phase || "");
+      if (j.state === "done") return j.result;
+      if (j.state === "error") { toast(j.error, 6000); return null; }
+      await new Promise(r => setTimeout(r, 600));
+    }
+  } finally { bar.hidden = true; stop.hidden = true; }
 }
 
 /* ---------------------------------------------------------------- 4. Compare */
@@ -1127,7 +1136,7 @@ const TIPS = [
   ["[data-gf][data-key=droop]", "How far the element tips hang below the boom. Needed for the guy check."],
   ["[data-gx]", "Remove this group."],
   ["#cmAddG", "Another kind of antenna."],
-  ["#cmGo", "Run the search. Large searches take minutes; progress is shown."],
+  ["#cmGo", "Run the search. Large searches take minutes; progress is shown, and Cancel beside the bar stops it."],
   ["[data-apply]", "Add this layout to the Towers page, at the Designer's site."],
   ["#cmCurveSel", "Group shown in the chart."],
   // Height scan

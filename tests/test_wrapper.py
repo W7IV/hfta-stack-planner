@@ -541,6 +541,26 @@ def f24_high_angle_table_not_scored():
     r = C.get(f"/api/v2/p/{slug}/prn/MIX.PRN").get_json(); assert abs(r["coverage"]["80m"] - 0.667) < 0.01 and r["coverage"]["20m"] == 1.0 and r["max_angle"] == 35
 
 
+@test
+def f25_cancel_stops_a_running_job():
+    """Cancel ends a scan or search early with the error 'Cancelled' and frees its slot."""
+    slug, proj = new_project("Cancel")
+    import shutil
+    sd = P.site_dir(slug, "s1"); sd.mkdir(parents=True, exist_ok=True)
+    for f in DATA.glob("AZI-*.PRO"): shutil.copy(f, sd)
+    P.prn_dir(slug).mkdir(parents=True, exist_ok=True); shutil.copy(PRN, P.prn_dir(slug) / PRN.name)
+    proj["sites"] = [{"id": "s1", "name": "S", "lat": 42.4, "lon": -71.1}]
+    proj["targets"] = [{"id": "t1", "name": "T", "heading": 30, "offsets": [-5, 0, 5], "weights": [1, 1, 1], "prn": PRN.name, "bands": ["20"]}]
+    put(slug, proj)
+    jid = C.post(f"/api/v2/p/{slug}/scan", json={"site": "s1", "target": "t1", "band": "20", "elements": 3, "lo": 20, "hi": 200, "step": 1}).get_json()["job"]
+    time.sleep(0.5); assert C.post(f"/api/job/{jid}/cancel").get_json()["ok"]
+    for _ in range(100):
+        j = C.get(f"/api/job/{jid}").get_json()
+        if j["state"] != "running": break
+        time.sleep(0.2)
+    assert j["state"] == "error" and j["error"] == "Cancelled", j
+
+
 if __name__ == "__main__":
     print(f"\nPASS: {len(PASSED)} tests")
     if APP.POOL is not None: APP.POOL.shutdown(wait=True, cancel_futures=True)

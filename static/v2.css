@@ -82,3 +82,4 @@ select.el{min-width:64px}
 
 .warnbox{margin:10px 0 0;padding:8px 12px;border-left:3px solid var(--warn);background:rgba(154,95,0,.07);border-radius:0 5px 5px 0;font-size:13px;line-height:1.5}
 .warnbox button{margin-top:4px}
+.jobctl{margin:-4px 0 8px;display:flex;gap:10px;align-items:center}.jobctl a{color:var(--accent)}
