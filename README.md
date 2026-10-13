@@ -229,6 +229,10 @@ card, and per target in "Compare terrain"). A value near or above 1° means a di
 do not contain; that is the case for a 10 km profile. Below that, the standard 4.4 km profile is the better choice.
 
 ## Limits
+- HFTA computes elevation angles 1–35° only. The FOM counts the arrival-angle weight inside that range and
+  ignores the rest, so it cannot score NVIS or other high-angle paths. A target whose table has less than half
+  its weight at or below 35° on a band is not evaluated on that band (the reason is shown); 50–90% is evaluated
+  with a note. The .PRN plot marks the 35° line and names the bands affected.
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data
   must resolve features of about 1/8 wavelength.
 - HFTA has no mutual coupling between stacked antennas; close spacing (under about 0.3 wavelength) is rated

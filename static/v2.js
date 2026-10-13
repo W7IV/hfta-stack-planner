@@ -407,8 +407,13 @@ function rTargets() {
     const tr = d.columns.slice(1).map((c, j) => ({ x: d.rows.map(r => r[0]), y: d.rows.map(r => r[j + 1]), name: c, mode: "lines", line: { color: PAL[j % 8] } }));
     /* Title: region from the ARRL file name (W1-MA-EU.PRN -> Europe). Files that do not follow that pattern show their own first line. */
     const region = regionOf(b.dataset.prv);
-    Plotly.react("prnPlot", tr, plotLayout({ title: { text: region ? `${region} (${esc(b.dataset.prv)})` : esc(d.title), font: { size: 13 } },
+    /* HFTA computes 1° to 35°: weight above that line is not counted in any FOM. Bands with much of their weight above it are named. */
+    const low = Object.entries(d.coverage || {}).filter(([, v]) => v != null && v < 0.9).map(([c, v]) => `${c} ${Math.round(100 * v)}%`);
+    const sub = low.length ? ` · inside HFTA's range: ${low.join(", ")}` : "";
+    Plotly.react("prnPlot", tr, plotLayout({ title: { text: (region ? `${region} (${esc(b.dataset.prv)})` : esc(d.title)) + sub, font: { size: 13 } },
       margin: { l: 50, r: 16, t: 28, b: 80 }, legend: { orientation: "h", y: -0.4 },
+      shapes: [{ type: "line", x0: d.max_angle, x1: d.max_angle, y0: 0, y1: 1, yref: "paper", line: { color: css("--warn"), width: 1, dash: "dot" } }],
+      annotations: [{ x: d.max_angle, y: 1, yref: "paper", text: "HFTA range ends 35°", showarrow: false, xanchor: "left", yanchor: "top", font: { size: 11, color: css("--warn") } }],
       xaxis: { title: { text: "Elevation angle (°)", standoff: 6 }, gridcolor: css("--line") }, yaxis: { title: "% of openings", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
   });
   const tb = $("#tgTbl");

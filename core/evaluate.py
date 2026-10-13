@@ -62,8 +62,28 @@ def aoa_status(proj, pslug, target, freq, cache):
                     vals = list((aoa or {}).values())
                     if not vals or any((not np.isfinite(v)) or v < 0 for v in vals) or sum(vals) <= 0:
                         aoa, err = None, f"The elevation-angle file {prn} has no usable data for {freq:g} MHz. Not evaluated."
+                    elif aoa_coverage(aoa) < MIN_COVERAGE:
+                        aoa, err = None, (f"Only {100 * aoa_coverage(aoa):.0f}% of the arrival angles in {prn} for {freq:g} MHz are at or below "
+                                          f"{MAX_ANGLE:g}°, the top of HFTA's range. HFTA scores low-angle (DX) paths; it cannot score NVIS or "
+                                          f"other high-angle paths. Not evaluated.")
                 cache[key] = (aoa, err)
     return cache[key]
+
+MAX_ANGLE = float(engine.ANGLES[-1])   # 35°: the highest elevation angle the HFTA core computes
+MIN_COVERAGE = 0.5                     # below this share of arrival angles inside the range, a target is not scored
+
+def aoa_coverage(aoa) -> float:
+    """Share of the arrival-angle weight that lies inside HFTA's range (1° to MAX_ANGLE). The FOM counts only that
+    part; weight above the range is ignored, so a table with most of its weight up there (NVIS) cannot be scored."""
+    tot = sum(aoa.values())
+    return (sum(v for a, v in aoa.items() if 1 <= a <= MAX_ANGLE) / tot) if tot > 0 else 0.0
+
+def aoa_coverage_note(prn, freq, aoa):
+    """A note for the result when a noticeable part of the arrival angles is above HFTA's range, else None."""
+    c = aoa_coverage(aoa)
+    if c >= 0.9: return None
+    return (f"{100 * (1 - c):.0f}% of the arrival angles in {prn} for {freq:g} MHz are above {MAX_ANGLE:g}° and outside "
+            f"HFTA's range; the FOM counts only the {100 * c:.0f}% below it")
 
 def plan(proj, pslug):
     """Build the list of result cells and the unique HFTA runs they need. A run's key includes the terrain file's
@@ -158,6 +178,8 @@ def finish(proj, pslug, cells, runs, patterns, notes=None):
         aoa, why = aoa_status(proj, pslug, tg, c["freq"], aoa_cache)
         if why: c["issues"].append(why); c["best"] = None; c["hfta_fom"] = None; continue
         c_notes = set()
+        cov = aoa_coverage_note(tg.get("prn"), c["freq"], aoa)
+        if cov: c_notes.add(cov)
         for o in c["options"]:
             failed = False
             for a in o["az"]:

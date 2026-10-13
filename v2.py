@@ -365,7 +365,11 @@ def prn_get(slug, name):
         if len(p) == len(cols):
             try: rows.append([float(x) for x in p])
             except ValueError: pass
-    return jsonify({"title": lines[0].strip(), "columns": cols, "rows": rows})
+    # Share of each band's weight inside HFTA's range (1° to 35°): the FOM counts only that part.
+    cov = {}
+    for j, c in enumerate(cols[1:], start=1):
+        tot = sum(r[j] for r in rows); cov[c] = round(sum(r[j] for r in rows if 1 <= r[0] <= EV.MAX_ANGLE) / tot, 3) if tot > 0 else None
+    return jsonify({"title": lines[0].strip(), "columns": cols, "rows": rows, "coverage": cov, "max_angle": EV.MAX_ANGLE})
 
 # ------------------------------------------------------------ VOACAP-generated elevation-angle tables
 def _run_prn_gen(job, slug, body):

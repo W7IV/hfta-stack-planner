@@ -522,6 +522,25 @@ def f23_duplicate_headings_newest_wins_and_cleanup():
     assert C.get(f"/api/v2/p/{slug}").get_json()["site_files"]["s1"]["dup"] is None and (sd / "AZI-10.00.PRO").exists()
 
 
+@test
+def f24_high_angle_table_not_scored():
+    """A table with most of its weight above 35° (NVIS) is not evaluated; 50-90% inside the range gets a note."""
+    slug, proj = new_project("Nvis")
+    P.prn_dir(slug).mkdir(parents=True, exist_ok=True)
+    def table(rows): return "test\nElev     80m    20m\n" + "".join(f"{a:2d}   {v80:6.1f} {v20:6.1f}\n" for a, v80, v20 in rows)
+    nvis = table([(a, 1.0 if a < 30 else 0.0, 0.0) for a in range(1, 30)] + [(a, 10.0, 5.0) for a in range(60, 81)])
+    (P.prn_dir(slug) / "NVIS.PRN").write_text(nvis)
+    tg = {"id": "t1", "name": "Near", "heading": 270, "offsets": [0], "weights": [1], "prn": "NVIS.PRN", "bands": ["80", "20"]}
+    aoa, why = EV.aoa_status(proj, slug, tg, 3.6, {}); assert aoa is None and "NVIS" in why and "35°" in why, why
+    aoa, why = EV.aoa_status(proj, slug, tg, 14.2, {}); assert aoa is None and why
+    mixed = table([(a, 6.0, 6.0) for a in range(1, 21)] + [(a, 2.0, 0.0) for a in range(40, 70)])   # 80 m: 120 of 180 inside = 67%
+    (P.prn_dir(slug) / "MIX.PRN").write_text(mixed); tg["prn"] = "MIX.PRN"
+    aoa, why = EV.aoa_status(proj, slug, tg, 3.6, {}); assert aoa is not None and why is None
+    assert abs(EV.aoa_coverage(aoa) - 2 / 3) < 0.02 and "33%" in EV.aoa_coverage_note("MIX.PRN", 3.6, aoa)
+    aoa, why = EV.aoa_status(proj, slug, tg, 14.2, {}); assert why is None and EV.aoa_coverage_note("MIX.PRN", 14.2, aoa) is None
+    r = C.get(f"/api/v2/p/{slug}/prn/MIX.PRN").get_json(); assert abs(r["coverage"]["80m"] - 0.667) < 0.01 and r["coverage"]["20m"] == 1.0 and r["max_angle"] == 35
+
+
 if __name__ == "__main__":
     print(f"\nPASS: {len(PASSED)} tests")
     if APP.POOL is not None: APP.POOL.shutdown(wait=True, cancel_futures=True)
