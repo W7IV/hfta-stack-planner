@@ -213,17 +213,18 @@ def fake_search(groups_body, score_fn, min_gap, order="any", guys=None, radii=No
     proj = {"settings": {"spacing": dict(P.SPACING_DEFAULTS), "band_freq": {}}, "sites": [{"id": "s1"}],
             "targets": [{"id": "t1", "name": "A", "prn": "x.PRN", "heading": 0, "bands": ["20", "40"], "offsets": [0], "weights": [1]}],
             "towers": [{"id": "g", "guys": guys}] if guys else []}
-    orig = (CM.Scorer.__init__, CM.Scorer.needed, CM.Scorer.compute, CM.Scorer.score, CM.aoa_status)
-    def init(self, *a): self.idx = {0: "x"}; self.pat = {}; self.n_fom = 0; self.stages = []; self.n_failed = 0; self.n_filled = 0
+    orig = (CM.Scorer.__init__, CM.Scorer.needed, CM.Scorer.compute, CM.Scorer.score, CM.Scorer.calibrate, CM.aoa_status)
+    def init(self, *a): self.idx = {0: "x"}; self.pat = {}; self.n_fom = 0; self.stages = []; self.n_failed = 0; self.n_filled = 0; self.pool = None
     def score(self, model, bands, c, mode): return {"t1": {b: (score_fn(bands, c), list(c)) for b in bands}}
     CM.Scorer.__init__, CM.Scorer.needed, CM.Scorer.compute, CM.Scorer.score = init, lambda *a: [], lambda *a: None, score
+    CM.Scorer.calibrate = lambda *a: 0.001
     CM.aoa_status = lambda *a: ({1: 1.0}, None)
     try:
         body = {"site": "s1", "targets": ["t1"], "groups": groups_body, "min_gap": min_gap, "max_height": 300, "min_spacing": 1, "order": order, "top": 5}
         if guys: body["guys_from_tower"] = "g"
         return CM.search(proj, "x", body, None, {"cancel": False})
     finally:
-        CM.Scorer.__init__, CM.Scorer.needed, CM.Scorer.compute, CM.Scorer.score, CM.aoa_status = orig
+        CM.Scorer.__init__, CM.Scorer.needed, CM.Scorer.compute, CM.Scorer.score, CM.Scorer.calibrate, CM.aoa_status = orig
 
 @test
 def f07_constraint_aware_search_finds_feasible_layout():

@@ -15,7 +15,8 @@ import engine
 from . import antennas as A, terrain as TR, project as P, guys as G, spacing as SP
 from .evaluate import switch_options, target_azimuths, band_freq, run_one, aoa_status
 
-RUN_BUDGET = 25000   # unique HFTA runs per search stage before the height grid is coarsened
+STAGE_SECONDS = 240   # wall-clock budget per search stage; the height grid is coarsened until the stage fits it
+MIN_STAGE_RUNS = 1500   # a stage is never cut below this many runs, however slow the core is on the terrain
 NODE_BUDGET = 3_000_000   # combinations examined by the branch-and-bound search before it stops and says so
 MAX_GROUP_LAYOUTS = 200_000   # layouts of one group; above this the request is refused before any work
 
@@ -82,6 +83,24 @@ class Scorer:
                             key = (file, f, t, hs)
                             if key not in self.pat: need[key] = 1
         return list(need)
+    @property
+    def workers(self):
+        return max(1, getattr(self.pool, "_max_workers", 1))
+    def calibrate(self, model, bands, c, mode):
+        """Seconds per HFTA run on this terrain for this group: the full stack and one antenna, on every band, at the
+        first heading. The patterns are kept, so nothing is wasted. Returns the mean cost of a run."""
+        keys = []
+        for b in bands:
+            f, t = band_freq(self.proj, b), A.hfta_type(model, b)
+            tg = self.targets[0]; az, _ = target_azimuths(tg)[0]; k, file = TR.nearest(self.idx, az)
+            for hs in (tuple(c), (c[-1],)):
+                if (file, f, t, hs) not in self.pat: keys.append((file, f, t, hs))
+        if not keys: return 0.05
+        t0 = time.time(); n0 = len(self.pat)
+        for k in keys:
+            rid, pat, note = run_one((0, self.spec(*k), str(self.sdir)))
+            self.pat[k] = None if pat is None else np.array(pat, dtype=np.float32)
+        return max(0.002, (time.time() - t0) / len(keys))
     def compute(self, keys, label):
         self.job.update(phase=label, done=0, total=len(keys)); self.stages.append({"stage": label, "runs": len(keys)})
         jobs = [(i, self.spec(*k), str(self.sdir)) for i, k in enumerate(keys)]
@@ -179,18 +198,31 @@ def search(proj, slug, body, pool, job):
         while n_layouts(coarse or step) > MAX_GROUP_LAYOUTS:
             coarse = (coarse or step) * 2
         cands = group_candidates(g, coarse or step, rules, allowed)
-        while cands and len(sc.needed(g["ant"], g["bands"], cands, mode)) > RUN_BUDGET:
+        if not cands: raise ValueError(f"No heights fit the rules for {g['name']} (spacing, height limits or guys)")
+        # Run cost depends on the terrain, the band and the stack size (0.01 to 0.7 s seen), so the budget is time, not
+        # a run count: a few representative runs are timed first and the grid is coarsened until the stage fits.
+        per_run = sc.calibrate(g["ant"], g["bands"], cands[len(cands) // 2], mode)
+        budget = max(MIN_STAGE_RUNS, int(STAGE_SECONDS * sc.workers / per_run))
+        while cands and len(sc.needed(g["ant"], g["bands"], cands, mode)) > budget:
             coarse = (coarse or step) * 2; cands = group_candidates(g, coarse, rules, allowed)
         if not cands: raise ValueError(f"No heights fit the rules for {g['name']} (spacing, height limits or guys)")
-        sc.compute(sc.needed(g["ant"], g["bands"], cands, mode), f"{g['name']}: {'coarse ' if coarse else ''}search, {len(cands)} layouts")
+        need = sc.needed(g["ant"], g["bands"], cands, mode)
+        sc.compute(need, f"{g['name']}: {'coarse ' if coarse else ''}search, {len(cands)} layouts, about {max(1, round(len(need) * per_run / sc.workers / 60))} min")
         scored = {c: sc.score(g["ant"], g["bands"], c, mode) for c in cands}
         if coarse:
+            # Refine by halving the grid each time around the best layouts so far (20 -> 10 -> 5 ft), so every
+            # stage stays near the time budget instead of one fine stage with the whole span at the final step.
             def gscore(s): return sum(weights[t] * np.mean([v[0] for v in s[t].values()]) for t in s if s[t]) / sum(weights[t] for t in s if s[t])
-            top = sorted(scored, key=lambda c: -gscore(scored[c]))[:6]
-            fine = [c for c in refine(top, g, step, coarse, rules, allowed) if c not in scored]
-            if fine:
-                sc.compute(sc.needed(g["ant"], g["bands"], fine, mode), f"{g['name']}: fine search, {len(fine)} layouts")
-                for c in fine: scored[c] = sc.score(g["ant"], g["bands"], c, mode)
+            cur = coarse
+            while cur > step:
+                nxt = max(step, cur / 2)
+                top = sorted(scored, key=lambda c: -gscore(scored[c]))[:6]
+                fine = [c for c in refine(top, g, nxt, cur, rules, allowed) if c not in scored]
+                if fine:
+                    need = sc.needed(g["ant"], g["bands"], fine, mode)
+                    sc.compute(need, f"{g['name']}: fine search at {nxt:g} ft, {len(fine)} layouts, about {max(1, round(len(need) * per_run / sc.workers / 60))} min")
+                    for c in fine: scored[c] = sc.score(g["ant"], g["bands"], c, mode)
+                cur = nxt
         per_group.append(scored)
     # Layouts whose score is incomplete (a failed run left a band without a value) cannot be compared: drop them.
     tids = [t["id"] for t in targets]

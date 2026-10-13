@@ -52,7 +52,10 @@ models. Two checks are added as notes only; they never change a number:
    file), stack switching, and an optional guy and ice check (Phillystran or EHS, radial ice, element droop).
    A height scan finds good heights for one antenna. **Stack Designer** searches the stack heights
    for the best weighted result over all chosen targets (for example six regions), within spacing, gap, height and
-   guy limits, and shows the loss against each target's own best layout.
+   guy limits, and shows the loss against each target's own best layout. A run costs 0.01 to 0.7 s depending on
+   terrain, band and stack size, so the Designer times a few runs first and coarsens the height grid until each
+   stage fits about four minutes, then searches fine around the best coarse layouts; the summary says when it did.
+   Cancel beside the progress bar stops a search.
 4. **Compare**: all sites × towers × targets × bands. Click any value to see the HFTA runs behind it, the elevation
    pattern with the arrival angles, and the exact inputs to type into HFTA.
 5. **Report**: HTML report, Excel workbook (results built from the run log with live formulas), CSV, the
