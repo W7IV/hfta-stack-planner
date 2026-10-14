@@ -77,7 +77,19 @@ function go(step) {
   STEP = step; $$(".step").forEach(b => b.classList.toggle("on", b.dataset.step === step));
   $$(".page").forEach(p => p.hidden = p.id !== "p-" + step); render();
 }
-function render() { status(); ({ sites: rSites, targets: rTargets, towers: rTowers, compare: rCompare, report: rReport })[STEP](); }
+function render() { status(); ({ sites: rSites, targets: rTargets, towers: rTowers, compare: rCompare, report: rReport })[STEP](); clampLeads(); }
+new MutationObserver(() => clampLeads()).observe(document.querySelector("main") || document.body, { childList: true, subtree: true });
+/* Page introductions show two lines; "More" opens the rest. A reader who knows the page is not made to scroll past it. */
+function clampLeads() {
+  $$(".page:not([hidden]) p.lead").forEach(p => {
+    if (p.dataset.clamped) return;
+    p.classList.add("clamp");
+    if (p.scrollHeight <= p.clientHeight + 2) { p.classList.remove("clamp"); p.dataset.clamped = "1"; return; }
+    const a = document.createElement("a"); a.href = "#"; a.className = "more"; a.textContent = "More";
+    a.onclick = e => { e.preventDefault(); const open = p.classList.toggle("clamp"); a.textContent = open ? "More" : "Less"; };
+    p.insertAdjacentElement("afterend", a); p.dataset.clamped = "1";
+  });
+}
 function modal(html) { $("#modalBody").innerHTML = html; $("#modal").hidden = false; }
 function closeModal() { $("#modal").hidden = true; }
 function uid(p) { return p + Math.random().toString(16).slice(2, 8); }
@@ -810,7 +822,7 @@ async function poll(job, bar) {
 }
 
 /* ---------------------------------------------------------------- 4. Compare */
-let CMP = { target: null, ref: null, delta: false, hide: new Set() };
+let CMP = { target: null, ref: null, delta: false, hide: new Set(), sw: false };
 async function rCompare() {
   const p = P(), el = $("#p-compare"); status();
   el.innerHTML = `<h1>Compare</h1><p class="lead">Every value is an HFTA Figure of Merit (dB, higher is better). Click a value to see the HFTA runs behind it and how to reproduce it.
@@ -853,11 +865,13 @@ function matrix() {
   $("#cmpCtl").innerHTML = `<div style="width:100%"><span class="small mute">Target shown:</span>
       <div class="tgtabs"><button class="${CMP.target === WORLD ? "" : "ghost"}" data-cmptg="${WORLD}" title="Every target together: weighted mean of the FOM over all targets, per band. For one tower that must work everywhere">Worldwide</button>${tg.map(t => `<button class="${t.id === CMP.target ? "" : "ghost"}" data-cmptg="${t.id}" title="Results for paths to ${esc(t.name)}, bearing ${t.heading}°">${esc(t.name)} <span class="small">${t.heading}°</span></button>`).join("")}</div></div>
     <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpDelta" ${CMP.delta ? "checked" : ""}> Show differences from the reference row</label>
+    <label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="cmpSw" ${CMP.sw ? "checked" : ""}> Show switch settings (which antennas HFTA used)</label>
     <div style="width:100%"><span class="small mute">Towers shown:</span> ${[...new Set(RES.cells.map(c => c.tower))].map(id => `<label style="flex-direction:row;align-items:center;gap:4px;display:inline-flex;margin-right:10px">
       <input type="checkbox" data-cmpshow="${id}" ${CMP.hide.has(id) ? "" : "checked"} title="Show or hide this tower's rows. Hiding changes nothing in the project">${esc(tower(id))}</label>`).join("")}</div>`;
   $$("[data-cmpshow]").forEach(cb => cb.onchange = () => { cb.checked ? CMP.hide.delete(cb.dataset.cmpshow) : CMP.hide.add(cb.dataset.cmpshow); matrix(); });
   $$("[data-cmptg]").forEach(b => b.onclick = () => { CMP.target = b.dataset.cmptg; matrix(); });
   $("#cmpDelta").onchange = e => { CMP.delta = e.target.checked; matrix(); };
+  $("#cmpSw").onchange = e => { CMP.sw = e.target.checked; matrix(); };
   if (CMP.target === WORLD) return worldwide(tg, site, tower);
   const val = c => c ? c.hfta : null;
   const get = (row, b) => cells.find(c => c.site + "|" + c.tower === row && c.band === b);
@@ -866,7 +880,7 @@ function matrix() {
   const overall = r => { const v = bands.map(b => { const c = get(r, b); return c && !c.issues.length ? val(c) : null; }); return v.every(x => x != null) ? v.reduce((a, b) => a + b, 0) / v.length : null; };
   rows.sort((a, b) => (overall(b) ?? -1e9) - (overall(a) ?? -1e9));
   const bestAll = Math.max(...rows.map(r => overall(r) ?? -1e9));
-  let h = `<tr><th>Ref.</th><th>#</th><th>Site</th><th>Tower</th><th class="n" title="Mean over the bands. Rows are ranked by this value">Overall</th>${bands.map(b => `<th class="n">${b} m</th><th class="small mute">switch (ft)</th>`).join("")}</tr>`;
+  let h = `<tr><th>Ref.</th><th>#</th><th>Site</th><th>Tower</th><th class="n" title="Mean over the bands. Rows are ranked by this value">Overall</th>${bands.map(b => `<th class="n">${b} m</th>${CMP.sw ? `<th class="small mute">switch (ft)</th>` : ""}`).join("")}</tr>`;
   for (const [k, r] of rows.entries()) {
     const [sid, tid] = r.split("|"), o = overall(r), ro = overall(CMP.ref);
     const oShown = o == null ? "–" : CMP.delta && r !== CMP.ref ? (ro == null ? "–" : (o - ro >= 0 ? "+" : "") + fmt(o - ro)) : fmt(o);
@@ -874,13 +888,14 @@ function matrix() {
       <td class="n${o != null && Math.abs(o - bestAll) < 0.005 ? " best" : ""}"><b>${oShown}</b></td>`;
     for (const b of bands) {
       const c = get(r, b), v = val(c);
-      if (!c) { h += `<td class="mute">–</td><td></td>`; continue; }
-      if (c.issues.length) { h += `<td class="small neg" colspan="2">${esc(c.issues[0])}</td>`; continue; }
+      if (!c) { h += `<td class="mute">–</td>${CMP.sw ? "<td></td>" : ""}`; continue; }
+      if (c.issues.length) { h += `<td class="small neg" colspan="${CMP.sw ? 2 : 1}">${esc(c.issues[0])}</td>`; continue; }
       let shown = fmt(v), cls = "n cell" + (Math.abs(v - best[b]) < 0.005 ? " best" : "");
       if (CMP.delta && r !== CMP.ref) { const rv = val(get(CMP.ref, b)); shown = rv === null ? "–" : (v - rv >= 0 ? "+" : "") + fmt(v - rv); }
       let sub = c.spacing ? ` <span class="sp ${c.spacing}" title="${esc(c.spacing_text.join("\n"))}">&#9888;</span>` : "";
       if ((c.notes || []).length) sub += ` <span class="small amb" title="${esc(c.notes.join("\n"))}">*</span>`;
-      h += `<td class="${cls}" data-i="${c.i}" title="Show the HFTA runs">${shown}${sub}</td><td class="small mute">${(c.use || []).join(" / ")}</td>`;
+      const use = (c.use || []).join(" / ");
+      h += `<td class="${cls}" data-i="${c.i}" title="Show the HFTA runs${use ? `. Antennas in use: ${use} ft` : ""}">${shown}${sub}</td>${CMP.sw ? `<td class="small mute">${use}</td>` : ""}`;
     }
     h += "</tr>";
   }
@@ -1093,6 +1108,7 @@ const TIPS = [
   ["[data-k=notes]", "Free text, shown in the report."],
   ["#evalBtn", "Run OpenHFTA for every site, tower, target and band. Runs with unchanged inputs are reused."],
   ["#cmpDelta", "Show each value as the difference from the reference row instead of the absolute FOM."],
+  ["#cmpSw", "Add a column after each band with the heights HFTA switched in for the best value. Hidden by default; the value's tooltip shows it too."],
   ["#delProj", "Remove this project and all its files from the server. The library is not touched."],
   ["[data-k=prn]", "Elevation-angle file for this path. It says how often openings arrive at each angle, per band."],
   ["[data-k=heading]", "Great-circle bearing from your site to the target, degrees true."],
