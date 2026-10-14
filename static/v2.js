@@ -671,7 +671,7 @@ function rTowers() {
       <p class="small mute" style="margin:4px 0 0">One row = one antenna at one height. Elements on several bands in one row = a tribander or multiband antenna; "Band set…" fills common ones. Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.
       ${t.antennas.some(a => bandsOf(a).includes("6")) ? `<br><b>6 m:</b> ${SIX_NOTE}` : ""}</p>
       ${warnList(spacingCheck(t.antennas))}
-      <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>
+      <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>${t.antennas.length ? `<button class="ghost" data-addsame>Add same as top</button>` : ""}
         <button class="ghost" data-copy title="Make a copy of this tower (same antennas, guys and targets) at another site">Copy to…</button>
         <button class="ghost" data-tlib title="Save this tower (antennas, guys, switching) to the library shared by all your projects">Save to library</button>
         <button class="danger" data-del>Delete tower</button></div>
@@ -684,7 +684,10 @@ function rTowers() {
     $$("[data-adr]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.adr].droop = s.value === "" ? null : Number(s.value); save(); });
     $$("[data-ah]", c).forEach(s => s.onchange = () => { t.antennas[s.dataset.ah].h = Number(s.value); save(); rTowers(); });
     $$("[data-ad]", c).forEach(b => b.onclick = () => { t.antennas.splice(Number(b.dataset.ad), 1); save(); rTowers(); });
-    $("[data-add]", c).onclick = () => { const last = t.antennas[t.antennas.length - 1]; t.antennas.push({ h: last ? last.h + 30 : 60, el: last ? { ...last.el } : { "20": 4, "15": 4, "10": 4 }, turning_radius: last?.turning_radius ?? null, droop: last?.droop ?? null }); save(); rTowers(); };
+    /* A new row is empty: height above the top one, no bands, no radius. "Band set…" or the element boxes fill it.
+       "Add same" repeats the top antenna, for a stack. */
+    $("[data-add]", c).onclick = () => { const last = t.antennas[t.antennas.length - 1]; t.antennas.push({ h: last ? last.h + 30 : 60, el: {}, turning_radius: null, droop: null }); save(); rTowers(); };
+    const same = $("[data-addsame]", c); if (same) same.onclick = () => { const last = t.antennas[t.antennas.length - 1]; t.antennas.push({ h: last.h + 30, el: { ...last.el }, turning_radius: last.turning_radius ?? null, droop: last.droop ?? null }); save(); rTowers(); };
     $("[data-del]", c).onclick = () => { p.towers.splice(i, 1); save(true).then(rTowers); };
     $("[data-copy]", c).onclick = () => copyTowerDialog(t, i);
     $("[data-tlib]", c).onclick = () => libSaveDialog("towers", t);
@@ -1103,7 +1106,8 @@ const TIPS = [
   ["[data-atr]", "Distance from the mast to the furthest element tip. Used only by the guy check."],
   ["[data-adr]", "How far the element tips hang below the boom. Used only by the guy check."],
   ["[data-ad]", "Remove this antenna."],
-  ["[data-add]", "Add an antenna above the top one, same type."],
+  ["[data-add]", "Add an empty row above the top antenna. Choose its bands and elements, or a band set."],
+  ["[data-addsame]", "Add another antenna of the same type as the top one, 30 ft above it: the next antenna of a stack."],
   ["[data-copy]", "The same tower, as a separate copy, at another site."],
   ["[data-gh]", "Height where this guy level is attached to the tower."],
   ["[data-gr]", "Distance from the tower base to the guy anchor."],
