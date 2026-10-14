@@ -70,6 +70,8 @@ function status() {
   $("#st-targets").textContent = `${p.targets.length} targets, ${S.prns.length} .PRN`;
   $("#st-towers").textContent = `${p.towers.length} towers`;
   $("#st-compare").textContent = S.has_results ? "results " + (S.results_stamp || "").slice(5, 16) : "not run";
+  const done = { sites: ready > 0, targets: p.targets.some(t => t.prn), towers: p.towers.length > 0, compare: !!S.has_results, report: !!S.has_results };
+  $$(".step").forEach(b => b.classList.toggle("done", !!done[b.dataset.step]));
 }
 function go(step) {
   STEP = step; $$(".step").forEach(b => b.classList.toggle("on", b.dataset.step === step));
@@ -111,19 +113,22 @@ function rSites() {
       <div class="row"><label>Latitude<input type="number" step="0.00001" data-k="lat" value="${s.lat ?? ""}"></label>
       <label>Longitude<input type="number" step="0.00001" data-k="lon" value="${s.lon ?? ""}"></label>
       <label style="flex:1">Notes<input data-k="notes" value="${esc(s.notes || "")}" style="width:100%"></label></div>
-      <div class="row" style="margin-top:10px">
-        <label>Source of the files you import<select data-src><option>MicroDEM .PRO</option><option>K6TU terrain set</option><option>Other .PRO files</option></select></label>
+      <div class="groups" style="margin-top:12px">
+        <div class="group"><div class="gcap">Terrain from your own files</div><div class="row"><label>Source of the files you import<select data-src><option>MicroDEM .PRO</option><option>K6TU terrain set</option><option>Other .PRO files</option></select></label>
         <button data-act="import">Import .PRO or .zip</button><input type="file" multiple accept=".pro,.PRO,.zip" hidden data-file>
         <button class="ghost" data-act="dem">Generate from DEM file</button>
-        <button class="ghost" data-act="auto" title="Downloads elevation data for this position and writes one profile per degree. Inside the United States: USGS 3DEP (1 m). Elsewhere: AWS Terrain Tiles (30 m, worldwide)">Fetch terrain online</button>
+        </div></div>
+        <div class="group"><div class="gcap">Terrain made here</div><div class="row"><button class="ghost" data-act="auto" title="Downloads elevation data for this position and writes one profile per degree. Inside the United States: USGS 3DEP (1 m). Elsewhere: AWS Terrain Tiles (30 m, worldwide)">Fetch terrain online</button>
         <select data-autosrc title="Where the elevation data comes from"><option value="auto">source by position</option><option value="3dep">USGS 3DEP (US, 1 m)</option><option value="tiles">Terrain Tiles (worldwide, 30 m)</option></select>
         <select data-autolen title="HFTA profiles hold at most 148 points. 4.4 km at 30 m is the HFTA standard. 10 km needs 68 m spacing, which changes results on rough ground by about 1 dB; use it only to see the effect of a distant ridge, and compare like with like"><option value="std">4.4 km, 30 m (HFTA standard)</option><option value="long">10 km, 68 m (coarser)</option></select>
         <button class="ghost" data-act="flat">Flat ground</button>
-        ${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
+        </div></div>
+        <div class="group"><div class="gcap">This site</div><div class="row">${f.n ? `<button class="ghost" data-act="download">Download .PRO files</button>` : ""}
         ${f.n ? `<button class="ghost" data-act="clear">Remove profiles</button>` : ""}
         <button class="ghost" data-act="lib" title="Save this site, with its position and terrain files, to the library shared by all your projects">Save to library</button>
         <button class="ghost" data-act="move" title="New site at a distance and bearing from this one, to test how sensitive the result is to the exact position (as HFTA's move-the-tower check)">Copy, moved…</button>
-        <button class="danger" data-act="del">Delete site</button></div>
+        <button class="danger" data-act="del">Delete site</button></div></div>
+      </div>
       <p class="small mute" style="margin:8px 0 0">K6TU sells HFTA-ready one-degree terrain sets: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
       MicroDEM makes .PRO files from free elevation data. A DEM file is processed on this computer only.</p>${dupBox}`;
     $$("[data-k]", c).forEach(inp => bind(inp, s, inp.dataset.k, null, inp.type === "number"));
@@ -661,7 +666,7 @@ function rTowers() {
           <option value="stackmatch" ${(t.switching || "stackmatch") === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option>
           <option value="all" ${t.switching === "all" ? "selected" : ""}>Every combination</option></select></label></div>
       <div class="row" style="margin-top:8px"><span class="small mute">Serves:</span>${p.targets.map(g => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-tg="${g.id}" ${!t.targets || t.targets.includes(g.id) ? "checked" : ""}>${esc(g.name)}</label>`).join("")}</div>
-      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th><th></th>${tb.map(b => b === "6" ? `<th title="${SIX_NOTE}">6 m <span class="chip warn" style="font-size:10px;padding:0 5px">no FOM</span></th>` : `<th>${b} m</th>`).join("")}<th class="n" title="Only for the guy check">Turning radius (ft)</th><th class="n" title="Only for the guy check">Element droop (ft)</th><th></th></tr>
+      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th><th></th>${tb.map(b => b === "6" ? `<th title="${SIX_NOTE}">6 m <span class="chip warn" style="font-size:10px;padding:0 5px">no FOM</span></th>` : `<th>${b} m</th>`).join("")}<th class="n" title="Turning radius of the antenna, in feet. Only for the guy check">Radius (ft)</th><th class="n" title="Element tip droop under ice, in feet. Only for the guy check">Droop (ft)</th><th></th></tr>
         ${t.antennas.map((a, j) => `<tr><td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td><td>${bandSetSelect(`data-aset="${j}"`)}</td>
           ${tb.map(b => `<td>${elSelect(`data-ae="${j}" data-band="${b}"`, b, elOf(a)[b])}</td>`).join("")}
           <td class="n"><input type="number" class="s" step="0.5" data-atr="${j}" value="${a.turning_radius ?? ""}" placeholder="–"></td>
@@ -701,7 +706,7 @@ function rTowers() {
 }
 function spacingCard() {
   const r = P().settings.spacing = { ...META.spacing_defaults, ...(P().settings.spacing || {}) };
-  $("#spcCard").innerHTML = `<div class="card"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
+  $("#spcCard").innerHTML = `<div class="card aux"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
   <p class="small mute">HFTA has no mutual coupling: it gives a stack its full stacking gain at any spacing. Close antennas lose part of it.
   NEC-2 check on 40 m: 0.22 wavelength lost 2.2 dB, 0.43 wavelength lost 0.7 dB. HFTA also ignores interaction between antennas on different bands.
   Warnings never change a number.</p>
@@ -734,7 +739,7 @@ function copyTowerDialog(t, i) {
 }
 function guyBlock(t) {
   const g = t.guys, wires = Object.keys(META.wires);
-  return `<div class="card" style="margin-top:12px;background:var(--soft)"><h2>Guy and ice check <span class="chip">not part of HFTA</span></h2>
+  return `<div class="card aux"><h2>Guy and ice check <span class="chip">not part of HFTA</span></h2>
     <p class="small mute">For antennas that turn: each sweeps a circle of its turning radius. Guys sag under ice; elements droop. Negative clearance = contact. Leave empty if not needed.</p>
     <div class="tbl"><table><tr><th class="n">Guy height (ft)</th><th class="n">Anchor radius (ft)</th><th>Guy line</th><th class="n">Initial tension (lb)</th><th></th></tr>
     ${g.levels.map((l, j) => `<tr><td class="n"><input type="number" data-gh="${j}" value="${l.h}"></td><td class="n"><input type="number" data-gr="${j}" value="${l.r}"></td>
@@ -768,7 +773,7 @@ function wireGuys(c, t) {
 }
 function scanCard() {
   const p = P(); if (!p.sites.length || !p.targets.length) { $("#scanCard").innerHTML = ""; return; }
-  $("#scanCard").innerHTML = `<div class="card" style="margin-top:14px"><h2>Height scan <span class="chip good">HFTA</span></h2>
+  $("#scanCard").innerHTML = `<div class="card hfta" style="margin-top:14px"><h2>Height scan <span class="chip good">HFTA</span></h2>
     <p class="small mute">FOM of a single antenna against height, for one site, target and band. Useful to find good heights before building a stack.</p>
     <div class="row"><label>Site<select id="scSite">${p.sites.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("")}</select></label>
     <label>Target<select id="scTg">${p.targets.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
@@ -812,7 +817,7 @@ async function rCompare() {
     Differences of 0.3 dB or less are not significant.</p>
   <div class="grid2"><div class="card"><h2>Run</h2><p class="small mute" id="runInfo">${S.has_results ? "Last run " + esc(S.results_stamp) + "." : "Not run yet."}
     Runs already computed with the same inputs are reused.</p><div class="row"><button id="evalBtn">Evaluate</button></div><div class="prog" hidden id="evProg"><i></i></div></div>
-  <div class="card"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
+  <div class="card aux"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
     <p class="small">A <span class="sp red">&#9888;</span> or <span class="sp amber">&#9888;</span> beside a value: the antennas on that band are too close or close
     (set the limits in step 3). HFTA has no mutual coupling, so the value is probably optimistic. The value itself is still the plain HFTA-method result.</p></div></div>
   <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="cmpPlot" class="plot"></div></div>`;
@@ -1262,7 +1267,7 @@ function compForm() {
 function compCard() {
   const p = P(), f = compForm(), tb = towerBands(f.groups); if (!p.sites.length || !p.targets.length) { $("#compCard").innerHTML = ""; return; }
   const guyTowers = p.towers.filter(t => (t.guys?.levels || []).length);
-  $("#compCard").innerHTML = `<div class="card" style="margin-top:14px"><h2>Stack Designer <span class="chip good">HFTA</span></h2>
+  $("#compCard").innerHTML = `<div class="card hfta" style="margin-top:14px"><h2>Stack Designer <span class="chip good">HFTA</span></h2>
   <p class="small mute">Searches the heights of one tower for the best result over all ticked targets together. For each target and band the best stack-switch setting is used,
   as in Compare. Score per target = mean over bands; overall = weighted mean over targets. Every number is HFTA runs plus this arithmetic.</p>
   <div class="row"><label>Site<select id="cmSite">${p.sites.map(x => `<option value="${x.id}" ${x.id === f.site ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
