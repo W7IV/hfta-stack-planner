@@ -236,6 +236,8 @@ do not contain; that is the case for a 10 km profile. Below that, the standard 4
   ignores the rest, so it cannot score NVIS or other high-angle paths. A target whose table has less than half
   its weight at or below 35° on a band is not evaluated on that band (the reason is shown); 50–90% is evaluated
   with a note. The .PRN plot marks the 35° line and names the bands affected.
+- 6 m rows are allowed on tower cards for the tower drawing, the spacing check and the guy check only; they are
+  never scored (HFTA stops at 30 MHz and no elevation-angle table covers 50 MHz).
 - HFTA's method is validated for 7–30 MHz. Below 7 MHz diffraction is less reliable; above 30 MHz terrain data
   must resolve features of about 1/8 wavelength.
 - HFTA has no mutual coupling between stacked antennas; close spacing (under about 0.3 wavelength) is rated

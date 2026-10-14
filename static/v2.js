@@ -565,14 +565,16 @@ function describe(a) {
   const e = elOf(a), bs = bandsOf(a); if (!bs.length) return "no bands";
   return new Set(bs.map(b => e[b])).size === 1 ? `${bs.join("/")} m ${elName(e[bs[0]])}` : bs.map(b => `${b} m ${elName(e[b])}`).join(", ");
 }
-function towerBands(extra = []) {
-  /* The HF bands the ARRL elevation-angle files cover (80 to 10 m), plus 160/6 m if any antenna already uses them. */
+function towerBands(extra = [], withSix = false) {
+  /* The HF bands the ARRL elevation-angle files cover (80 to 10 m), plus 160/6 m if any antenna already uses them.
+     Tower cards always show 6 m, so the whole tower can be laid out; 6 m is never scored (HFTA stops at 30 MHz). */
   const used = new Set(extra.flatMap(a => bandsOf(a)));
-  return META.bands.filter(b => (b !== "160" && b !== "6") || used.has(b));
+  return META.bands.filter(b => (b !== "160" && b !== "6") || used.has(b) || (withSix && b === "6"));
 }
+const SIX_NOTE = "6 m: position only. HFTA stops at 30 MHz, so a 6 m antenna is drawn on the tower, included in the spacing and guy checks, and never given a FOM.";
 /* Common band sets for one antenna on one boom. Choosing one fills the element boxes of that row; adjust counts after. */
 const BANDSETS = [
-  ["", "Band set…"], ["40", "Monobander 40 m"], ["20", "Monobander 20 m"], ["15", "Monobander 15 m"], ["10", "Monobander 10 m"],
+  ["", "Band set…"], ["6", "Monobander 6 m (position only)"], ["40", "Monobander 40 m"], ["20", "Monobander 20 m"], ["15", "Monobander 15 m"], ["10", "Monobander 10 m"],
   ["20,15,10", "Tribander 20/15/10"], ["20,17,15,12,10", "5-band 20/17/15/12/10"], ["17,12", "Duobander 17/12"],
   ["40,30", "Duobander 40/30"], ["30,17,12", "WARC 30/17/12"], ["40,20,15,10", "4-band 40/20/15/10"]];
 const bandSetSelect = attr => `<select class="s" ${attr} title="Fill this row's bands for a common antenna. One row = one antenna at one height">${BANDSETS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select>`;
@@ -645,7 +647,7 @@ function rTowers() {
   spacingCard();
   p.towers.forEach((t, i) => {
     t.guys = t.guys || { levels: [], ice_in: 1.0, margin_ft: 2.0 };
-    const c = document.createElement("div"); c.className = "card"; const tb = towerBands(t.antennas);
+    const c = document.createElement("div"); c.className = "card"; const tb = towerBands(t.antennas, true);
     const sw = worstOf(spacingCheck(t.antennas)), site = p.sites.find(s => s.id === t.site);
     const schip = site ? `<span class="chip ${(S.site_files[site.id] || {}).n ? "good" : "warn"}">at ${esc(site.name)}${(S.site_files[site.id] || {}).n ? "" : " (no terrain)"}</span>` : `<span class="chip">every site</span>`;
     c.innerHTML = `<h2><input class="w" data-k="name" value="${esc(t.name)}"> ${schip}${sw ? ` <span class="chip ${sw === "red" ? "bad" : "warn"}">${sw === "red" ? "Spacing too close" : "Spacing close"}</span>` : ""}</h2>
@@ -659,14 +661,15 @@ function rTowers() {
           <option value="stackmatch" ${(t.switching || "stackmatch") === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option>
           <option value="all" ${t.switching === "all" ? "selected" : ""}>Every combination</option></select></label></div>
       <div class="row" style="margin-top:8px"><span class="small mute">Serves:</span>${p.targets.map(g => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-tg="${g.id}" ${!t.targets || t.targets.includes(g.id) ? "checked" : ""}>${esc(g.name)}</label>`).join("")}</div>
-      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th><th></th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n" title="Only for the guy check">Turning radius (ft)</th><th class="n" title="Only for the guy check">Element droop (ft)</th><th></th></tr>
+      <div class="tbl" style="margin-top:8px"><table><tr><th class="n">Height (ft)</th><th></th>${tb.map(b => b === "6" ? `<th title="${SIX_NOTE}">6 m <span class="chip warn" style="font-size:10px;padding:0 5px">no FOM</span></th>` : `<th>${b} m</th>`).join("")}<th class="n" title="Only for the guy check">Turning radius (ft)</th><th class="n" title="Only for the guy check">Element droop (ft)</th><th></th></tr>
         ${t.antennas.map((a, j) => `<tr><td class="n"><input type="number" data-ah="${j}" value="${a.h}"></td><td>${bandSetSelect(`data-aset="${j}"`)}</td>
           ${tb.map(b => `<td>${elSelect(`data-ae="${j}" data-band="${b}"`, b, elOf(a)[b])}</td>`).join("")}
           <td class="n"><input type="number" class="s" step="0.5" data-atr="${j}" value="${a.turning_radius ?? ""}" placeholder="–"></td>
           <td class="n"><input type="number" class="s" step="0.5" data-adr="${j}" value="${a.droop ?? ""}" placeholder="–"></td>
           <td><button class="danger small" data-ad="${j}">Remove</button></td></tr>`).join("")}</table></div>
       ${t.design ? `<p class="small" style="margin:4px 0"><b>Made by the Stack Designer:</b> ${esc(t.design)}</p>` : ""}
-      <p class="small mute" style="margin:4px 0 0">One row = one antenna at one height. Elements on several bands in one row = a tribander or multiband antenna; "Band set…" fills common ones. Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.</p>
+      <p class="small mute" style="margin:4px 0 0">One row = one antenna at one height. Elements on several bands in one row = a tribander or multiband antenna; "Band set…" fills common ones. Choose the number of elements on each band, as in HFTA (Dipole, 2–6 or 8 elements). Turning radius and droop are used only by the guy check.
+      ${t.antennas.some(a => bandsOf(a).includes("6")) ? `<br><b>6 m:</b> ${SIX_NOTE}` : ""}</p>
       ${warnList(spacingCheck(t.antennas))}
       <div class="row" style="margin-top:8px"><button class="ghost" data-add>Add antenna</button>
         <button class="ghost" data-copy title="Make a copy of this tower (same antennas, guys and targets) at another site">Copy to…</button>
