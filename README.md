@@ -196,7 +196,7 @@ For domestic 12 and 10 m the two methods differ; use the ARRL file there if you 
 reference where they exist. The receive points per region are listed in core/aoa_gen.py; "Asia" is India to China.
 
 ## Development list
-Both items for stations outside the US are done. Open points:
+Current status, open tasks and recent decisions are in `HANDOFF.md`. The items below are done:
 
 1. ~~Docker image with VOACAP~~: done, see "VOACAP angle tables" above. Still to do: a W1-MA comparison in the test
    suite needs the ARRL files, which are not in the repository, so it stays a manual check (`tools/compare_prn.py`).
