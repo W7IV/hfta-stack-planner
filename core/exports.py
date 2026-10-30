@@ -45,6 +45,14 @@ def cell_rows(proj, res, layers_on):
 
 RECIPE = """# Reproducing these results in the original HFTA
 
+IMPORTANT: COMPARATIVE RADIO PLANNING ONLY. Neither these results nor the planner's
+optional guy/ice and spacing checks constitute structural engineering, a safety
+assessment, a certified clearance, or a performance guarantee. Do not rely on
+these results alone for tower, foundation, anchor, guy or antenna construction.
+Verify inputs and seek qualified engineering review for safety-critical decisions.
+The software is provided AS IS without warranty under MIT. See DISCLAIMER.md
+in the HFTA Stack Planner source distribution for the full limitations.
+
 Calculations by OpenHFTA (RioDXGroup, https://github.com/RioDXGroup/openhfta), an open-source implementation of the
 HFTA method, used unchanged; the engine version is in `manifest.json`. HFTA by R. Dean Straw, N6BV, published with
 The ARRL Antenna Book. ARRL elevation-angle files are copyright ARRL. Not affiliated with or endorsed by ARRL or the
@@ -173,6 +181,7 @@ def workbook(proj, pslug, res, layers_on, guy_rows=None) -> bytes:
     # Runs
     wr = wb.active; wr.title = "Runs"
     wr["A1"] = "HFTA runs: one row = one run in the original HFTA (inputs and the FOM it gives). See README in the replay pack."; wr["A1"].font = BOLD
+    text(wr, "A2", "PLANNING ESTIMATES ONLY: not engineering or safety certification; no RF performance guarantee. See DISCLAIMER.md.").font = ITAL
     rr = run_rows(proj, res); cols = list(rr[0]) if rr else []
     hdr(wr, 3, cols)
     for i, row in enumerate(rr, 4):
