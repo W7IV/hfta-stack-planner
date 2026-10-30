@@ -7,6 +7,14 @@ is recorded with the exact inputs to type into the original HFTA, so any number 
 **Engine.** All calculations are done by OpenHFTA, not by the original ARRL HFTA program. The engine (OpenHFTA
 commit, SHA-256 of the native library, wrapper version) is recorded with every result and export.
 
+> **Safety, engineering and accuracy notice:** This is comparative RF-planning software, **not**
+> a structural engineering, tower-safety or antenna-clearance certification. HFTA results are modeled estimates,
+> not assured gain, coverage or contest performance; the optional guy/ice checks and spacing warnings cannot
+> establish whether an installation is safe. Do not use outputs alone to design, erect or modify towers, guy wires,
+> foundations, anchors or antennas. Independently verify inputs, engineering and real-world performance, and obtain
+> qualified review for safety-critical decisions. Provided **AS IS** under MIT.
+> Read the [Legal, Performance and Engineering Disclaimers](DISCLAIMER.md) before relying on results.
+
 ## Credits
 - **Calculations:** [OpenHFTA](https://github.com/RioDXGroup/openhfta) by RioDXGroup (BSD Zero Clause licence).
   This planner does not include or change OpenHFTA: the Dockerfile downloads it at a fixed commit, builds it, and
@@ -82,8 +90,9 @@ The app runs locally; nothing is sent to a server.
 
 **Windows (no installation):** download `HFTA-Stack-Planner-windows-<version>.zip` from the Releases page, unzip it
 anywhere, double-click **Start HFTA Stack Planner.bat**, and the browser opens http://localhost:5055. The package
-holds its own Python, the OpenHFTA core and VOACAP; your projects stay in its `data` folder. Windows may show
-"Windows protected your PC" the first time: choose More info → Run anyway. The package is built by
+holds its own Python, the OpenHFTA core and VOACAP; your projects stay in its `data` folder. Windows 11 Smart App Control can block downloaded batch launchers. If the extracted launcher is blocked,
+verify the download source, then check its file Properties for an **Unblock** checkbox. Do not disable
+Smart App Control just to run this program. The package is built by
 `tools/build_windows.sh` and checked against the original-HFTA output before it is zipped.
 
 **macOS, Linux, Windows with Docker:**
@@ -251,5 +260,8 @@ do not contain; that is the case for a 10 km profile. Below that, the standard 4
   K6STI's constants for verticals and NEC ground-loss work; for this planner, "Average soil" is enough.
 
 ## License and third-party rights
+
+See [DISCLAIMER.md](DISCLAIMER.md) for legal, performance, structural-engineering and safety limitations.
+These notices do not change the MIT license rights granted to recipients.
 
 Original HFTA Stack Planner code is provided under the [MIT License](LICENSE), subject to the rights of its contributors. Bundled and downloaded components retain their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/`. In particular, bundled Plotly.js is MIT-licensed, OpenHFTA is 0BSD, and the VOACAP port includes CC0 contributions. ARRL elevation-angle files are not licensed for redistribution by this project.
