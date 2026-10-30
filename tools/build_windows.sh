@@ -50,6 +50,7 @@ rm -rf "$WORK/voacapl"; git clone -q https://github.com/jawatson/voacapl.git "$W
 ( cd "$WORK/voacapl" && autoreconf -fi >/dev/null 2>&1 && ./configure --host=x86_64-w64-mingw32 --prefix="$WORK/vcwin" FC=x86_64-w64-mingw32-gfortran F77=x86_64-w64-mingw32-gfortran CC=x86_64-w64-mingw32-gcc FCFLAGS="-O2 -static" FFLAGS="-O2 -static" LDFLAGS="-static" >/dev/null && make -j4 >/dev/null && make install >/dev/null 2>&1 || true )
 mkdir -p "$PKG/voacap/bin"; cp "$WORK/voacapl/src/voacapw/voacapl.exe" "$PKG/voacap/bin/"
 cp -r "$WORK/vcwin/share/voacapl/itshfbc" "$PKG/voacap/itshfbc"
+cp "$WORK/voacapl/COPYING" "$WORK/voacapl/AUTHORS" "$PKG/voacap/"
 rm -f "$PKG"/voacap/itshfbc/coeffs/*.bin "$PKG"/voacap/itshfbc/coeffs/*.da "$PKG"/voacap/itshfbc/coeffs/*.daw
 WPATH=$(winepath -w "$PKG/voacap/itshfbc/coeffs")
 for x in coeffbin coefbinw fof2bin fof2binw; do wine "$WORK/vcwin/bin/$x.exe" "$WPATH" >/dev/null 2>&1; done
