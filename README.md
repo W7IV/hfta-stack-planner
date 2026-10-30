@@ -223,8 +223,9 @@ Current status, open tasks and recent decisions are in `HANDOFF.md`. The items b
    the same project, the second save is refused with a notice to reload instead of overwriting the first.
 4. ~~Check of the guy-wire model~~: the sag formula (parabola, constant initial tension) was compared with an exact
    catenary in the tests: within 0.7 ft in the worst case tried (steep guy, 1.25 in ice, thin wire) and within
-   0.2 ft in ordinary cases; the 2 ft margin covers it. Assumptions are listed at the top of core/guys.py. Wind,
-   insulators and the guy load on the tower are not modelled; a tower engineer's calculation takes precedence.
+   0.2 ft in ordinary cases. These tests validate only the numerical approximation for the tested cases; the
+   default 2 ft margin is not a certified safety margin. Assumptions are in core/guys.py. Wind, insulators and
+   guy loads on the tower are not modeled; qualified engineering is required for safety decisions.
 
 ## Profile length: 4.4 km or 10 km
 HFTA reads at most 148 points per profile. The standard is 4.4 km at 30 m, as MicroDEM and K6TU make them.
