@@ -6,7 +6,9 @@ HFTA Stack Planner for Windows (64-bit)
    Your browser opens http://localhost:5055 . If it does not, open that address yourself.
 3. To stop: close the black window.
 
-Windows may show "Windows protected your PC" the first time: choose "More info" then "Run anyway".
+Windows 11 Smart App Control may block a downloaded .bat launcher. If the file is blocked,
+verify it came from the intended GitHub release; then inspect the extracted launcher
+file's Properties for an "Unblock" checkbox. Do not disable Smart App Control.
 This package contains no installer and changes nothing outside its own folder.
 
 Your projects, terrain files and elevation-angle files live in the "data" folder next to this file.
@@ -21,5 +23,15 @@ What is in the package
   data\       your projects (made on first start)
 
 "Fetch terrain online" needs an internet connection; everything else runs offline.
+
+IMPORTANT: LEGAL, PERFORMANCE AND ENGINEERING LIMITATIONS
+This software is for comparative amateur-radio planning only. It is not a
+structural or safety assessment. Do not use its guy/ice, spacing, terrain or
+antenna calculations to establish safe loads, clearances, tower heights,
+anchor capacity or safe construction. The results do not guarantee RF gain,
+coverage, contacts or contest outcomes. Confirm inputs independently and
+obtain qualified engineering review for construction and safety decisions.
+Provided AS IS without warranty under the MIT license. Read the full
+DISCLAIMER.md included at the root of this Windows distribution.
 
 Read "Getting started" from the Help button, or open http://localhost:5055/guide .
