@@ -68,6 +68,18 @@ echo "== check: the Windows build must still match the original HFTA (under Wine
 ( cd "$PKG" && OPENHFTA_DIR="$(winepath -w "$PKG/openhfta")" wpy app/tests/test_hfta_match.py | tee "$WORK/check.log" | tail -2 )
 grep -q "PASS: matches the original HFTA" "$WORK/check.log"
 
+echo "== bundled Python license inventory"
+mkdir -p "$PKG/licenses/runtime"
+# Preserve original Python-build-standalone license metadata/files (and the CRT notice if present).
+find "$PKG/runtime" -maxdepth 3 -type f \( -iname '*license*' -o -iname '*licence*' -o -iname '*copyright*' -o -name 'PYTHON.json' -o -iname '*notice*' \) -print > "$WORK/runtime-license-file-list.txt"
+( cd "$PKG" && wpy app/tools/license_inventory.py licenses/runtime )
+cp "$REPO/THIRD_PARTY_NOTICES.md" "$PKG/licenses/"
+cp "$REPO/licenses/PLOTLY-MIT.txt" "$PKG/licenses/"
+cp "$REPO/LICENSE" "$PKG/"
+if [ -f "$PKG/runtime/LICENSE" ]; then cp "$PKG/runtime/LICENSE" "$PKG/licenses/runtime/PYTHON-LICENSE.txt"; fi
+if [ -f "$PKG/runtime/PC/crtlicense.txt" ]; then cp "$PKG/runtime/PC/crtlicense.txt" "$PKG/licenses/runtime/PYTHON-CRT-LICENSE.txt"; fi
+test -s "$PKG/licenses/runtime/python-dependencies.json"
+test -s "$PKG/licenses/runtime/PYTHON-DEPENDENCIES.md"
 echo "== zip"
 ZIP="$OUT/HFTA-Stack-Planner-windows-$VERSION.zip"; rm -f "$ZIP"
 ( cd "$WORK" && zip -qr "$ZIP" "HFTA-Stack-Planner" )
