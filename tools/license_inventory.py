@@ -37,7 +37,7 @@ for dist in sorted(md.distributions(), key=lambda d: (d.metadata.get("Name") or 
     rows.append(dict(name=name, version=version, license_expression=expression, license_classifiers=classifiers, notice_files=copied))
 (out / "python-dependencies.json").write_text(json.dumps(rows, indent=2), encoding="utf-8")
 with (out / "PYTHON-DEPENDENCIES.md").open("w", encoding="utf-8") as f:
-    f.write("# Installed Python distribution license inventory\\n\\nGenerated from the exact packaged Python runtime. License metadata may be incomplete; review each package's own notice and distribution terms.\\n\\n")
+    f.write("# Installed Python distribution license inventory\n\nGenerated from the exact packaged Python runtime. License metadata may be incomplete; review each package's own notice and distribution terms.\n\n")
     for r in rows:
-        f.write(f"- {r['name']} {r['version']}: {r['license_expression'] or ', '.join(r['license_classifiers']) or 'UNSPECIFIED'}; notice files: {', '.join(r['notice_files']) or 'NONE FOUND'}\\n")
+        f.write(f"- {r['name']} {r['version']}: {r['license_expression'] or ', '.join(r['license_classifiers']) or 'UNSPECIFIED'}; notice files: {', '.join(r['notice_files']) or 'NONE FOUND'}\n")
 print(f"Inventory: {len(rows)} Python distributions, {sum(len(r['notice_files']) for r in rows)} copied license files")
