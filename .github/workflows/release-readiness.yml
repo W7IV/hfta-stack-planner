@@ -23,6 +23,7 @@ jobs:
           git -C ../openhfta checkout 7d62e863f1d27372c97df3ac6ef53092fb58bd50
           make -C ../openhfta all
       - run: python tests/test_accounts.py
+      - run: python tests/test_disclaimer_presence.py
   docker-build:
     runs-on: ubuntu-24.04
     steps:
@@ -31,7 +32,7 @@ jobs:
         run: docker build --progress=plain -t hfta-stack-planner:verify .
       - name: Verify image contains notices
         run: |
-          docker run --rm --entrypoint /bin/sh hfta-stack-planner:verify -c 'test -s /app/LICENSE && test -s /app/THIRD_PARTY_NOTICES.md && test -s /app/licenses/PLOTLY-MIT.txt && test -s /opt/third-party/voacapl/COPYING && test -s /opt/openhfta/LICENSE'
+          docker run --rm --entrypoint /bin/sh hfta-stack-planner:verify -c 'test -s /app/DISCLAIMER.md && test -s /app/LICENSE && test -s /app/THIRD_PARTY_NOTICES.md && test -s /app/licenses/PLOTLY-MIT.txt && test -s /opt/third-party/voacapl/COPYING && test -s /opt/openhfta/LICENSE'
   windows-build:
     runs-on: ubuntu-24.04
     steps:
@@ -52,7 +53,7 @@ jobs:
           p, = glob.glob("dist/*.zip")
           with zipfile.ZipFile(p) as z:
               names = z.namelist()
-              required = ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/PLOTLY-MIT.txt", "voacap/COPYING", "voacap/AUTHORS", "openhfta/LICENSE", "licenses/runtime/python-dependencies.json", "licenses/runtime/PYTHON-DEPENDENCIES.md")
+              required = ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/PLOTLY-MIT.txt", "voacap/COPYING", "voacap/AUTHORS", "openhfta/LICENSE", "licenses/runtime/python-dependencies.json", "licenses/runtime/PYTHON-DEPENDENCIES.md", "DISCLAIMER.md")
               for name in required:
                   assert any(n.endswith("/" + name) for n in names), name
               print("Checked", len(names), "files in", p)

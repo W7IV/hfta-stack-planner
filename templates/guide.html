@@ -33,6 +33,24 @@
   <p>It is a planning tool for Yagis and stacks on towers, 80 m to 10 m. It is not an antenna modelling program: antennas are the generic HFTA types
   (dipole, 2 to 8 elements), and HFTA knows nothing about mutual coupling, feedlines or the ground to the side of the path.</p>
 
+  <h2 id="safety-disclaimer">Important safety and performance disclaimer</h2>
+  <div class="warn">
+    <p><b>Not engineering advice, a tower-safety assessment, or a performance guarantee.</b> This planner is
+    free experimental software for comparing possible HF antenna arrangements. A high figure of merit,
+    positive guy clearance, or absence of warnings does not prove that a design is safe or will work as predicted.</p>
+    <p><b>Do not use it to size, approve, erect, or modify towers, guy wires, foundations, anchors or antennas.</b>
+    The optional guy/ice model is simplified geometry; it does not analyze structural loads, wind, dynamic movement,
+    foundation or anchor capacity, material fatigue, or all collision hazards. Independently verify plans and
+    consult appropriate qualified professionals and manufacturers for construction and safety decisions.</p>
+    <p>HFTA uses generic antennas and simplified terrain and propagation statistics. It does not model all
+    coupling, losses, installation details, weather, or real-time propagation, and results have only limited
+    reference-case validation. User-supplied data and third-party services can be inaccurate or unavailable.
+    No accuracy, performance, availability, or security is guaranteed.</p>
+    <p><b>Provided AS IS, without warranty, under the MIT license.</b> Full terms and limitations:
+    <a href="https://github.com/W7IV/hfta-stack-planner/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Legal, Performance and Engineering Disclaimers</a>
+    (also included as <code>DISCLAIMER.md</code> with the distributed source).</p>
+  </div>
+
   <h2>What you need</h2>
   <table>
     <tr><th>Item</th><th>Where it comes from</th></tr>
@@ -100,7 +118,7 @@
     <li>No mutual coupling: a stack closer than about 0.3 wavelength is rated too well. The spacing warnings mark this.</li>
     <li>Perfect phasing and power split, no feedline loss, no wind.</li>
     <li>One terrain slice per heading. A hill 30° off the bearing does not exist for it.</li>
-    <li>The guy check is a geometry check with a documented sag model. Your tower engineer's calculation takes precedence for construction.</li>
+    <li>The guy check is a simplified geometry screen, <b>not</b> a safe-clearance or structural determination. Independent qualified engineering is required for design decisions.</li>
     <li>Terrain data measures tree tops. Elevation-angle tables are statistics over a solar cycle, not tonight's opening.</li>
     <li>The soil setting hardly matters. HFTA models horizontal antennas, and the ground reflection at low angles is almost the same for every soil: under 0.2 dB of FOM on 80 m, under 0.1 dB from 40 m up, water included. Leave it at Average. (Ground constants matter a great deal for verticals and for ground loss in NEC models; K6STI's HF ground constants page is the reference for that work.)</li>
   </ul>
