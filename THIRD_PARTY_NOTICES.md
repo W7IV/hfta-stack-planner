@@ -20,7 +20,7 @@ License: MIT. Copyright (c) 2016-2024 Plotly Technologies Inc., per upstream MIT
 ## Natural Earth map data
 Source: https://www.naturalearthdata.com/
 License: Public domain (per Natural Earth terms of use). `static/land110.js` contains geographic map content; confirm its exact data provenance during final release review.
-Attribution is optional: "Made with Natural Earth."
+The checked-in map file was converted from world-atlas 2.0.2 and contains a permissive copyright notice for Michael Bostock (2013-2019); preserve the notice embedded at the top of `static/land110.js` in every distribution. Attribution to Natural Earth is optional: "Made with Natural Earth."
 
 ## ARRL HFTA and arrival-angle files
 Original HFTA by R. Dean Straw, N6BV, published by ARRL. Not included in this project. ARRL .PRN elevation-angle files must not be bundled or republished without permission. Private project archives can include user-supplied files; public/shareable exports must omit copyrighted files. This project is not endorsed by ARRL.
