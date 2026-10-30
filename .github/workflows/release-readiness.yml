@@ -1,0 +1,57 @@
+name: release-readiness
+on:
+  pull_request:
+    paths:
+      - "**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - run: python tests/test_accounts.py
+  docker-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build full Docker image (includes original HFTA comparison test)
+        run: docker build --progress=plain -t hfta-stack-planner:verify .
+      - name: Verify image contains notices
+        run: |
+          docker run --rm --entrypoint /bin/sh hfta-stack-planner:verify -c 'test -s /app/LICENSE && test -s /app/THIRD_PARTY_NOTICES.md && test -s /app/licenses/PLOTLY-MIT.txt && test -s /opt/third-party/voacapl/COPYING && test -s /opt/openhfta/LICENSE'
+  windows-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install build toolchain
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gfortran-mingw-w64-x86-64 gcc-mingw-w64-x86-64 automake autoconf wine wine64 zip python3-pip
+      - name: Build and verify distributable under Wine
+        shell: bash
+        run: tools/build_windows.sh dist
+      - name: Audit distributable ZIP contents
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          p, = glob.glob("dist/*.zip")
+          with zipfile.ZipFile(p) as z:
+              names = z.namelist()
+              required = ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/PLOTLY-MIT.txt", "voacap/COPYING", "voacap/AUTHORS", "openhfta/LICENSE", "licenses/runtime/python-dependencies.json", "licenses/runtime/PYTHON-DEPENDENCIES.md")
+              for name in required:
+                  assert any(n.endswith("/" + name) for n in names), name
+              print("Checked", len(names), "files in", p)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-candidate
+          path: dist/*.zip
+          retention-days: 7
