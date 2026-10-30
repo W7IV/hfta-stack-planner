@@ -11,7 +11,7 @@ Assumptions and range (checked in tests/test_wrapper.py against an exact catenar
   ice, thin wire, sag 11 ft) and within 0.2 ft for ordinary cases. These comparisons do not establish a safe
   clearance or an adequate construction margin under real-world loads, deflection, or tolerances.
 - The tension under ice is taken as the initial tension. Ice load raises the tension and so reduces the sag; using
-  the initial value gives a larger sag, i.e. the safe side.
+  the initial value may yield more sag under these assumptions but is not a certified safety bound.
 - Ice is a uniform radial layer on the wire; wind, insulators, guy weight on the tower and element flexing under wind
   are not modelled. A tower engineer's calculation takes precedence for construction.
 - Geometry: the guy attach height H and anchor radius R must be positive; an antenna whose turning radius reaches
