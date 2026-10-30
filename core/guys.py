@@ -8,7 +8,8 @@ circle of its turning radius r.
 Assumptions and range (checked in tests/test_wrapper.py against an exact catenary):
 - Sag is the parabola of an inclined cable with weight per foot (wire + radial ice) and constant tension equal to
   the entered initial tension. Within 0.7 ft of the exact catenary for the worst case tried (steep guy, 1.25 in
-  ice, thin wire, sag 11 ft) and within 0.2 ft for ordinary cases; the 2 ft margin covers this.
+  ice, thin wire, sag 11 ft) and within 0.2 ft for ordinary cases. These comparisons do not establish a safe
+  clearance or an adequate construction margin under real-world loads, deflection, or tolerances.
 - The tension under ice is taken as the initial tension. Ice load raises the tension and so reduces the sag; using
   the initial value gives a larger sag, i.e. the safe side.
 - Ice is a uniform radial layer on the wire; wind, insulators, guy weight on the tower and element flexing under wind
