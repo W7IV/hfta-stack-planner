@@ -249,3 +249,7 @@ do not contain; that is the case for a 10 km profile. Below that, the standard 4
   terrain types, the FOM of horizontal antennas moves by under 0.2 dB on 80 m and under 0.1 dB from 40 m up.
   The ground reflection at low angles is nearly total for horizontal polarisation whatever the soil. Use
   K6STI's constants for verticals and NEC ground-loss work; for this planner, "Average soil" is enough.
+
+## License and third-party rights
+
+Original HFTA Stack Planner code is provided under the [MIT License](LICENSE), subject to the rights of its contributors. Bundled and downloaded components retain their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and `licenses/`. In particular, bundled Plotly.js is MIT-licensed, OpenHFTA is 0BSD, and the VOACAP port includes CC0 contributions. ARRL elevation-angle files are not licensed for redistribution by this project.
