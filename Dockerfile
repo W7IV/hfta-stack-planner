@@ -14,6 +14,7 @@ ARG VOACAPL_REPO=https://github.com/jawatson/voacapl.git
 ARG VOACAPL_COMMIT=c12a98b
 RUN git clone "$VOACAPL_REPO" /tmp/voacapl && cd /tmp/voacapl && git checkout "$VOACAPL_COMMIT" \
     && autoreconf -fi && ./configure --prefix=/opt/voacap && make -j4 && make install \
+    && mkdir -p /opt/third-party/voacapl && cp COPYING AUTHORS /opt/third-party/voacapl/ \
     && cd / && HOME=/opt /opt/voacap/bin/makeitshfbc && test -d /opt/itshfbc/run && rm -rf /tmp/voacapl
 
 # Calculation core, pinned to the commit validated against the original HFTA (tests/test_hfta_match.py)
