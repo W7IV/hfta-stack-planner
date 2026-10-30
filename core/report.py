@@ -50,6 +50,16 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     o.append(f"<main><h1>{e(proj['name'])}</h1><p class=mute>HFTA Stack Planner report, {datetime.date.today()}. "
              f"Results computed {e(res['stamp'])} from {res['n_runs']} OpenHFTA runs. Engine: {e(eng.get('name', 'unknown'))} "
              f"commit {e(str(eng.get('commit', 'unknown'))[:12])}, library {e(str(eng.get('library_sha256', 'unknown'))[:12])}.</p><div class=note>{e(lay_txt)}</div>")
+    o.append("<h2>Important safety and performance limitations</h2>"
+             "<p><strong>Comparative RF planning only: not a tower or antenna structural design, engineered clearance "
+             "assessment, safety certification, or guarantee of radio performance.</strong> HFTA results depend on "
+             "simplified models and user-selected input data; coupling, loss, propagation and terrain uncertainty "
+             "can change actual outcomes. Guy-wire, ice and spacing checks are simplified guidance only; they "
+             "cannot determine tower, guy, foundation or anchor strength, wind/ice safety, or real-world "
+             "clearance. Do not build, modify, climb or operate an installation based on this study alone. "
+             "Verify inputs independently and obtain qualified engineering review for construction and safety "
+             "decisions. Software supplied AS IS, without warranty, under the MIT license. See the full "
+             "DISCLAIMER.md in the HFTA Stack Planner distribution.</p>")
     o.append("<h2>Inputs</h2><h3>Sites</h3><table><tr><th>Site</th><th>Position</th><th>Terrain source</th><th>Profiles</th><th>Notes</th></tr>")
     for s in proj["sites"]:
         n = len(TR.profile_index(P.site_dir(slug, s["id"])))
