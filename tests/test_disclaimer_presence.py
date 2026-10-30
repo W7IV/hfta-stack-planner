@@ -4,7 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 expected = {
-    "DISCLAIMER.md": ["Not a safety", "structural", "OpenHFTA", "MIT License", "AS IS"],
+    "DISCLAIMER.md": ["not a safety analysis", "structural", "OpenHFTA", "MIT License", "AS IS"],
     "README.md": ["Safety, engineering and accuracy notice", "DISCLAIMER.md"],
     "templates/guide.html": ['id="safety-disclaimer"', "qualified", "performance guarantee"],
     "templates/v2.html": ["/guide#safety-disclaimer"],
