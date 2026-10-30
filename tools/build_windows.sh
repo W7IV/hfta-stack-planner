@@ -76,6 +76,7 @@ find "$PKG/runtime" -maxdepth 3 -type f \( -iname '*license*' -o -iname '*licenc
 cp "$REPO/THIRD_PARTY_NOTICES.md" "$PKG/licenses/"
 cp "$REPO/licenses/PLOTLY-MIT.txt" "$PKG/licenses/"
 cp "$REPO/LICENSE" "$PKG/"
+cp "$REPO/DISCLAIMER.md" "$PKG/"
 if [ -f "$PKG/runtime/LICENSE" ]; then cp "$PKG/runtime/LICENSE" "$PKG/licenses/runtime/PYTHON-LICENSE.txt"; fi
 if [ -f "$PKG/runtime/PC/crtlicense.txt" ]; then cp "$PKG/runtime/PC/crtlicense.txt" "$PKG/licenses/runtime/PYTHON-CRT-LICENSE.txt"; fi
 test -s "$PKG/licenses/runtime/python-dependencies.json"
