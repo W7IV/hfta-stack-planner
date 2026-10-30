@@ -15,6 +15,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -r requirements.txt
+      - name: Install OpenHFTA core required by app imports
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gfortran make
+          git clone https://github.com/RioDXGroup/openhfta.git ../openhfta
+          git -C ../openhfta checkout 7d62e863f1d27372c97df3ac6ef53092fb58bd50
+          make -C ../openhfta all
       - run: python tests/test_accounts.py
   docker-build:
     runs-on: ubuntu-24.04
