@@ -169,6 +169,8 @@ function rSites() {
       const lat = Number($("[data-k=lat]", c).value), lon = Number($("[data-k=lon]", c).value);
       if (!$("[data-k=lat]", c).value || !$("[data-k=lon]", c).value) { toast("Enter latitude and longitude for this site first.", 4000); return; }
       s.lat = lat; s.lon = lon;
+      // Remove the previous warning only when the user explicitly retries.
+      c.querySelector("[data-terrain-fetch-error]")?.remove();
       autoBtn.disabled = true; autoBtn.textContent = "Fetching…";
       try {
         const r = await api("POST", `/api/v2/p/${SLUG}/sites/${s.id}/auto`,
@@ -176,7 +178,22 @@ function rSites() {
         s.terrain = { source: r.source || "USGS 3DEP (online)", length_m: r.length_m, spacing_m: r.spacing_m, far_horizon: r.far_horizon || null };
         toast(`${r.written} profiles written from ${r.source}. Ground ${r.ground_elevation_m} m.${r.resolution_m ? ` Data spacing ${r.resolution_m} m.` : ""}${r.short_azimuths?.length ? ` ${r.short_azimuths.length} cut short at the data edge.` : ""}`, 7000);
         await save(true); rSites();
-      } catch (e) { toast(e.message, 8000); autoBtn.disabled = false; autoBtn.textContent = "Fetch terrain online"; }
+      } catch (e) {
+        const retryable = e.body?.retryable === true || e.status === 503 || e.status === 429;
+        const notice = document.createElement("div");
+        notice.className = "warnbox"; notice.dataset.terrainFetchError = ""; notice.setAttribute("role", "alert");
+        const msg = document.createElement("span");
+        msg.textContent = retryable
+          ? `Terrain service temporarily unavailable. ${e.message} Existing profiles are unchanged. Please try again shortly.`
+          : `Terrain fetch failed: ${e.message} Check the position and selected source before trying again.`;
+        const retry = document.createElement("button");
+        retry.className = "ghost small"; retry.type = "button";
+        retry.textContent = retryable ? "Retry terrain fetch" : "Try fetch again";
+        retry.onclick = () => autoBtn.click();
+        notice.append(msg, retry);
+        autoBtn.closest(".group").appendChild(notice);
+        autoBtn.disabled = false; autoBtn.textContent = "Fetch terrain online";
+      }
     };
     box.appendChild(c);
   });
