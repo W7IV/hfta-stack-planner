@@ -1111,7 +1111,7 @@ async function showElevationPatterns(cells, rows, siteName, towerName) {
   if (!good.length) { Plotly.purge(plot); note.textContent = "No valid elevation patterns were returned; inspect a result cell for details."; return; }
   const traces = good.map((d, i) => ({
     type: "scatter", mode: "lines", x: d.angles, y: d.gain,
-    name: `${siteName(d.c.site)} / ${towerName(d.c.tower)} · FOM ${fmt(d.c.hfta, 1)} dB`,
+    name: `${siteName(d.c.site)} / ${towerName(d.c.tower)} · FOM ${fmt(d.pick.fom, 1)} dB at ${d.pick.az}°`,
     line: { color: PAL[i % PAL.length], width: 2 },
     hovertemplate: "%{x:.2f}° · %{y:.1f} dBi<extra>%{fullData.name}</extra>"
   }));
