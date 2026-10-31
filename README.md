@@ -95,6 +95,11 @@ may still be blocked by Smart App Control or SmartScreen; use the local Docker i
 and report the exact Windows warning rather than disabling security protections. The package is built by
 `tools/build_windows.sh` and checked against the original-HFTA output before it is zipped.
 
+**Upgrading on Windows:** close every previous HFTA console before launching the newer executable. Only one instance
+can occupy `127.0.0.1:5055`; the launcher refuses to run if that port is already in use, rather than opening an
+older copy in the browser. Each extracted release uses its own `data` folder; copy the **data** folder from your
+old release into the new extracted folder before starting if you want to retain your towers, targets and terrain.
+
 **macOS, Linux, Windows with Docker:**
 ```
 docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/w7iv/hfta-stack-planner:latest

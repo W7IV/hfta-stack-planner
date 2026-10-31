@@ -25,6 +25,24 @@ PID=$!
 for attempt in $(seq 1 120); do
   if curl --noproxy '*' --fail --silent --max-time 1 http://127.0.0.1:5055/healthz >/dev/null; then
     echo "PASS: native EXE launched bundled Python, Flask served /healthz on localhost:5055"
+    # A second release must NOT open the already-running server as its own app.
+    # HFTA_NO_BROWSER=1 prevents a console prompt in this automated negative test.
+    DUPLICATE_LOG="$WORK/launcher-duplicate.log"
+    if HFTA_NO_BROWSER=1 WINEDEBUG=-all script -qec "wine \"$PKG/Start HFTA Stack Planner.exe\"" /dev/null >"$DUPLICATE_LOG" 2>&1; then
+      echo "FAIL: second launcher unexpectedly succeeded against occupied port 5055"
+      cat "$DUPLICATE_LOG"
+      exit 1
+    fi
+    if ! grep -q "Port 5055 is already in use" "$DUPLICATE_LOG"; then
+      echo "FAIL: second launcher did not explain the occupied port"
+      cat "$DUPLICATE_LOG"
+      exit 1
+    fi
+    if ! curl --noproxy '*' --fail --silent --max-time 1 http://127.0.0.1:5055/healthz >/dev/null; then
+      echo "FAIL: second launcher interfered with the first instance"
+      exit 1
+    fi
+    echo "PASS: concurrent Windows launcher refuses occupied port without opening an older instance"
     exit 0
   fi
   if ! kill -0 "$PID" 2>/dev/null; then
