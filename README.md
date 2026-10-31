@@ -49,7 +49,7 @@ models. Two checks are added as notes only; they never change a number:
 | Guy and ice check | Turning antennas against guy wires, with guy sag and element droop under radial ice (assumptions and range: core/guys.py). |
 
 ## Workflow (five steps)
-1. **Sites**: one or more tower positions on the property. Terrain fetched online for any place in the world (USGS
+1. **Sites**: one or more tower positions on the property. Choose coordinates manually or use **Pick location on map** (interactive OpenStreetMap tiles, online only). Changing coordinates from the map clears that site's old terrain profiles and previous comparison results, so fetch terrain again. Terrain fetched online for any place in the world (USGS
    3DEP in the US, AWS Terrain Tiles elsewhere), from MicroDEM .PRO files, K6TU one-degree terrain sets
    (https://www.k6tu.net), or generated from a DEM file (GeoTIFF or ESRI ASCII grid). Compare the sites' profiles
    and ground slope side by side.
@@ -151,7 +151,7 @@ of this pinned example, substitute `ghcr.io/w7iv/hfta-stack-planner:latest`.
 3. `pip install -r requirements.txt`
 4. `python app.py`, then open http://localhost:5000
    (`PORT` and `HOST` environment variables change the address; the default listens on this computer only).
-   Nothing leaves this computer, except the "Fetch terrain online" request to USGS (position only).
+   Terrain fetching contacts USGS or Terrain Tiles. Opening **Pick location on map** also requests map tiles directly from OpenStreetMap and reveals the viewed map area to that service; it does not request browser geolocation.
 
 Projects are stored in `projects/<name>/` (project.json, terrain, .PRN files, results).
 The previous single-page optimiser (multi-antenna height search, tribander trade-off matrix) is still at `/classic`.
@@ -191,9 +191,10 @@ is no login and one store.
 - Data is kept until the user deletes it (Report → Delete project; Sites → Remove profiles) or the administrator
   removes the user's folder. There is no automatic retention or deletion. Railway volume backups, if enabled, keep
   copies for as long as Railway's backup settings say.
-- Two requests leave the server, both only on the user's click: "Fetch terrain online" sends the site position to
+- Terrain requests leave the server only on the user's click: "Fetch terrain online" sends the site position to
   USGS (3DEP) or to Amazon's Terrain Tiles service, which see that position and the server's address. The VOACAP
   calculation and everything else run on the server.
+- Opening **Pick location on map** sends visible map-tile requests directly from the user's browser to OpenStreetMap, revealing the viewed area and the requesting IP address. Map tiles require internet; no location services or tracking scripts are used. Users should avoid opening the map for confidential station positions when sharing the map area with an outside provider is unacceptable.
 - The web server's access log (kept by Railway) records addresses, paths and times, not the contents of requests.
 - The login cookie holds only the user name, signed; it expires after 30 days or at logout.
 

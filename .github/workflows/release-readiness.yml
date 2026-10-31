@@ -25,6 +25,9 @@ jobs:
       - run: python tests/test_accounts.py
       - run: python tests/test_single_tower.py
       - run: node --check static/v2.js
+      - run: node --check static/site-map.js
+      - run: node tests/test_site_map.cjs
+      - run: python tests/test_site_map_position.py
       - run: node tests/test_designer_load_tower.cjs
       - run: node tests/test_pattern_plot.cjs
       - run: python tests/test_report_patterns.py

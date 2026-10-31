@@ -22,7 +22,7 @@ Source: https://www.naturalearthdata.com/
 License: Public domain (per Natural Earth terms of use). `static/land110.js` contains geographic map content; confirm its exact data provenance during final release review.
 The checked-in map file was converted from world-atlas 2.0.2 and contains a permissive copyright notice for Michael Bostock (2013-2019); preserve the notice embedded at the top of `static/land110.js` in every distribution. Attribution to Natural Earth is optional: "Made with Natural Earth."
 
-## ARRL HFTA and arrival-angle files
+## OpenStreetMap map tiles (interactive location picker)\nSource: https://www.openstreetmap.org/\nThe optional map picker displays raster tiles requested directly from OpenStreetMap when the user opens the map. The tiles are not bundled, pre-fetched, or included in project exports; user-visible attribution is provided on the map. Map data © OpenStreetMap contributors, licensed under ODbL, subject to the OpenStreetMap Foundation tile usage policy (https://operations.osmfoundation.org/policies/tiles/). Map viewing reveals the displayed area to OpenStreetMap. The picker code itself is original MIT-licensed HFTA Stack Planner code, not copied from another site.\n\n## ARRL HFTA and arrival-angle files
 Original HFTA by R. Dean Straw, N6BV, published by ARRL. Not included in this project. ARRL .PRN elevation-angle files must not be bundled or republished without permission. Private project archives can include user-supplied files; public/shareable exports must omit copyrighted files. This project is not endorsed by ARRL.
 
 ## Runtime libraries
