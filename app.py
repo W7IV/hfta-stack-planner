@@ -144,7 +144,7 @@ def _headers(resp):
     """Browser rules: scripts and styles only from this server (Plotly is served from /static), no framing by other
     sites, no content-type guessing. Inline styles are allowed (the pages set widths and colours inline)."""
     resp.headers.setdefault("Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://tile.openstreetmap.org; "
         "font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; "
         "form-action 'self'; frame-ancestors 'none'")
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
