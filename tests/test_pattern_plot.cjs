@@ -17,6 +17,7 @@ const response = { cell: { best: 0, options: [{ az: [{ az: 48, run: "r0", fom: 1
   angles, patterns: { r0: gain, r1: gain.map(v => v - 4) }, aoa: { 5: 0.15, 12: 0.4 } };
 const context = vm.createContext({
   CMP: { target: "EU", patternBand: null, patternOffset: 0, plotSeq: 0 },
+  SLUG: "test",
   META: { bands: ["40", "20"] }, PAL: ["#123456"],
   P: () => ({ targets: [{ id: "EU", name: "Europe", heading: 48, offsets: [0, 8] }] }),
   $: key => elements[key], document: { contains: () => true },
