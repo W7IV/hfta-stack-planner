@@ -33,6 +33,6 @@ for target in ("Start HFTA Stack Planner.exe", "OpenYTWCore.dll", "voacapl.exe")
 for ext in ("'.exe'", "'.dll'", "'.pyd'"):
     assert ext in ps, f"PE image type missing: {ext}"
 assert "1000" in ps, "Require explicit signing budget safeguard"
-assert "repo:W7IV/hfta-stack-planner:environment:artifact-signing" in doc
+assert "repo:W7IV@92952845/hfta-stack-planner@1412532950:environment:artifact-signing" in doc
 assert "Certificate Profile Signer" in doc
 print("PASS: signing workflow gates public releases on Azure OIDC and verified timestamped PE images")
