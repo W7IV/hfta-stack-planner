@@ -172,7 +172,7 @@ is the same file. The private versions are for your own records only.
 | `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
 
 ## VOACAP angle tables (any origin in the world)
-Targets → **Generate with VOACAP…** lets you check one, several or **all seven standard regions** in a single run. It writes a separate, clearly named `.PRN` file for each selected region (e.g., `My-station-EU-VOACAP.PRN`); custom receive points remain available as a separate mode. A station
+Targets → **Generate with VOACAP…** lets you check one, several or **all seven standard regions** in a single run. It writes a separate, clearly named `.PRN` file for each selected region (e.g., `My-station-EU-VOACAP.PRN`) **and creates the corresponding target automatically**, using the region's great-circle bearing and available bands. Existing targets are preserved, not duplicated. The Targets page also offers **Add missing targets from VOACAP files** for files generated before this update; custom receive points remain available as a separate mode. A station
 outside the US (or in Alaska) can use steps 2–5 without ARRL files. `voacapl` (public-domain VOACAP for Linux, port by
 M0DNS, github.com/jawatson/voacapl) is built into the Docker image; for a local run install it and run `makeitshfbc`
 (`VOACAPL` and `ITSHFBC` environment variables point to the binary and the data folder if they are not in the default
