@@ -23,6 +23,8 @@ jobs:
           git -C ../openhfta checkout 7d62e863f1d27372c97df3ac6ef53092fb58bd50
           make -C ../openhfta all
       - run: python tests/test_accounts.py
+      - run: python tests/test_single_tower.py
+      - run: node --check static/v2.js
       - run: python tests/test_terrain_fetch_errors.py
       - run: python tests/test_disclaimer_presence.py
   docker-build:
