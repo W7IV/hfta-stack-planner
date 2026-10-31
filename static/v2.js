@@ -105,8 +105,8 @@ function siteMapDialog(site) {
     <p class="small mute">Click to place the tower, drag to pan, and use +/− or the mouse wheel to zoom. Map tiles require internet and reveal the viewed area to OpenStreetMap; coordinates are saved to this project only when you select Use this location.</p>
     <div id="siteMapCanvas" role="application" aria-label="Map for selecting site coordinates"></div>
     <div class="row" style="margin-top:10px">
-      <label>Latitude<input id="sitePickLat" type="number" min="-90" max="90" step="0.000001" value="${existing ? Number(site.lat).toFixed(6) : ""}" style="width:150px"></label>
-      <label>Longitude<input id="sitePickLon" type="number" min="-180" max="180" step="0.000001" value="${existing ? Number(site.lon).toFixed(6) : ""}" style="width:150px"></label>
+      <label>Latitude<input id="sitePickLat" type="number" min="-90" max="90" step="0.000001" value="${existing ? site.lat : ""}" style="width:150px"></label>
+      <label>Longitude<input id="sitePickLon" type="number" min="-180" max="180" step="0.000001" value="${existing ? site.lon : ""}" style="width:150px"></label>
       <button type="button" class="ghost" id="sitePickGoto">Show entered position</button>
     </div>
     <p class="small mute site-map-coordinates" id="sitePickStatus" role="status">${existing ? "Current site position selected." : "No position selected yet."}</p>
