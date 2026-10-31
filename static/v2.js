@@ -1136,7 +1136,7 @@ async function showElevationPatterns(cells, rows, siteName, towerName) {
   });
   await Plotly.react(plot, traces, layout, { displaylogo: false, responsive: true });
   if (seq !== CMP.plotSeq) return;
-  note.textContent = `Each curve is the actual 0.25°-resolution OpenHFTA gain pattern for the selected heading (${desiredAz}°). The FOM in each legend is averaged over the target's selected headings, so it is not the gain at the pattern's highest peak. The arrival-angle bars use the right-hand axis. Select another band or heading to examine nulls and lobes.`;
+  note.textContent = `Each curve is the actual 0.25°-resolution OpenHFTA gain pattern for the selected heading (${desiredAz}°). The FOM in each legend is for that specific elevation curve, while the table above averages the scores across the target's selected headings. Neither FOM is the highest point on the curve. The arrival-angle bars use the right-hand axis. Select another band or heading to examine nulls and lobes.`;
 }
 
 const WORLD = "__world__";
