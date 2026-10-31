@@ -337,7 +337,7 @@ const REGION_POINT = {
   EU: { lat: 50.0, lon: 10.0, where: "central Germany" }, JA: { lat: 35.7, lon: 139.7, where: "Tokyo" },
   OC: { lat: -33.9, lon: 151.2, where: "Sydney" }, SA: { lat: -54.8, lon: -68.3, where: "Ushuaia (long axis of South America)" },
   US: { lat: 39.0, lon: -98.0, where: "central USA" } };
-function regionCode(file) { const m = /-([A-Z]{2})\.PRN$/i.exec(file || ""); return m && REGION_POINT[m[1].toUpperCase()] ? m[1].toUpperCase() : null; }
+function regionCode(file) { const m = /-([A-Z]{2})(?:-VOACAP)?\.PRN$/i.exec(file || ""); return m && REGION_POINT[m[1].toUpperCase()] ? m[1].toUpperCase() : null; }
 function bearingTo(la1, lo1, la2, lo2) {
   const r = Math.PI / 180, p1 = la1 * r, p2 = la2 * r, dl = (lo2 - lo1) * r;
   const b = Math.atan2(Math.sin(dl) * Math.cos(p2), Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl)) / r;
@@ -353,6 +353,69 @@ function regionOf(file) { const m = /-([A-Z]{2})(?:-VOACAP)?\.PRN$/i.exec(file |
 function offsetsFrom(spread, step) {
   if (!spread || !step) return [0]; const o = []; for (let x = -spread; x <= spread + 1e-9; x += step) o.push(Math.round(x * 100) / 100); return o;
 }
+/* Add region targets for an existing set of VOACAP files or immediately after batch generation.
+   Never overwrite configured targets; matched region/file means do not duplicate it. */
+async function addMissingVOACAPTargets(files, origin = null) {
+  const p = P(), previousIds = p.targets.map(t => t.id);
+  const known = files.map(x => typeof x === "string" ? { file: x } : x);
+  let added = 0, already = 0;
+  const loc = origin && Number.isFinite(Number(origin.lat)) && Number.isFinite(Number(origin.lon))
+    ? origin : homeSite();
+  for (const record of known) {
+    const filename = record.file || "";
+    const code = record.region || regionCode(filename);
+    if (!code || !REGION_POINT[code] || !/-VOACAP\.PRN$/i.test(filename)) continue;
+    const label = REGION[code];
+    const exists = p.targets.some(t =>
+      t.prn?.toLowerCase() === filename.toLowerCase() ||
+      regionCode(t.prn) === code ||
+      String(t.name || "").toLowerCase() === label.toLowerCase()
+    );
+    if (exists) { already++; continue; }
+    let available = record.bands;
+    if (!Array.isArray(available)) {
+      // Old files from previous sessions have no batch metadata; read the table's band coverage.
+      try {
+        const detail = await api("GET", `/api/v2/p/${SLUG}/prn/${encodeURIComponent(filename)}`);
+        available = Object.entries(detail.coverage || {})
+          .filter(([, fraction]) => fraction != null && fraction >= 0.5)
+          .map(([band]) => band.endsWith("m") ? band.slice(0, -1) : band);
+      } catch (_) { available = ["40", "20", "15", "10"]; }
+    }
+    const preferred = ["40", "20", "15", "10"];
+    const recommended = preferred.filter(b => available.includes(b));
+    const bands = recommended.length ? recommended : (available.includes("80") ? ["80"] : preferred);
+    const spread = REGION_POINT[code].spread || 8;
+    const offsets = offsetsFrom(spread, 8);
+    const point = REGION_POINT[code];
+    const heading = loc ? bearingTo(Number(loc.lat), Number(loc.lon), point.lat, point.lon) : 0;
+    p.targets.push({
+      id: uid("t"), name: label, prn: filename, heading,
+      offsets, weights: offsets.map(() => 1), bands
+    });
+    added++;
+  }
+  if (added) {
+    // A tower explicitly serving every previous target should continue serving every target.
+    // An intentionally limited tower is left unchanged.
+    const newIds = p.targets.slice(previousIds.length).map(t => t.id);
+    for (const tower of p.towers) {
+      const serves = tower.targets;
+      if (Array.isArray(serves) && previousIds.length &&
+          previousIds.every(id => serves.includes(id)) &&
+          serves.every(id => previousIds.includes(id))) {
+        tower.targets = [...serves, ...newIds];
+      }
+    }
+    await save(true);
+  }
+  return { added, already };
+}
+function showVOACAPTargetNotice(text) {
+  const node = $("#tgAutoNotice");
+  if (node) { node.textContent = text; node.hidden = false; }
+}
+
 /* Dialog: make a .PRN table with VOACAP for a site of this project (or typed coordinates) and a region. */
 function prnGenDialog() {
   const p = P(), sites = p.sites.filter(s => s.lat != null && s.lon != null), home = homeSite() || sites[0];
@@ -426,14 +489,14 @@ function prnGenDialog() {
     try {
       const { job } = await api("POST", `/api/v2/p/${SLUG}/prn/generate`, body); const r = await poll(job, $("#genProg"));
       if (!r) return;
-      S = await api("GET", `/api/v2/p/${SLUG}`); rTargets();
+      S = await api("GET", `/api/v2/p/${SLUG}`);
       if (r.files) {
-        const msg = `Generated ${r.files.length} VOACAP elevation-angle tables: ${r.files.map(x => x.file).join(", ")}. Choose each file in its target.`;
-        const info = document.createElement("div"); info.className = "note";
-        info.setAttribute("role", "status"); info.textContent = msg;
-        $("#genProg").insertAdjacentElement("beforebegin", info);
-        toast(`Generated ${r.files.length} elevation-angle tables.`, 8000);
+        const summary = await addMissingVOACAPTargets(r.files, { lat: body.lat, lon: body.lon });
+        rTargets();
+        showVOACAPTargetNotice(`Generated ${r.files.length} VOACAP tables and created ${summary.added} matching targets (${summary.already} already configured). You can now evaluate the tower without adding targets manually.`);
+        toast(`Generated ${r.files.length} tables; ${summary.added} targets added.`, 8000);
       } else {
+        rTargets();
         toast(`${r.file} made (${r.describe})${r.empty_bands.length ? `. No openings found on ${r.empty_bands.join("/")} m` : ""}. Choose it in a target\'s file list.`, 8000);
       }
     } catch (err) { toast(err.message, 6000); }
@@ -458,12 +521,26 @@ function rTargets() {
       <div><div id="prnPlot" class="plot sm"></div></div></div></div>
   <div class="card"><h2>Targets</h2><div class="tbl"><table id="tgTbl"></table></div>
     <div class="row" style="margin-top:10px"><button id="addTg">Add target</button>
+      <button class="ghost" id="tgVoacapFill" title="Create missing regional targets from VOACAP tables already generated in this project">Add missing targets from VOACAP files</button>
       <button class="ghost" id="tgBrg" title="Set every target's bearing from the site position to the reference point of its ARRL region">Bearings from site position</button></div>
     <p class="small mute" style="margin:6px 0 0">${homeSite() ? `Bearings are computed from <b>${esc(homeSite().name)}</b> (${homeSite().lat}, ${homeSite().lon}) to a reference point in each region (shown under the bearing).
       Choosing a .PRN file sets the bearing; you can still type your own.` : "Enter a latitude and longitude on the Sites page and the bearings can be computed for you."}</p>
+    <div class="note" role="status" id="tgAutoNotice" hidden></div>
     <p class="small mute">Headings: the bearing ± spread in steps (e.g. ±8° in 8° steps gives three headings). Weights are equal unless you type them, e.g. "1, 2, 1".
     Weights from contest logs are not part of this release.</p></div>
   <div class="card"><h2>Map of targets <span class="chip">great-circle map centred on your site</span></h2><div id="azMap"></div></div>`;
+  $("#tgVoacapFill").onclick = async () => {
+    try {
+      await flushSave();
+      S = await api("GET", `/api/v2/p/${SLUG}`);
+      const candidates = S.prns.filter(file => regionCode(file) && /-VOACAP\.PRN$/i.test(file));
+      const summary = await addMissingVOACAPTargets(candidates);
+      rTargets();
+      showVOACAPTargetNotice(candidates.length
+        ? `Found ${candidates.length} VOACAP regional files; created ${summary.added} missing targets, ${summary.already} already existed.`
+        : "No standard VOACAP regional files found. Generate tables first.");
+    } catch (error) { showVOACAPTargetNotice("Could not add targets: " + error.message); }
+  };
   $("#prnBtn").onclick = () => $("#prnIn").click();
   api("GET", "/api/v2/library").then(L => {
     const el = $("#prnLibInfo"); if (!el) return;
