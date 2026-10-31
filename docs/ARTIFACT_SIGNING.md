@@ -60,16 +60,32 @@ Certificates & secrets → Federated credentials → Add credential**:
 | --- | --- |
 | Federated credential scenario | GitHub Actions deploying Azure resources |
 | Organization | `W7IV` |
+| Organization ID | `92952845` (the immutable GitHub user/owner ID) |
 | Repository | `hfta-stack-planner` |
+| Repository ID | `1412532950` (the immutable GitHub repository ID) |
 | Entity type | **Environment** |
 | GitHub environment name | `artifact-signing` |
 | Credential name | `hfta-github-artifact-signing` |
 
-The generated subject must be **exactly**
-`repo:W7IV/hfta-stack-planner:environment:artifact-signing`.
+**Updated Microsoft portal (October 2026):** New federated credential forms require
+immutable numeric organization/owner and repository IDs. Both numbers above were
+checked against the actual GitHub repository and PR metadata, not guessed.
+The generated subject should be **exactly**:
+
+```text
+repo:W7IV@92952845/hfta-stack-planner@1412532950:environment:artifact-signing
+```
+
 The issuer should be `https://token.actions.githubusercontent.com` and
 the audience `api://AzureADTokenExchange`. Save the credential.
-This allows future release tags without creating a new federated credential for each tag.
+This permits future release tags without creating a new federated credential for each tag.
+
+**GitHub OIDC compatibility:** GitHub emits this immutable subject format automatically
+for repositories created, renamed, or transferred on or after July 15, 2026.
+For an older existing repository, opt in via GitHub's repository OIDC settings.
+The GitHub-issued token's `sub` claim must match the Azure credential exactly;
+if login reports `AADSTS700213`, compare those values before changing secrets.
+See [Microsoft's immutable GitHub subject migration guide](https://learn.microsoft.com/en-us/entra/workload-id/workload-identities-github-immutable-subjects).
 
 ## 4. Configure GitHub's environment and credentials
 
