@@ -19,22 +19,69 @@ td.best{font-weight:700;color:var(--good)}td.bad{color:var(--bad);font-weight:60
 svg{max-width:100%;height:auto}@media print{h2{break-after:avoid}table{break-inside:avoid}}
 """
 
-def _svg_bars(groups, series, values, title):
-    """groups: x labels; series: legend labels; values[s][g]."""
-    import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(8.5, 3.2), dpi=100); n = len(series); w = 0.8 / max(n, 1)
-    pal = ["#1f5f8b", "#d9822b", "#2e7d4f", "#8e44ad", "#b23b3b", "#5b6b7c", "#16a085", "#c0a000"]
-    for i, s in enumerate(series):
-        xs = [g + (i - (n - 1) / 2) * w for g in range(len(groups))]
-        ys = [values[s].get(g) for g in groups]
-        ax.bar([x for x, y in zip(xs, ys) if y is not None], [y for y in ys if y is not None], w * 0.95, label=s, color=pal[i % len(pal)])
-    ax.set_xticks(range(len(groups))); ax.set_xticklabels([f"{g} m" for g in groups]); ax.set_ylabel("FOM (dB)")
-    vals = [v for s in series for v in values[s].values() if v is not None]
-    if vals: ax.set_ylim(min(vals) - 2, max(vals) + 1)
-    ax.set_title(title, fontsize=11); ax.legend(fontsize=8, ncol=2, frameon=False); ax.grid(axis="y", alpha=.3)
-    for sp in ("top", "right"): ax.spines[sp].set_visible(False)
-    fig.tight_layout(); b = io.StringIO(); fig.savefig(b, format="svg"); plt.close(fig)
-    s = b.getvalue(); return s[s.find("<svg"):]
+def _svg_elevation_patterns(proj, slug, target, band, cells, res, sites, towers):
+    """OpenHFTA-style gain-vs-elevation curves, with weighted FOM in the legend.
+    One real terrain heading nearest the target's centre is shown per site/tower.
+    The complete HFTA run series remains in the replay pack.
+    """
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from .evaluate import band_freq
+    import engine
+
+    angle = float(target["heading"])
+    angular_gap = lambda v: abs((float(v) - angle + 180) % 360 - 180)
+    traces = []
+    for c in cells:
+        if c["band"] != band or c.get("best") is None:
+            continue
+        opts = c["options"][c["best"]].get("az") or []
+        if not opts:
+            continue
+        az = min(opts, key=lambda x: angular_gap(x["az"]))
+        gain = (res.get("patterns") or {}).get(az["run"])
+        if gain is None or len(gain) != len(engine.ANGLES):
+            continue
+        traces.append((c, az, gain))
+    if not traces:
+        return ""
+
+    fig, ax = plt.subplots(figsize=(9.5, 3.7), dpi=100)
+    palette = ["#1f5f8b", "#d9822b", "#2e7d4f", "#8e44ad", "#b23b3b", "#5b6b7c", "#16a085", "#c0a000"]
+    for i, (c, az, gain) in enumerate(traces):
+        label = (f"{sites[c['site']]['name']} / {towers[c['tower']]['name']}: "
+                 f"FOM {float(az.get('fom') if az.get('fom') is not None else c['hfta_fom']):.1f} dB (heading {az['az']:g}°)")
+        ax.plot(engine.ANGLES, gain, linewidth=1.8, color=palette[i % len(palette)], label=label)
+
+    ax.set_xlim(0, 35)
+    vals = [float(g) for _, _, curve in traces for g in curve[2:] if np.isfinite(g)]
+    if vals:
+        ax.set_ylim(min(vals) - 2, max(vals) + 2)
+    ax.set_xlabel("Elevation angle (°)")
+    ax.set_ylabel("Gain (dBi)")
+    ax.set_title(f"{target['name']}: {band} m · terrain-modified gain")
+    ax.grid(alpha=0.28)
+
+    try:
+        aoa = engine.parse_aoa(P.prn_file(slug, target["prn"]).read_text(errors="ignore"), band_freq(proj, band))
+    except (OSError, ValueError, KeyError):
+        aoa = None
+    if aoa:
+        ax2 = ax.twinx()
+        x = sorted(float(x) for x in aoa if 0 <= float(x) <= 35)
+        ax2.bar(x, [100 * aoa[v] for v in x], width=0.35, color=palette[3], alpha=0.2)
+        ax2.set_ylabel("Arrival-angle probability (%)")
+        ax2.set_ylim(bottom=0)
+
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.28), ncol=2, fontsize=7, frameon=False)
+    fig.tight_layout()
+    out = io.StringIO()
+    fig.savefig(out, format="svg", bbox_inches="tight")
+    plt.close(fig)
+    value = out.getvalue()
+    return value[value.find("<svg"):]
 
 def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
     e = html.escape; S = {s["id"]: s for s in proj["sites"]}; TW = {t["id"]: t for t in proj["towers"]}; TG = {t["id"]: t for t in proj["targets"]}
@@ -118,7 +165,13 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
             o.append("</tr>")
         o.append("</table></div><p class=mute>&#9888; = spacing warning on that band (see Towers above).</p>")
         if bands and series:
-            o.append(_svg_bars(bands, series, values, f"{t['name']}: FOM by band"))
+            o.append("<p class=mute>Elevation curves: the gain at each 0.25-degree elevation increment, from a terrain heading nearest the target centre. "
+                     "FOM in the legend is for the shown heading; the target-wide mean is in the table above. Neither FOM is the maximum plotted gain. "
+                     "FOM summaries remain in the table above; faded bars represent arrival-angle probabilities.</p>")
+            for band in bands:
+                svg = _svg_elevation_patterns(proj, slug, t, band, cells, res, S, TW)
+                if svg:
+                    o.append(svg)
     if guy_rows:
         o.append("<h2>Guy clearance (not part of HFTA; applies to antennas that turn)</h2>")
         for tname, rows in guy_rows.items():
