@@ -31,6 +31,90 @@ jobs:
           gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/comments" -F body=@body.md >/dev/null && echo "posted" || cat body.md
       - uses: actions/upload-artifact@v4
         with: { name: windows-package, path: dist/*.zip, if-no-files-found: error }
+  windows-sign:
+    name: Sign and verify Windows release
+    needs: [windows]
+    # For version tags, the signed ZIP is mandatory before publishing.
+    # Manual runs from main allow an initial signing test without publishing.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    environment: artifact-signing
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify signing configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          HFTA_CERT_PROFILE: ${{ secrets.HFTA_CERT_PROFILE }}
+        run: |
+          foreach ($key in @('AZURE_CLIENT_ID', 'AZURE_TENANT_ID', 'AZURE_SUBSCRIPTION_ID', 'HFTA_CERT_PROFILE')) {
+            if (-not [Environment]::GetEnvironmentVariable($key)) {
+              throw "Missing GitHub artifact-signing environment secret: $key. See docs/ARTIFACT_SIGNING.md; unsigned release is prohibited."
+            }
+          }
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-package
+          path: unsigned
+      - name: Extract and identify unsigned Windows images
+        id: targets
+        shell: pwsh
+        run: |
+          $zip = @(Get-ChildItem -LiteralPath unsigned -Filter '*.zip')
+          if ($zip.Count -ne 1) { throw "Expected exactly one Windows ZIP, got $($zip.Count)" }
+          New-Item -ItemType Directory -Path signed -Force | Out-Null
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath extracted
+          pwsh -NoProfile -File tools/windows/artifact_signing.ps1 -Mode Prepare `
+            -PackageRoot extracted/HFTA-Stack-Planner -ManifestPath targets.json
+      - name: Azure login with GitHub OIDC (no client secret)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign all previously unsigned packaged Windows images
+        uses: azure/artifact-signing-action@v2
+        with:
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: hftasigning2026
+          certificate-profile-name: ${{ secrets.HFTA_CERT_PROFILE }}
+          files: ${{ steps.targets.outputs.files }}
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-azure-cli-credential: false
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Validate signed binaries and make distributable ZIP
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File tools/windows/artifact_signing.ps1 -Mode Verify `
+            -PackageRoot extracted/HFTA-Stack-Planner -ManifestPath targets.json
+          $oldZip = @(Get-ChildItem -LiteralPath unsigned -Filter '*.zip')
+          $destination = Join-Path (Resolve-Path signed).Path $oldZip[0].Name
+          Compress-Archive -Path extracted/HFTA-Stack-Planner -DestinationPath $destination -CompressionLevel Optimal
+          if (!(Test-Path -LiteralPath $destination)) { throw 'Signed ZIP was not produced.' }
+          Write-Host "Created verified signed release ZIP: $destination"
+      - name: Upload signed Windows release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-signed-package
+          path: signed/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
   docker:
     runs-on: ubuntu-24.04
     steps:
@@ -52,16 +136,16 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           build-args: RAILWAY_GIT_COMMIT_SHA=${{ github.sha }}
   release:
-    needs: [windows, docker]
+    needs: [windows-sign, docker]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
-        with: { name: windows-package, path: dist }
+        with: { name: windows-signed-package, path: dist }
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*.zip
           body: |
-            **Windows:** download the zip, unzip, double-click "Start HFTA Stack Planner.exe". No installation or batch scripts. If Windows Smart App Control blocks the unsigned executable, use Docker and report the warning.
+            **Windows (Artifact Signing / Authenticode):** This ZIP contains Azure Artifact Signing-signed and RFC3161-timestamped Windows executable images. Extract all files; double-click "Start HFTA Stack Planner.exe". The verified publisher uses the validated legal identity, while the project is branded W7IV. SmartScreen or Smart App Control can still apply their own policies.
             **macOS / Linux / Windows with Docker:** `docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/w7iv/hfta-stack-planner:${{ github.ref_name }}` then open http://localhost:5055
             Getting started: open Help in the planner, or /guide.
