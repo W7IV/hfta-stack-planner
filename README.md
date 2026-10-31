@@ -151,7 +151,7 @@ of this pinned example, substitute `ghcr.io/w7iv/hfta-stack-planner:latest`.
 3. `pip install -r requirements.txt`
 4. `python app.py`, then open http://localhost:5000
    (`PORT` and `HOST` environment variables change the address; the default listens on this computer only).
-   Nothing leaves this computer, except the "Fetch terrain online" request to USGS (position only).
+   Terrain fetching contacts USGS or Terrain Tiles. Opening **Pick location on map** also requests map tiles directly from OpenStreetMap and reveals the viewed map area to that service; it does not request browser geolocation.
 
 Projects are stored in `projects/<name>/` (project.json, terrain, .PRN files, results).
 The previous single-page optimiser (multi-antenna height search, tribander trade-off matrix) is still at `/classic`.
