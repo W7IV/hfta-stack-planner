@@ -958,7 +958,7 @@ async function poll(job, bar, onError = null) {
 }
 
 /* ---------------------------------------------------------------- 4. Compare */
-let CMP = { target: null, ref: null, delta: false, hide: new Set(), sw: false };
+let CMP = { target: null, ref: null, delta: false, hide: new Set(), sw: false, patternBand: null, patternOffset: 0, plotSeq: 0 };
 async function rCompare() {
   const p = P(), el = $("#p-compare"); status();
   el.innerHTML = `<h1>Compare</h1><p class="lead">Every value is an HFTA Figure of Merit (dB, higher is better). Click a value to see the HFTA runs behind it and how to reproduce it.
@@ -970,7 +970,7 @@ async function rCompare() {
   <div class="card aux"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
     <p class="small">A <span class="sp red">&#9888;</span> or <span class="sp amber">&#9888;</span> beside a value: the antennas on that band are too close or close
     (set the limits in step 3). HFTA has no mutual coupling, so the value is probably optimistic. The value itself is still the plain HFTA-method result.</p></div></div>
-  <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="cmpPlot" class="plot"></div></div>`;
+  <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="patternControls" class="row" style="margin-top:18px"></div><div id="cmpPlot" class="plot" style="height:460px"></div><p id="patternNote" class="small mute"></p></div>`;
   const evalNotice = $("#evalNotice");
   const showEvalNotice = (message) => {
     evalNotice.textContent = message; evalNotice.hidden = false; evalNotice.setAttribute("role", "alert");
@@ -1063,10 +1063,82 @@ function matrix() {
   $("#cmpTbl").innerHTML = h;
   $$("input[name=ref]").forEach(x => x.onchange = () => { CMP.ref = x.value; matrix(); });
   $$("td.cell").forEach(td => td.onclick = () => cellDrawer(Number(td.dataset.i)));
-  const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: bands.map(b => b + " m"), y: bands.map(b => val(get(r, b))), marker: { color: PAL[k % 8] } }; });
-  const all = tr.flatMap(t => t.y).filter(v => v !== null);
-  Plotly.react("cmpPlot", tr, plotLayout({ barmode: "group", title: { text: "FOM by band", font: { size: 13 } }, yaxis: { title: "FOM (dB)", range: [Math.min(...all) - 2, Math.max(...all) + 1], gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+  // OpenHFTA uses full elevation-pattern curves, not FOM bars: each gain null matters.
+  // Each curve is a real OpenHFTA pattern for one selected heading; FOM remains in the table and legend.
+  showElevationPatterns(cells, rows, site, tower);
+
 }
+/* Match OpenHFTA's plot_multiple_patterns: gain (dBi) against 0.25°-spaced
+   elevation angles, FOM in the legend, optional angle-of-arrival bars on the right axis.
+   A scalar FOM by band cannot show lobes or nulls, so it is not used as a substitute. */
+async function showElevationPatterns(cells, rows, siteName, towerName) {
+  const controls = $("#patternControls"), plot = $("#cmpPlot"), note = $("#patternNote");
+  if (!controls || !plot || !note) return;
+  const seq = ++CMP.plotSeq;
+  const target = P().targets.find(t => t.id === CMP.target);
+  const bands = META.bands.filter(b => cells.some(c => c.band === b && c.hfta != null && !c.issues.length));
+  plot.hidden = false;
+  if (!target || !bands.length || !rows.length) {
+    controls.textContent = "No valid elevation patterns for this target yet.";
+    note.textContent = "Select a target with evaluated HFTA results to see its elevation curves.";
+    Plotly.purge(plot);
+    return;
+  }
+  if (!bands.includes(CMP.patternBand)) CMP.patternBand = bands[0];
+  const offsets = target.offsets?.length ? target.offsets : [0];
+  if (!offsets.includes(CMP.patternOffset)) CMP.patternOffset = offsets.includes(0) ? 0 : offsets[0];
+  controls.innerHTML = `<label>Band<select id="patternBand">${bands.map(b => `<option value="${b}" ${b === CMP.patternBand ? "selected" : ""}>${b} m</option>`).join("")}</select></label>
+    <label>Terrain heading<select id="patternHeading">${offsets.map(o => `<option value="${o}" ${o === CMP.patternOffset ? "selected" : ""}>${((Number(target.heading) + Number(o)) % 360 + 360) % 360}° (${o > 0 ? "+" : ""}${o}° offset)</option>`).join("")}</select></label>`;
+  $("#patternBand").onchange = e => { CMP.patternBand = e.target.value; showElevationPatterns(cells, rows, siteName, towerName); };
+  $("#patternHeading").onchange = e => { CMP.patternOffset = Number(e.target.value); showElevationPatterns(cells, rows, siteName, towerName); };
+  note.textContent = "Loading OpenHFTA elevation patterns…";
+  const selected = cells.filter(c => c.band === CMP.patternBand && c.hfta != null && !c.issues.length);
+  if (!selected.length) { Plotly.purge(plot); note.textContent = "No valid runs on this band."; return; }
+  const desiredAz = ((Number(target.heading) + CMP.patternOffset) % 360 + 360) % 360;
+  const distance = a => Math.abs(((Number(a) - desiredAz + 540) % 360) - 180);
+  const patterns = await Promise.all(selected.map(async c => {
+    try {
+      const d = await api("GET", `/api/v2/p/${SLUG}/cell/${c.i}`);
+      const best = d.cell.best == null ? null : d.cell.options[d.cell.best];
+      const pick = best?.az?.reduce((a, b) => distance(a.az) <= distance(b.az) ? a : b);
+      const gain = pick ? d.patterns[pick.run] : null;
+      if (!Array.isArray(gain) || gain.length !== d.angles.length) return null;
+      return { c, angles: d.angles, gain, pick, aoa: d.aoa };
+    } catch (_) { return null; }
+  }));
+  if (seq !== CMP.plotSeq || !document.contains(plot)) return;
+  const good = patterns.filter(Boolean);
+  if (!good.length) { Plotly.purge(plot); note.textContent = "No valid elevation patterns were returned; inspect a result cell for details."; return; }
+  const traces = good.map((d, i) => ({
+    type: "scatter", mode: "lines", x: d.angles, y: d.gain,
+    name: `${siteName(d.c.site)} / ${towerName(d.c.tower)} · FOM ${fmt(d.c.hfta, 1)} dB`,
+    line: { color: PAL[i % PAL.length], width: 2 },
+    hovertemplate: "%{x:.2f}° · %{y:.1f} dBi<extra>%{fullData.name}</extra>"
+  }));
+  const aoa = good.find(x => x.aoa && Object.keys(x.aoa).length)?.aoa;
+  if (aoa) {
+    const angles = Object.keys(aoa).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+    traces.push({ type: "bar", x: angles, y: angles.map(a => 100 * Number(aoa[a])),
+      name: "Arrival angles", yaxis: "y2", opacity: 0.21,
+      marker: { color: css("--warn") }, width: 0.35,
+      hovertemplate: "%{x:.0f}° · %{y:.1f}% probability<extra>Arrival angles</extra>" });
+  }
+  const vals = good.flatMap(d => d.gain.slice(2)).filter(Number.isFinite);
+  const ymin = vals.length ? Math.min(...vals) - 2 : -35;
+  const ymax = vals.length ? Math.max(...vals) + 2 : 20;
+  const layout = plotLayout({
+    title: { text: `${target.name}: ${CMP.patternBand} m elevation patterns (OpenHFTA)`, font: { size: 14 } },
+    xaxis: { title: "Elevation angle (°)", range: [0, 35], gridcolor: css("--line") },
+    yaxis: { title: "Gain (dBi)", range: [ymin, ymax], gridcolor: css("--line") },
+    yaxis2: { title: "Arrival-angle probability (%)", overlaying: "y", side: "right", showgrid: false, rangemode: "tozero" },
+    legend: { orientation: "h", y: -0.3 }, barmode: "overlay",
+    margin: { l: 55, r: 75, t: 58, b: 75 }
+  });
+  await Plotly.react(plot, traces, layout, { displaylogo: false, responsive: true });
+  if (seq !== CMP.plotSeq) return;
+  note.textContent = `Each curve is the actual 0.25°-resolution OpenHFTA gain pattern for the selected heading (${desiredAz}°). The FOM in each legend is averaged over the target's selected headings, so it is not the gain at the pattern's highest peak. The arrival-angle bars use the right-hand axis. Select another band or heading to examine nulls and lobes.`;
+}
+
 const WORLD = "__world__";
 /* Worldwide view. Band columns: for each site/tower and band, the weighted mean FOM over the targets (information).
    Overall: for each target, the mean over its bands; then the weighted mean over the targets (weights from the Stack
@@ -1128,9 +1200,13 @@ function worldwide(tg, site, tower) {
     Weights come from the Stack Designer (1 if not set). "(n/N)" = the tower serves only n of the N targets that use that band, so its value is not comparable with a tower that serves all of them.
     Click a target button to see the HFTA runs behind a value.</td></tr>`;
   $$("input[name=ref]").forEach(x => x.onchange = () => { CMP.ref = x.value; matrix(); });
-  const tr = rows.map((r, k) => { const [sid, tid] = r.split("|"); return { type: "bar", name: `${site(sid)} / ${tower(tid)}`, x: ["Overall", ...bands.map(b => b + " m")], y: [allb(r), ...bands.map(b => data[r][b]?.v ?? null)], marker: { color: PAL[k % 8] } }; });
-  const all = tr.flatMap(t => t.y).filter(v => v != null);
-  Plotly.react("cmpPlot", tr, plotLayout({ barmode: "group", title: { text: "Worldwide FOM by band (weighted mean over targets)", font: { size: 13 } }, yaxis: { title: "FOM (dB)", range: [Math.min(...all) - 2, Math.max(...all) + 1], gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
+  // Worldwide combines multiple paths and bands, so it has no physically meaningful
+  // single elevation curve. The scalar scores remain in the table above.
+  CMP.plotSeq++;
+  $("#patternControls").innerHTML = "<b>Worldwide summary</b>";
+  $("#patternNote").textContent = "Worldwide averages multiple targets; a single elevation pattern cannot represent it. Choose a specific target above to display the original OpenHFTA-style gain curves and their lobes/nulls.";
+  Plotly.purge("cmpPlot");
+  $("#cmpPlot").hidden = true;
 }
 async function cellDrawer(i) {
   const d = await api("GET", `/api/v2/p/${SLUG}/cell/${i}`), c = d.cell, p = P();
