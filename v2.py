@@ -374,10 +374,67 @@ def prn_get(slug, name):
     return jsonify({"title": lines[0].strip(), "columns": cols, "rows": rows, "coverage": cov, "max_angle": EV.MAX_ANGLE})
 
 # ------------------------------------------------------------ VOACAP-generated elevation-angle tables
+# One batch produces one independent .PRN file per selected standard region.
+# Staging avoids publishing incomplete or partially generated sets on cancellation/failure.
+def _run_prn_batch(job, slug, body, lat, lon):
+    import tempfile
+    requested = body.get("regions")
+    if not isinstance(requested, list) or not requested:
+        raise ValueError("Select at least one VOACAP region.")
+    if len(requested) > len(AG.REGIONS) or any(not isinstance(c, str) or c not in AG.REGIONS for c in requested):
+        raise ValueError("VOACAP regions contain an unknown or invalid region code.")
+    if len(requested) != len(set(requested)):
+        raise ValueError("Select each VOACAP region only once.")
+    months = sorted({int(m) for m in (body.get("months") or range(1, 13))} & set(range(1, 13))) or list(range(1, 13))
+    hours = body.get("hours")
+    hours = sorted({int(h) % 24 for h in hours}) if hours else None
+    ssn = [float(x) for x in (body.get("ssn") or AG.SSN_LEVELS.values())]
+    if not 1 <= len(ssn) <= 6 or any(not 0 <= x <= 300 for x in ssn):
+        raise ValueError("Sunspot numbers: 1 to 6 values between 0 and 300")
+    prefix = P.slug(body.get("prefix") or body.get("origin_name") or f"{lat:.2f}-{lon:.2f}")
+    origin_name = str(body.get("origin_name") or f"{lat:.2f},{lon:.2f}")[:50]
+    plans = [(code, AG.REGIONS[code], P.safe_file(f"{prefix}-{code}-VOACAP.PRN", ".prn"))
+             for code in requested]
+    total = sum(len(reg["points"]) * len(ssn) for _, reg, _ in plans)
+    job.update(phase="Preparing VOACAP tables", done=0, total=total)
+    output_dir = P.prn_dir(slug)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    files = []
+    with tempfile.TemporaryDirectory(prefix=".voacap-batch-", dir=output_dir) as tmp:
+        completed = 0
+        for index, (code, reg, filename) in enumerate(plans, 1):
+            if job["cancel"]:
+                raise RuntimeError("Cancelled")
+            job["phase"] = f"VOACAP {index}/{len(plans)}: {reg['name']}"
+            def progress(d, n, offset=completed):
+                job["done"] = offset + d
+            h = AG.generate(
+                (lat, lon), reg, Path(tmp) / filename,
+                title=f"{origin_name} to {reg['name']}"[:60], months=months, hours=hours, ssns=ssn,
+                workers=min(4, int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))),
+                progress=progress, cancel=lambda: job["cancel"]
+            )
+            bands = [b for b in AG.BANDS if h["weight_total"].get(b, 0) > 0]
+            files.append({"region": code, "region_name": reg["name"], "file": filename,
+                          "bands": bands, "empty_bands": [b for b in AG.BANDS if b not in bands],
+                          "describe": AG.describe(h["meta"])})
+            completed += len(reg["points"]) * len(ssn)
+            job["done"] = completed
+        if job["cancel"]:
+            raise RuntimeError("Cancelled")
+        # Publish only after all tables are complete; a failed batch leaves existing files untouched.
+        for item in files:
+            os.replace(Path(tmp) / item["file"], output_dir / item["file"])
+    job["result"] = {"files": files, "count": len(files)}
+    job["state"] = "done"
+
 def _run_prn_gen(job, slug, body):
     try:
         lat, lon = float(body["lat"]), float(body["lon"])
         if not (-90 <= lat <= 90 and -180 <= lon <= 180): raise ValueError("Latitude must be -90..90 and longitude -180..180")
+        if "regions" in body:
+            _run_prn_batch(job, slug, body, lat, lon)
+            return
         region = body.get("region")
         if region in AG.REGIONS: reg = AG.REGIONS[region]
         else:
@@ -403,7 +460,7 @@ def _run_prn_gen(job, slug, body):
 
 @bp.post("/api/v2/p/<slug>/prn/generate")
 def prn_generate(slug):
-    """Make a .PRN elevation-angle table with VOACAP. Body: {lat, lon, region | points, name, months?, hours?, ssn?, title?}."""
+    """Generate one .PRN using the legacy region/points body, or independent tables for each code in regions[]."""
     if not AG.available(): return err("VOACAP (voacapl) is not installed on this computer.")
     if not (P.path(slug) / "project.json").exists(): return err("Project not found", 404)
     jid, job = new_job(); start_thread(_run_prn_gen, job, slug, request.get_json() or {})

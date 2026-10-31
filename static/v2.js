@@ -366,35 +366,76 @@ function prnGenDialog() {
   <div class="row"><label>Origin<select name="site">${sites.map(s => `<option value="${s.id}" ${s === home ? "selected" : ""}>${esc(s.name)} (${s.lat}, ${s.lon})</option>`).join("")}<option value="">typed position…</option></select></label>
     <label>Latitude<input name="lat" type="number" step="0.0001" value="${home ? home.lat : ""}" style="width:110px"></label>
     <label>Longitude<input name="lon" type="number" step="0.0001" value="${home ? home.lon : ""}" style="width:110px"></label></div>
-  <div class="row"><label>Region<select name="region">${regions.map(([k, v]) => `<option value="${k}">${esc(v)} (${k})</option>`).join("")}<option value="custom">custom points…</option></select></label>
-    <label style="flex:1">Custom points, one "lat, lon" per line<textarea name="points" rows="2" style="width:100%" placeholder="e.g. 51.5, -0.1"></textarea></label></div>
-  <div class="row"><label>File name<input name="name" value="" style="width:220px"></label></div>
+  <fieldset style="border:1px solid var(--line);border-radius:6px;padding:10px;margin:10px 0"><legend><b>Regions: select any or all</b></legend>
+    <div class="row">${regions.map(([code, label], i) => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" name="region" value="${code}" ${i === 0 ? "checked" : ""}>${esc(label)} (${code})</label>`).join("")}</div>
+    <div class="row" style="margin-top:8px"><button type="button" class="ghost small" id="genAll">Select all regions</button><button type="button" class="ghost small" id="genNone">Clear selection</button></div>
+  </fieldset>
+  <div class="row"><label style="flex-direction:row;align-items:center;gap:4px"><input name="customMode" type="checkbox"> Custom receive points instead of standard regions</label></div>
+  <div class="row" id="genCustomFields" hidden><label style="flex:1">Custom points, one "lat, lon" per line<textarea name="points" rows="3" style="width:100%" placeholder="e.g. 51.5, -0.1"></textarea></label>
+    <label>Custom file name<input name="name" style="width:220px"></label></div>
+  <div class="row" id="genPrefixFields"><label>Output file prefix<input name="prefix" style="width:220px"></label><span class="small mute">Each region gets its own file, e.g. My-station-EU-VOACAP.PRN.</span></div>
   <div class="row"><span class="small mute" style="align-self:center">Months:</span>${mon.map((m, i) => `<label style="flex-direction:row;align-items:center;gap:3px"><input type="checkbox" name="m" value="${i + 1}" checked>${m}</label>`).join("")}</div>
   <div class="row"><label>Hours (UTC)<select name="hours"><option value="">all 24 hours</option><option value="0-12">00–12 (evening and night in the Americas)</option><option value="12-24">12–24</option><option value="custom">from–to below</option></select></label>
     <label>From<input name="h1" type="number" min="0" max="23" value="0" style="width:70px"></label><label>To<input name="h2" type="number" min="1" max="24" value="24" style="width:70px"></label></div>
   <div class="row"><span class="small mute" style="align-self:center">Solar activity (sunspot number):</span>${(META.ssn_levels || []).map(([k, v]) => `<label style="flex-direction:row;align-items:center;gap:3px"><input type="checkbox" name="ssn" value="${v}" checked>${k} (${v})</label>`).join("")}</div>
-  <p class="small mute">All months, all hours and all three solar levels give a table like the ARRL files. Fewer months or hours give a table for that season or time of day; one solar level gives a table for that part of the cycle. A table takes about half a minute.</p>
+  <p class="small mute">All months, all hours and all three solar levels give tables like the ARRL files. Fewer months or hours give a table for that season or time of day; one solar level gives a table for that part of the cycle. Each checked region produces a separate file; a batch of all regions may take several minutes. Progress and Cancel appear in the Targets page.</p>
   <div class="row"><button type="submit">Generate</button><button type="button" class="ghost" id="genCancel">Cancel</button></div></form>`);
-  const f = $("#genForm"), setName = () => { const r = f.region.value, s = sites.find(x => x.id === f.site.value); f.name.value = `${(s ? s.name : "origin").replace(/[^A-Za-z0-9_-]+/g, "-")}-${r === "custom" ? "custom" : r}-VOACAP.PRN`; };
-  f.site.onchange = () => { const s = sites.find(x => x.id === f.site.value); if (s) { f.lat.value = s.lat; f.lon.value = s.lon; } setName(); };
-  f.region.onchange = setName; setName();
+  const f = $("#genForm");
+  const regionChecks = () => [...f.querySelectorAll('[name=region]')];
+  const checkedRegions = () => regionChecks().filter(x => x.checked).map(x => x.value);
+  const customMode = f.querySelector('[name=customMode]');
+  const setDefaults = () => {
+    const site = sites.find(x => x.id === f.site.value);
+    const prefix = (site ? site.name : "origin").replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "origin";
+    f.prefix.value = prefix;
+    f.name.value = `${prefix}-custom-VOACAP.PRN`;
+  };
+  f.site.onchange = () => { const site = sites.find(x => x.id === f.site.value); if (site) { f.lat.value = site.lat; f.lon.value = site.lon; } setDefaults(); };
+  const updateMode = () => {
+    const custom = customMode.checked;
+    $("#genCustomFields").hidden = !custom;
+    $("#genPrefixFields").hidden = custom;
+    regionChecks().forEach(x => { x.disabled = custom; });
+  };
+  customMode.onchange = updateMode;
+  $("#genAll").onclick = () => { customMode.checked = false; updateMode(); regionChecks().forEach(x => { x.checked = true; }); };
+  $("#genNone").onclick = () => { customMode.checked = false; updateMode(); regionChecks().forEach(x => { x.checked = false; }); };
+  setDefaults(); updateMode();
   $("#genCancel").onclick = closeModal;
   f.onsubmit = async e => {
     e.preventDefault();
-    const body = { lat: Number(f.lat.value), lon: Number(f.lon.value), name: f.name.value.trim(), region: f.region.value,
-      origin_name: (sites.find(x => x.id === f.site.value) || {}).name || "", months: [...f.querySelectorAll("[name=m]:checked")].map(x => Number(x.value)),
+    const body = { lat: Number(f.lat.value), lon: Number(f.lon.value),
+      origin_name: (sites.find(x => x.id === f.site.value) || {}).name || "",
+      months: [...f.querySelectorAll("[name=m]:checked")].map(x => Number(x.value)),
       ssn: [...f.querySelectorAll("[name=ssn]:checked")].map(x => Number(x.value)) };
-    if (f.region.value === "custom") body.points = f.points.value.split("\n").map(l => l.split(",").map(Number)).filter(a => a.length === 2 && a.every(Number.isFinite));
+    if (customMode.checked) {
+      body.region = "custom";
+      body.name = f.name.value.trim();
+      body.points = f.points.value.split("\n").map(l => l.split(",").map(Number)).filter(a => a.length === 2 && a.every(Number.isFinite));
+      if (!body.points.length) return toast("Enter at least one valid custom receive point, as latitude, longitude.", 5000);
+    } else {
+      body.regions = checkedRegions();
+      body.prefix = f.prefix.value.trim();
+      if (!body.regions.length) return toast("Select at least one region.", 5000);
+    }
     const hv = f.hours.value; if (hv === "custom") { const a = Number(f.h1.value), b = Number(f.h2.value); body.hours = [...Array(24).keys()].filter(h => a <= b ? (h >= a && h < b) : (h >= a || h < b)); }
     else if (hv) { const [a, b] = hv.split("-").map(Number); body.hours = [...Array(24).keys()].filter(h => h >= a && h < b); }
     if (!body.months.length || !body.ssn.length) return toast("Choose at least one month and one solar level");
-    if (!/\.prn$/i.test(body.name)) body.name += ".PRN";
+    if (customMode.checked && !/\.prn$/i.test(body.name)) body.name += ".PRN";
     closeModal();
     try {
       const { job } = await api("POST", `/api/v2/p/${SLUG}/prn/generate`, body); const r = await poll(job, $("#genProg"));
       if (!r) return;
       S = await api("GET", `/api/v2/p/${SLUG}`); rTargets();
-      toast(`${r.file} made (${r.describe})${r.empty_bands.length ? `. No openings found on ${r.empty_bands.join("/")} m` : ""}. Choose it in a target's file list.`, 8000);
+      if (r.files) {
+        const msg = `Generated ${r.files.length} VOACAP elevation-angle tables: ${r.files.map(x => x.file).join(", ")}. Choose each file in its target.`;
+        const info = document.createElement("div"); info.className = "note";
+        info.setAttribute("role", "status"); info.textContent = msg;
+        $("#genProg").insertAdjacentElement("beforebegin", info);
+        toast(`Generated ${r.files.length} elevation-angle tables.`, 8000);
+      } else {
+        toast(`${r.file} made (${r.describe})${r.empty_bands.length ? `. No openings found on ${r.empty_bands.join("/")} m` : ""}. Choose it in a target\'s file list.`, 8000);
+      }
     } catch (err) { toast(err.message, 6000); }
   };
 }
