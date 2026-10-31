@@ -8,7 +8,7 @@ Imported files are stored unchanged under the site folder, so the replay pack po
 would load into HFTA. Generated files use the HFTA .PRO format: first line 'meters', then 'distance elevation'.
 """
 from __future__ import annotations
-import hashlib, io, math, os, re, shutil, time, urllib.request, uuid, zipfile
+import hashlib, io, math, os, re, shutil, time, urllib.error, urllib.request, uuid, zipfile
 from pathlib import Path
 import numpy as np
 import engine
@@ -314,6 +314,27 @@ def write_flat(out_dir: Path, prefix: str = "FLAT"):
         (stage / f"{prefix}-AZI-{az}.00.PRO").write_text(body)
     _swap_in(out_dir, stage)
 
+class TerrainServiceTemporaryError(Exception):
+    """An upstream/network failure that is reasonable for the user to retry, not missing terrain coverage."""
+
+
+def fetch_terrain_response(req, service: str, timeout: int = 180):
+    """Read upstream data, translating temporary HTTP/network failures into a retryable error."""
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.headers.get("Content-Type", ""), resp.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 429 or 500 <= exc.code <= 599:
+            raise TerrainServiceTemporaryError(
+                f"{service} temporarily unavailable (HTTP {exc.code}). Please try again shortly."
+            ) from exc
+        raise ValueError(f"{service} rejected the request (HTTP {exc.code}).") from exc
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        raise TerrainServiceTemporaryError(
+            f"{service} could not be reached or timed out. Please try again shortly."
+        ) from exc
+
+
 # ---------------- USGS 3DEP online fetch ----------------
 _3DEP_URL = (
     "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer/exportImage"
@@ -342,12 +363,17 @@ def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
     tmp = out_dir.parent / f"dem_fetch-{out_dir.name}.tif"   # one temp file per site, so two sites can run at once
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "hfta-stack-planner/1.0"})
-        with urllib.request.urlopen(req, timeout=180) as resp:
-            ctype = resp.headers.get("Content-Type", "")
-            data = resp.read()
+        ctype, data = fetch_terrain_response(req, "USGS 3DEP")
         if "tiff" not in ctype.lower():
-            # The service answers errors as JSON with HTTP 200.
+            # ArcGIS can return a JSON error with HTTP 200, including transient server errors.
             msg = data[:300].decode("utf-8", "replace")
+            low = msg.lower()
+            if any(term in low for term in ("temporar", "busy", "timeout", "timed out",
+                                             "unavailable", "overload", "internal server error",
+                                             '"code":500', '"code": 500', '"code":503', '"code": 503')):
+                raise TerrainServiceTemporaryError(
+                    "USGS 3DEP temporarily could not provide elevation data. Please try again shortly."
+                )
             raise ValueError(f"USGS 3DEP did not return a DEM ({ctype}): {msg}")
         tmp.write_bytes(data)
         dem = DEM(tmp, crs="geographic")
@@ -371,8 +397,9 @@ def fetch_dem_and_generate(lat: float, lon: float, out_dir: Path, prefix: str,
         try:
             fb = 15_500 / 111_320.0; fbl = fb / max(0.15, math.cos(math.radians(lat)))
             url2 = _3DEP_URL.format(west=lon - fbl, south=lat - fb, east=lon + fbl, north=lat + fb).replace("size=1024,1024", "size=512,512")
-            with urllib.request.urlopen(urllib.request.Request(url2, headers={"User-Agent": "hfta-stack-planner/1.0"}), timeout=180) as resp:
-                ctype2, data2 = resp.headers.get("Content-Type", ""), resp.read()
+            ctype2, data2 = fetch_terrain_response(
+                urllib.request.Request(url2, headers={"User-Agent": "hfta-stack-planner/1.0"}), "USGS 3DEP"
+            )
             if "tiff" in ctype2.lower():
                 tmp.write_bytes(data2); far = DEM(tmp, crs="geographic"); far.z[(far.z < -1000) | (far.z > 20000)] = np.nan
                 result["far_horizon"] = far_horizon(far, lat, lon, end_m=15000)
@@ -453,10 +480,11 @@ def download_tile(la: int, lo: int, cache_dir: Path, timeout: int = 180):
     if f.exists(): return f.read_bytes()
     req = urllib.request.Request(tile_url(la, lo), headers={"User-Agent": "hfta-stack-planner/1.0"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp: raw = resp.read()
-    except urllib.error.HTTPError as e:
-        if e.code in (403, 404): return None
-        raise ValueError(f"Terrain Tiles: HTTP {e.code} for {tile_name(la, lo)}")
+        _, raw = fetch_terrain_response(req, "Terrain Tiles", timeout=timeout)
+    except ValueError as exc:
+        if isinstance(exc.__cause__, urllib.error.HTTPError) and exc.__cause__.code in (403, 404):
+            return None  # No published terrain tile in this cell (for example, open ocean).
+        raise
     data = gzip.decompress(raw)
     if len(data) > 40_000_000: raise ValueError("Terrain tile larger than expected")
     tmp = f.with_suffix(".tmp"); tmp.write_bytes(data); os.replace(tmp, f)
