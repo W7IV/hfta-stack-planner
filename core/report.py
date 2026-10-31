@@ -52,7 +52,7 @@ def _svg_elevation_patterns(proj, slug, target, band, cells, res, sites, towers)
     palette = ["#1f5f8b", "#d9822b", "#2e7d4f", "#8e44ad", "#b23b3b", "#5b6b7c", "#16a085", "#c0a000"]
     for i, (c, az, gain) in enumerate(traces):
         label = (f"{sites[c['site']]['name']} / {towers[c['tower']]['name']}: "
-                 f"FOM {c['hfta_fom']:.1f} dB (heading {az['az']:g}°)")
+                 f"FOM {float(az.get('fom') if az.get('fom') is not None else c['hfta_fom']):.1f} dB (heading {az['az']:g}°)")
         ax.plot(engine.ANGLES, gain, linewidth=1.8, color=palette[i % len(palette)], label=label)
 
     ax.set_xlim(0, 35)
