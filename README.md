@@ -191,7 +191,7 @@ is no login and one store.
 - Data is kept until the user deletes it (Report → Delete project; Sites → Remove profiles) or the administrator
   removes the user's folder. There is no automatic retention or deletion. Railway volume backups, if enabled, keep
   copies for as long as Railway's backup settings say.
-- Two requests leave the server, both only on the user's click: "Fetch terrain online" sends the site position to
+- Terrain requests leave the server only on the user's click: "Fetch terrain online" sends the site position to
   USGS (3DEP) or to Amazon's Terrain Tiles service, which see that position and the server's address. The VOACAP
   calculation and everything else run on the server.
 - The web server's access log (kept by Railway) records addresses, paths and times, not the contents of requests.
