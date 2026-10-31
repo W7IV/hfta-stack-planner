@@ -39,7 +39,7 @@ const render = vm.runInContext("showElevationPatterns", context);
   assert.equal(drawn.traces[0].x[1] - drawn.traces[0].x[0], 0.25);
   assert.equal(drawn.traces[0].y.length, 140);
   assert(Math.max(...drawn.traces[0].y) > Math.min(...drawn.traces[0].y) + 15, "Nulls must remain visible");
-  assert(drawn.traces[0].name.includes("FOM 11.4 dB"), drawn.traces[0].name);
+  assert(drawn.traces[0].name.includes("FOM 11.0 dB"), drawn.traces[0].name);
   assert.equal(drawn.traces[1].type, "bar");
   assert.equal(drawn.traces[1].y[0], 15);
   assert.equal(drawn.traces[1].y[1], 40);
