@@ -1,0 +1,127 @@
+# One-time publisher for v1.0.4 (legal, performance and engineering notices).
+# The GitHub connector cannot create tags directly; this trusted workflow runs on main,
+# verifies both distribution formats, then publishes the tag/release and GHCR image.
+name: publish-v1.0.4
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/publish-v1.0.4.yml"]
+permissions:
+  contents: write
+  packages: write
+jobs:
+  source-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - name: Build pinned OpenHFTA for app imports
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gfortran make
+          git clone https://github.com/RioDXGroup/openhfta.git ../openhfta
+          git -C ../openhfta checkout 7d62e863f1d27372c97df3ac6ef53092fb58bd50
+          make -C ../openhfta all
+      - run: python tests/test_accounts.py
+      - run: python tests/test_disclaimer_presence.py
+      - run: python tests/test_terrain_fetch_errors.py
+      - run: python tests/test_single_tower.py
+      - run: python tests/test_voacap_batch.py
+      - run: node --check static/v2.js
+      - run: node tests/test_voacap_targets.cjs
+      - run: node tests/test_pattern_plot.cjs
+      - run: node tests/test_designer_load_tower.cjs
+      - run: python tests/test_report_patterns.py
+  windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Use intended version locally (do not publish tag before validation)
+        run: git tag v1.0.4
+      - name: Install MinGW, Wine, and packaging dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gfortran-mingw-w64-x86-64 gcc-mingw-w64-x86-64 automake autoconf wine wine64 zip python3-pip
+      - name: Build Windows ZIP and compare OpenHFTA with original HFTA
+        shell: bash
+        run: tools/build_windows.sh dist
+      - name: Check Windows package notices and inventory
+        run: |
+          python - <<'PY'
+          import glob, zipfile
+          p, = glob.glob("dist/HFTA-Stack-Planner-windows-v1.0.4.zip")
+          required = ["DISCLAIMER.md", "LICENSE", "licenses/PLOTLY-MIT.txt", "licenses/THIRD_PARTY_NOTICES.md",
+                      "voacap/COPYING", "voacap/AUTHORS", "openhfta/LICENSE",
+                      "licenses/runtime/python-dependencies.json", "licenses/runtime/PYTHON-DEPENDENCIES.md",
+                      "Start HFTA Stack Planner.exe"]
+          with zipfile.ZipFile(p) as z:
+              names = z.namelist()
+              for item in required:
+                  assert any(name.endswith("/" + item) for name in names), item
+              assert not any(name.endswith("/Start HFTA Stack Planner.bat") for name in names)
+              print(f"PASS: {p}; {len(names)} archive members; native launcher and required notices")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-v1.0.4
+          path: dist/HFTA-Stack-Planner-windows-v1.0.4.zip
+          if-no-files-found: error
+          retention-days: 7
+  docker-verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image and run the core HFTA comparison test
+        run: docker build --progress=plain -t hfta-stack-planner:verify .
+      - name: Confirm distribution notices
+        run: |
+          docker run --rm --entrypoint /bin/sh hfta-stack-planner:verify -c 'test -s /app/DISCLAIMER.md && test -s /app/LICENSE && test -s /app/THIRD_PARTY_NOTICES.md && test -s /app/licenses/PLOTLY-MIT.txt && test -s /opt/third-party/voacapl/COPYING && test -s /opt/openhfta/LICENSE'
+  publish:
+    needs: [source-tests, windows, docker-verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-v1.0.4
+          path: dist
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish verified Docker source version to GHCR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/w7iv/hfta-stack-planner:v1.0.4
+            ghcr.io/w7iv/hfta-stack-planner:latest
+          build-args: |
+            RAILWAY_GIT_COMMIT_SHA=${{ github.sha }}
+      - name: Create public v1.0.4 release and tag, attach Windows ZIP
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.4
+          target_commitish: ${{ github.sha }}
+          name: "HFTA Stack Planner v1.0.4"
+          make_latest: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: dist/HFTA-Stack-Planner-windows-v1.0.4.zip
+          body: |
+            This maintenance release fixes loading an existing tower into Stack Designer. **Load an existing tower** and select **Load into designer** to copy its saved tower height, antenna types/counts, bands, site, target selections, and optional guy constraints into the optimizer. The saved tower remains unchanged; its actual antenna heights are shown as reference while Stack Designer searches new heights within the tower limit. The separate **Guy constraints only** selector no longer implies an antenna/tower import. Other fixes from v1.0.3, MIT licensing and engineering/safety disclaimers remain in place.
+
+            **Windows 11:** Download the Windows ZIP, extract all files, then double-click `Start HFTA Stack Planner.exe`. No batch script is required. The EXE is not yet Authenticode-signed and may still be blocked by Smart App Control or SmartScreen; do not disable protections to run it. Use the local Docker image if blocked and report the exact warning.
+
+            **Docker (macOS, Linux, Windows):** `docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/w7iv/hfta-stack-planner:v1.0.4`; visit http://localhost:5055.
+
+            **Before use:** Read DISCLAIMER.md in this release and the application's Help page. Calculations are comparative RF planning estimates, not structural engineering assessments or guaranteed operating performance. Do not rely on the guy/ice or spacing estimates for construction safety.
