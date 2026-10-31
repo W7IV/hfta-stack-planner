@@ -100,11 +100,50 @@ can occupy `127.0.0.1:5055`; the launcher refuses to run if that port is already
 older copy in the browser. Each extracted release uses its own `data` folder; copy the **data** folder from your
 old release into the new extracted folder before starting if you want to retain your towers, targets and terrain.
 
-**macOS, Linux, Windows with Docker:**
+**Linux, macOS, and Windows with Docker (no native installation required):**
+
+HFTA Stack Planner ships a **Linux Docker image**, containing the Python web app, compiled OpenHFTA engine,
+and VOACAP. Install [Docker Engine](https://docs.docker.com/engine/install/) on Linux or
+[Docker Desktop](https://docs.docker.com/desktop/) on macOS/Windows, then run:
+
+```bash
+docker run -d --name hfta-planner --platform linux/amd64 \
+  -p 127.0.0.1:5055:5055 \
+  -v hfta-data:/data \
+  ghcr.io/w7iv/hfta-stack-planner:v1.0.5
 ```
-docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/w7iv/hfta-stack-planner:latest
+
+Open **http://localhost:5055** in your browser. Data persists in the named Docker volume `hfta-data`,
+even when the container stops or is replaced. To stop or restart it:
+
+```bash
+docker stop hfta-planner
+docker start hfta-planner
 ```
-Then open http://localhost:5055. Projects are kept in the Docker volume `hfta-data`.
+
+To remove the container while retaining your projects, use `docker rm -f hfta-planner`.
+**Do not delete the `hfta-data` volume** unless you intend to delete its projects.
+Only one local instance should bind host port 5055 at a time; if it is occupied, stop the older container
+or choose another host port (for example, `-p 127.0.0.1:5056:5055`, then browse to
+`http://localhost:5056`).
+
+| Host computer | Docker execution | Current status |
+| --- | --- | --- |
+| Linux x86-64 (AMD64) | Linux container runs on the host's Linux kernel | **Built and tested in CI** |
+| Intel Mac | Linux container runs inside Docker Desktop's Linux VM | Expected to work; not independently verified on macOS |
+| Apple Silicon Mac (M-series) | `linux/amd64` image via Docker Desktop emulation | **Experimental**; may be slower or fail |
+| Linux ARM64 (e.g. Raspberry Pi / ARM server) | `linux/amd64` image requires installed emulation support | **Experimental**, not verified |
+| Windows with Docker Desktop | Linux container in Docker's Linux/WSL2 environment | Alternative to the standalone Windows EXE |
+
+**Architecture limitation:** The published image is currently built for **AMD64 only**; OpenHFTA's pinned
+Fortran build uses x86-specific compiler settings. `--platform linux/amd64` requests the existing image;
+it **does not** make it a native ARM64 binary. An ARM64 image and a native macOS application would need
+separate builds and tests. The project is open source, so contributors can experiment with other platforms.
+
+This is a **local HTTP service**, bound by the example command to `127.0.0.1` only. It does not require
+HTTPS for local use; do not expose the container publicly without suitable authentication and TLS.
+Online terrain retrieval contacts external elevation services. For the newest released container instead
+of this pinned example, substitute `ghcr.io/w7iv/hfta-stack-planner:latest`.
 
 **From source:**
 1. Install Python 3.10+ and gfortran. On Windows, use WSL (Ubuntu): `sudo apt install python3-pip gfortran`.
