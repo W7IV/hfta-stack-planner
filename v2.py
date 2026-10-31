@@ -257,6 +257,41 @@ def site_import(slug, sid):
     files = [(f.filename, f.read()) for f in request.files.getlist("files")]
     r = TR.import_files(P.site_dir(slug, sid), files); return jsonify(r)
 
+@bp.post("/api/v2/p/<slug>/sites/<sid>/position")
+def site_position(slug, sid):
+    """Replace a site's coordinates and invalidate terrain and calculations tied to its old location.
+    Requires the project revision to prevent stale browser tabs from overwriting saved work."""
+    import math
+    body = request.get_json() or {}
+    try:
+        lat, lon = float(body["lat"]), float(body["lon"])
+        expected = int(body["rev"])
+        if not math.isfinite(lat) or not math.isfinite(lon) or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            raise ValueError("Coordinates must be finite: latitude -90..90, longitude -180..180.")
+        proj = P.load(slug)
+        site = next((x for x in proj["sites"] if x["id"] == sid), None)
+        if site is None: return err("Site not found.", 404)
+        if expected != int(proj.get("rev") or 0):
+            return err("The project changed in another tab. Reload before changing this site's position.", 409)
+        changed = site.get("lat") != lat or site.get("lon") != lon
+        if not changed: return jsonify({**state(slug), "removed_profiles": 0})
+        site["lat"], site["lon"] = lat, lon
+        site["terrain"] = {"source": ""}
+        P.save(slug, proj, expect_rev=expected)
+        files = list(P.site_dir(slug, sid).glob("*"))
+        removed = 0
+        for file in files:
+            if file.is_file() and file.suffix.lower() == ".pro":
+                file.unlink()
+                removed += 1
+        results_path(slug).unlink(missing_ok=True)
+        return jsonify({**state(slug), "removed_profiles": removed})
+    except (ValueError, KeyError, TypeError) as exc:
+        return err(f"Site position: {exc}")
+    except P.RevisionConflict:
+        return err("The project changed in another tab. Reload before changing the site position.", 409)
+
+
 @bp.post("/api/v2/p/<slug>/sites/<sid>/flat")
 def site_flat(slug, sid):
     TR.write_flat(P.site_dir(slug, sid)); return jsonify({"ok": True})
