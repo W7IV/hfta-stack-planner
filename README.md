@@ -15,6 +15,21 @@ commit, SHA-256 of the native library, wrapper version) is recorded with every r
 > qualified review for safety-critical decisions. Provided **AS IS** under MIT.
 > Read the [Legal, Performance and Engineering Disclaimers](DISCLAIMER.md) before relying on results.
 
+## Windows release signing
+
+Windows release ZIPs now require Microsoft **Artifact Signing** Authenticode signatures and
+RFC3161 timestamps before GitHub's release workflow can publish them. The ZIPs built locally
+or as unapproved CI candidates remain unsigned until the dedicated Windows signing job runs.
+The signing identity is the Azure-verified individual's legal name; the project remains
+**HFTA Stack Planner by W7IV**, distributed under the MIT license.
+
+**For maintainers:** set up the Entra service principal, `artifact-signing` GitHub
+environment, federation and Certificate Profile Signer role as documented in
+[Artifact Signing setup](docs/ARTIFACT_SIGNING.md).
+Until those are configured, the release workflow deliberately **fails closed**
+instead of distributing an unsigned Windows executable. Past releases (through
+v1.0.5) remain unsigned and may be blocked by Windows Smart App Control.
+
 ## Credits
 - **Calculations:** [OpenHFTA](https://github.com/RioDXGroup/openhfta) by RioDXGroup (BSD Zero Clause licence).
   This planner does not include or change OpenHFTA: the Dockerfile downloads it at a fixed commit, builds it, and

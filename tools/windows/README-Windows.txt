@@ -12,12 +12,16 @@ in use, so a newer version never silently opens an older installation in your br
 If you see an occupied-port error, close the old HFTA window (or stop the service
 using port 5055) and launch again.
 
-The program uses a native Windows launcher, not a downloaded batch script. Windows 11
-Smart App Control or SmartScreen may still flag an unsigned/unfamiliar executable.
-Only run software downloaded from the official release page after verifying its source.
-Do not turn off Smart App Control or antivirus protection to run the planner.
-If Windows blocks the launcher, use Docker locally instead and report the exact warning
-in a GitHub issue. Trusted code signing remains a separate future improvement.
+The program uses a native Windows launcher, not a downloaded batch script.
+Official GitHub release ZIPs built through the new Azure Artifact Signing release
+workflow contain signed Windows executable components with RFC3161 timestamps.
+The signer will be listed under the individual's verified legal name; W7IV is the
+project branding, not the certificate subject. Windows may still apply reputation
+or policy checks, and locally rebuilt ZIPs are NOT signed automatically.
+Only run software downloaded from the official release page after checking its source
+and file signature. Do not turn off Smart App Control or antivirus protection to run
+the planner. If Windows blocks the release, use Docker locally and report the exact warning
+in a GitHub issue.
 This package contains no installer and changes nothing outside its own folder.
 
 Your projects, terrain files and elevation-angle files live in the "data" folder next to this file.
