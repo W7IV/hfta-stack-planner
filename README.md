@@ -26,9 +26,10 @@ The signing identity is the Azure-verified individual's legal name; the project 
 **For maintainers:** set up the Entra service principal, `artifact-signing` GitHub
 environment, federation and Certificate Profile Signer role as documented in
 [Artifact Signing setup](docs/ARTIFACT_SIGNING.md).
-Until those are configured, the release workflow deliberately **fails closed**
-instead of distributing an unsigned Windows executable. Past releases (through
-v1.0.5) remain unsigned and may be blocked by Windows Smart App Control.
+The release workflow deliberately **fails closed** instead of distributing an
+unsigned Windows executable. Releases from v1.0.6 are signed with Azure Artifact
+Signing. Past releases (through v1.0.5) remain unsigned and may be blocked by
+Windows Smart App Control.
 
 ## Credits
 - **Calculations:** [OpenHFTA](https://github.com/RioDXGroup/openhfta) by RioDXGroup (BSD Zero Clause licence).
@@ -125,7 +126,7 @@ and VOACAP. Install [Docker Engine](https://docs.docker.com/engine/install/) on 
 docker run -d --name hfta-planner --platform linux/amd64 \
   -p 127.0.0.1:5055:5055 \
   -v hfta-data:/data \
-  ghcr.io/w7iv/hfta-stack-planner:v1.0.5
+  ghcr.io/w7iv/hfta-stack-planner:v1.0.6
 ```
 
 Open **http://localhost:5055** in your browser. Data persists in the named Docker volume `hfta-data`,
