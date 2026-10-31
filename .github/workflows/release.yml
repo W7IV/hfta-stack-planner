@@ -77,6 +77,28 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Diagnose Azure signing identity
+        shell: pwsh
+        env:
+          EXPECTED_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          EXPECTED_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          EXPECTED_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          $account = az account show --output json | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) {
+            throw "Azure CLI account lookup failed."
+          }
+
+          Write-Host "Subscription matches: $($account.id -eq $env:EXPECTED_SUBSCRIPTION_ID)"
+          Write-Host "Tenant matches: $($account.tenantId -eq $env:EXPECTED_TENANT_ID)"
+          Write-Host "Account type: $($account.user.type)"
+          Write-Host "Client identity matches: $($account.user.name -eq $env:EXPECTED_CLIENT_ID)"
+
+          if ($account.id -ne $env:EXPECTED_SUBSCRIPTION_ID -or
+              $account.tenantId -ne $env:EXPECTED_TENANT_ID -or
+              $account.user.name -ne $env:EXPECTED_CLIENT_ID) {
+            throw "Azure CLI identity does not match expected GitHub OIDC configuration."
+          }
       - name: Sign all previously unsigned packaged Windows images
         uses: azure/artifact-signing-action@v2
         with:
