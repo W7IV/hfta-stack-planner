@@ -140,7 +140,7 @@ int wmain(void) {
         WSADATA ws;
         int busy = 0;
         if (WSAStartup(MAKEWORD(2,2), &ws) != 0) {
-            fwprintf(stderr, L"Cannot initialize Windows networking for the local port check.\\n");
+            fwprintf(stderr, L"Cannot initialize Windows networking for the local port check.\n");
             return 1;
         }
         busy = server_listening();
@@ -148,14 +148,14 @@ int wmain(void) {
         if (busy) {
             wchar_t no_browser[8] = {0};
             fwprintf(stderr,
-                L"Port 5055 is already in use at http://127.0.0.1:5055/.\\n"
-                L"An older HFTA instance may still be running.\\n"
-                L"Close the previous HFTA console and any other server using port 5055,\\n"
-                L"then start this version again. No existing browser session was opened.\\n");
+                L"Port 5055 is already in use at http://127.0.0.1:5055/.\n"
+                L"An older HFTA instance may still be running.\n"
+                L"Close the previous HFTA console and any other server using port 5055,\n"
+                L"then start this version again. No existing browser session was opened.\n");
             /* Keep the diagnostic visible to interactive Windows users. */
             if (!(GetEnvironmentVariableW(L"HFTA_NO_BROWSER", no_browser, 8) > 0
                   && wcscmp(no_browser, L"1") == 0)) {
-                wprintf(L"Press Enter to close.\\n");
+                wprintf(L"Press Enter to close.\n");
                 (void)getchar();
             }
             return 2;
