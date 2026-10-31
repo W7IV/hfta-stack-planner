@@ -94,6 +94,72 @@ function modal(html) { $("#modalBody").innerHTML = html; $("#modal").hidden = fa
 function closeModal() { $("#modal").hidden = true; }
 function uid(p) { return p + Math.random().toString(16).slice(2, 8); }
 
+/* Select tower position using OpenStreetMap raster tiles, not code from ALHP.
+   Only the user's "Use this location" action writes site coordinates.
+   A changed position makes its old terrain and comparison results invalid. */
+function siteMapDialog(site) {
+  const valid = s => s.lat != null && s.lon != null && Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lon));
+  const existing = valid(site), nearby = P().sites.find(s => s.id !== site.id && valid(s));
+  const seed = existing ? site : nearby;
+  modal(`<h2>Pick location on map: ${esc(site.name)}</h2>
+    <p class="small mute">Click to place the tower, drag to pan, and use +/− or the mouse wheel to zoom. Map tiles require internet and reveal the viewed area to OpenStreetMap; coordinates are saved to this project only when you select Use this location.</p>
+    <div id="siteMapCanvas" role="application" aria-label="Map for selecting site coordinates"></div>
+    <div class="row" style="margin-top:10px">
+      <label>Latitude<input id="sitePickLat" type="number" min="-90" max="90" step="0.000001" value="${existing ? Number(site.lat).toFixed(6) : ""}" style="width:150px"></label>
+      <label>Longitude<input id="sitePickLon" type="number" min="-180" max="180" step="0.000001" value="${existing ? Number(site.lon).toFixed(6) : ""}" style="width:150px"></label>
+      <button type="button" class="ghost" id="sitePickGoto">Show entered position</button>
+    </div>
+    <p class="small mute site-map-coordinates" id="sitePickStatus" role="status">${existing ? "Current site position selected." : "No position selected yet."}</p>
+    <div class="row"><button type="button" id="sitePickApply">Use this location</button>
+    <button type="button" class="ghost" id="sitePickCancel">Cancel</button></div>
+    <p class="small mute">Changing a site's location clears that site's old terrain profiles and HFTA comparison results. You can then fetch terrain for the new position.</p>`);
+  const latInput = $("#sitePickLat"), lonInput = $("#sitePickLon");
+  const picker = HFTASitePicker.create($("#siteMapCanvas"), {
+    lat: seed ? Number(seed.lat) : NaN, lon: seed ? Number(seed.lon) : NaN,
+    selectInitial: existing, zoom: seed ? 16 : 4,
+    onChange: loc => {
+      latInput.value = loc.lat.toFixed(6);
+      lonInput.value = loc.lon.toFixed(6);
+      $("#sitePickStatus").textContent = `Selected ${latInput.value}°, ${lonInput.value}°. Click Use this location to save.`;
+    }
+  });
+  const finish = () => { $("#siteMapCanvas")?._pickerCleanup?.(); closeModal(); };
+  $("#sitePickCancel").onclick = finish;
+  const read = () => {
+    if (latInput.value.trim() === "" || lonInput.value.trim() === "") throw new Error("Choose a point on the map or enter both coordinates.");
+    const lat = Number(latInput.value), lon = Number(lonInput.value);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180)
+      throw new Error("Latitude must be -90..90 and longitude -180..180.");
+    return { lat: Number(lat.toFixed(6)), lon: Number(lon.toFixed(6)) };
+  };
+  $("#sitePickGoto").onclick = () => {
+    try { const loc = read(); picker.setSelected(loc.lat, loc.lon); }
+    catch (error) { $("#sitePickStatus").textContent = error.message; }
+  };
+  $("#sitePickApply").onclick = async () => {
+    let loc;
+    try { loc = read(); }
+    catch (error) { $("#sitePickStatus").textContent = error.message; return; }
+    if (site.lat === loc.lat && site.lon === loc.lon) { finish(); return; }
+    const n = (S.site_files[site.id] || {}).n || 0;
+    if (n && !confirm(`Move ${site.name} to ${loc.lat}, ${loc.lon}? This will remove ${n} old terrain profiles and invalidate existing evaluation results. The saved tower configurations remain unchanged.`)) return;
+    const btn = $("#sitePickApply"); btn.disabled = true;
+    $("#sitePickStatus").textContent = "Saving location and invalidating old terrain…";
+    try {
+      await flushSave();
+      const state = await api("POST", `/api/v2/p/${SLUG}/sites/${site.id}/position`,
+        { ...loc, rev: P().rev });
+      finish();
+      S = state;
+      rSites(); status();
+      toast(`Site position saved (${loc.lat}, ${loc.lon}).${state.removed_profiles ? ` Removed ${state.removed_profiles} old profiles.` : ""} Fetch terrain for this position.`, 7500);
+    } catch (error) {
+      $("#sitePickStatus").textContent = "Could not save location: " + error.message;
+      btn.disabled = false;
+    }
+  };
+}
+
 /* ---------------------------------------------------------------- 1. Sites */
 function rSites() {
   const p = P(), el = $("#p-sites"), st = p.settings;
@@ -124,6 +190,7 @@ function rSites() {
     c.innerHTML = `<h2><input class="w" value="${esc(s.name)}" data-k="name" aria-label="Site name"> ${tchip}</h2>
       <div class="row"><label>Latitude<input type="number" step="0.00001" data-k="lat" value="${s.lat ?? ""}"></label>
       <label>Longitude<input type="number" step="0.00001" data-k="lon" value="${s.lon ?? ""}"></label>
+      <button type="button" class="ghost" data-act="map" title="Select exact site coordinates on an interactive map">Pick location on map</button>
       <label style="flex:1">Notes<input data-k="notes" value="${esc(s.notes || "")}" style="width:100%"></label></div>
       <div class="groups" style="margin-top:12px">
         <div class="group"><div class="gcap">Terrain from your own files</div><div class="row"><label>Source of the files you import<select data-src><option>MicroDEM .PRO</option><option>K6TU terrain set</option><option>Other .PRO files</option></select></label>
@@ -160,6 +227,7 @@ function rSites() {
       const r = await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/duplicates?keep=${keep}`); toast(`${r.deleted} files deleted`); await save(true); rSites(); }; }
     const clr = $("[data-act=clear]", c); if (clr) clr.onclick = async () => { await api("DELETE", `/api/v2/p/${SLUG}/sites/${s.id}/files`); s.terrain = { source: "" }; await save(true); rSites(); };
     $("[data-act=del]", c).onclick = async () => { p.sites.splice(i, 1); await save(true); rSites(); };
+    $("[data-act=map]", c).onclick = () => siteMapDialog(s);
     $("[data-act=dem]", c).onclick = () => demDialog(s);
     $("[data-act=move]", c).onclick = () => moveDialog(s);
     $("[data-act=lib]", c).onclick = () => libSaveDialog("sites", s);
