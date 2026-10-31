@@ -97,3 +97,16 @@ select.el{min-width:64px}
 .group .row{border:0;padding:0;margin:0}.group .row>button.danger{margin-left:0}.group .row>label{opacity:1}
 .lead.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-bottom:4px}
 a.more{display:inline-block;font-size:12.5px;color:var(--accent);margin:0 0 16px}p.lead+a.more+*{margin-top:0}
+
+/* Site location picker: raster tiles appear only when a user opens the map. */
+.modal-in:has(.site-map){width:min(760px,96vw)}
+.site-map{position:relative;height:min(52vh,470px);min-height:300px;width:100%;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:#dce6ed;cursor:crosshair;touch-action:none;user-select:none}
+.site-map-tiles{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.site-map-tiles img{position:absolute;width:256px;height:256px;max-width:none;pointer-events:none}
+.site-map-pin{position:absolute;width:16px;height:16px;transform:translate(-50%,-100%);background:var(--bad);border:2px solid white;border-radius:50% 50% 50% 0;rotate:-45deg;box-shadow:0 1px 4px #0008;pointer-events:none;z-index:3}
+.site-map-pin[hidden]{display:none}
+.site-map-zoom{position:absolute;top:10px;left:10px;z-index:5;display:flex;flex-direction:column;gap:3px}
+.site-map-zoom button{width:35px;height:35px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font-size:22px;padding:0;border-radius:4px}
+.site-map-credit{position:absolute;right:5px;bottom:5px;z-index:5;padding:1px 6px;border-radius:3px;background:#ffffffde;color:#172029;font-size:11px}
+.site-map-credit a{color:#14517c}
+.site-map-coordinates{font-variant-numeric:tabular-nums}
