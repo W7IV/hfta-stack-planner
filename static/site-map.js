@@ -25,7 +25,7 @@
   function create(node, options = {}) {
     const hasPosition = Number.isFinite(options.lat) && Number.isFinite(options.lon);
     let center = { lat: hasPosition ? options.lat : 39.5, lon: hasPosition ? options.lon : -98.35 };
-    let selected = hasPosition ? { ...center } : null;
+    let selected = hasPosition && options.selectInitial !== false ? { ...center } : null;
     let zoom = Math.max(MIN_Z, Math.min(MAX_Z, Number(options.zoom) || (hasPosition ? 16 : 4)));
     let drag = null, wheelAt = 0;
     node.classList.add("site-map");
