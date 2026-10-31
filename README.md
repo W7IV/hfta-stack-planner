@@ -89,10 +89,10 @@ antenna type, heights, ground, diffraction, FOM), `combination.csv` (how runs co
 The app runs locally; nothing is sent to a server.
 
 **Windows (no installation):** download `HFTA-Stack-Planner-windows-<version>.zip` from the Releases page, unzip it
-anywhere, double-click **Start HFTA Stack Planner.bat**, and the browser opens http://localhost:5055. The package
-holds its own Python, the OpenHFTA core and VOACAP; your projects stay in its `data` folder. Windows 11 Smart App Control can block downloaded batch launchers. If the extracted launcher is blocked,
-verify the download source, then check its file Properties for an **Unblock** checkbox. Do not disable
-Smart App Control just to run this program. The package is built by
+anywhere, double-click **Start HFTA Stack Planner.exe**, and the browser opens http://localhost:5055. The package
+holds its own Python, the OpenHFTA core and VOACAP; your projects stay in its `data` folder. The Windows package uses a small native launcher rather than a batch script. This unsigned executable
+may still be blocked by Smart App Control or SmartScreen; use the local Docker image if blocked,
+and report the exact Windows warning rather than disabling security protections. The package is built by
 `tools/build_windows.sh` and checked against the original-HFTA output before it is zipped.
 
 **macOS, Linux, Windows with Docker:**
