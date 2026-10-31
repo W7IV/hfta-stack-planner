@@ -36,7 +36,7 @@ jobs:
     needs: [windows]
     # For version tags, the signed ZIP is mandatory before publishing.
     # Manual runs from main allow an initial signing test without publishing.
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: windows-2025
     environment: artifact-signing
     permissions:
