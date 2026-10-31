@@ -1505,6 +1505,84 @@ function showHelp() {
 }
 
 /* ---------------------------------------------------------------- one-tower compromise */
+/* Map a saved physical tower into Stack Designer search constraints.
+   The saved tower is never mutated. Actual antenna heights are kept as
+   reference values, while Designer searches alternatives up to tower height.
+   The engine requires each frequency band to use one antenna type per group. */
+function designerSettingsFromTower(tower, project, previous = {}) {
+  const antennas = tower.antennas || [];
+  if (!antennas.length) throw new Error("This tower has no antennas to load.");
+  const types = new Map();
+  let had6m = false;
+  for (const antenna of antennas) {
+    const h = Number(antenna.h);
+    if (!Number.isFinite(h) || h <= 0) throw new Error("A tower antenna has an invalid height.");
+    const all = elOf(antenna);
+    if (all["6"]) had6m = true;
+    const el = Object.fromEntries(Object.entries(all).filter(([b]) => b !== "6"));
+    if (!Object.keys(el).length) {
+      // A 6 m antenna can be shown on Towers, but OpenHFTA does not score it.
+      continue;
+    }
+    const turning_radius = antenna.turning_radius == null ? null : Number(antenna.turning_radius);
+    const droop = antenna.droop == null ? null : Number(antenna.droop);
+    const key = JSON.stringify({ el: Object.entries(el).sort(), turning_radius, droop });
+    if (!types.has(key)) types.set(key, { el, turning_radius, droop, heights: [] });
+    types.get(key).heights.push(h);
+  }
+  if (!types.size) throw new Error("This tower only contains 6 m antennas. Stack Designer requires a band HFTA can score.");
+  const models = [...types.values()];
+  const seen = new Map();
+  for (const model of models) {
+    for (const band of Object.keys(model.el)) {
+      if (seen.has(band)) throw new Error(
+        `The saved tower has incompatible antenna models on ${band} m. Stack Designer requires a single type per band; adjust the tower models before importing.`
+      );
+      seen.set(band, model);
+    }
+    if (model.heights.length > 4) throw new Error("Stack Designer supports at most four antennas of one type.");
+  }
+  const physicalTop = Math.max(...antennas.map(a => Number(a.h)));
+  const listedTop = Number(tower.height_ft);
+  const max_height = Number.isFinite(listedTop) && listedTop > 0
+    ? Math.max(listedTop, physicalTop) : physicalTop;
+  const groups = models.map(model => {
+    const heights = [...model.heights].sort((a, b) => a - b);
+    const gaps = heights.slice(1).map((h, i) => h - heights[i]);
+    return {
+      name: describe({ el: model.el }), el: { ...model.el },
+      count: heights.length, count_max: null,
+      lo: "", hi: max_height, step: 5,
+      min_spacing: gaps.length ? Math.min(30, ...gaps) : 30,
+      equal_tol: "", turning_radius: model.turning_radius, droop: model.droop,
+      source_heights_ft: heights,
+    };
+  });
+  // Preserve the saved layout's cross-band minimum separation as an allowed
+  // starting configuration rather than silently excluding its real geometry.
+  const gaps = [];
+  for (let i = 0; i < models.length; i++) {
+    for (let j = i + 1; j < models.length; j++) {
+      for (const hi of models[i].heights) for (const hj of models[j].heights) gaps.push(Math.abs(hi - hj));
+    }
+  }
+  const site = project.sites.some(x => x.id === tower.site) ? tower.site : (project.sites[0]?.id || "");
+  const targets = project.targets || [];
+  const weights = Object.fromEntries(targets.map(t => [t.id,
+    tower.targets == null || tower.targets.includes(t.id) ? (previous.weights?.[t.id] > 0 ? previous.weights[t.id] : 1) : 0]));
+  const guyCount = (tower.guys?.levels || []).length;
+  return {
+    ...previous, source_tower_id: tower.id, source_tower_name: tower.name,
+    site, switching: tower.switching || "stackmatch",
+    max_height, min_gap: gaps.length ? Math.min(15, ...gaps) : 15,
+    guys_from_tower: guyCount ? tower.id : "",
+    groups, weights, range_blanked: true,
+    import_note: had6m
+      ? "Any 6 m antennas were excluded: OpenHFTA does not score 6 m. They remain on the saved tower."
+      : "",
+  };
+}
+
 function compForm() {
   const p = P();
   p.settings.compromise = p.settings.compromise || { site: p.sites[0]?.id, weights: {}, switching: "stackmatch", min_gap: 15, max_height: 160, guys_from_tower: "",
@@ -1523,6 +1601,14 @@ function compCard() {
   $("#compCard").innerHTML = `<div class="card hfta" style="margin-top:14px"><h2>Stack Designer <span class="chip good">HFTA</span></h2>
   <p class="small mute">Searches the heights of one tower for the best result over all ticked targets together. For each target and band the best stack-switch setting is used,
   as in Compare. Score per target = mean over bands; overall = weighted mean over targets. Every number is HFTA runs plus this arithmetic.</p>
+  <div class="row"><label>Load an existing tower<select id="cmSourceTower">
+    <option value="">Choose tower…</option>${p.towers.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("")}</select></label>
+    <button type="button" class="ghost" id="cmLoadTower" title="Copy tower height, antenna models and counts into this Stack Designer; your saved tower remains unchanged">Load into designer</button>
+    <span class="small mute">Copies tower height, antennas, bands and counts. Existing Designer settings will be replaced; the saved tower is unchanged.</span></div>
+  ${f.source_tower_name ? `<div class="note small"><b>Loaded from ${esc(f.source_tower_name)}.</b> Original antenna heights:
+    ${f.groups.map(g => `${esc(g.name)} at ${(g.source_heights_ft || []).map(h => h + " ft").join(", ") || "unknown"}`).join("; ")}.
+    The original heights are a reference; Stack Designer searches alternative heights up to the tower limit.
+    ${f.import_note ? esc(f.import_note) : ""}</div>` : ""}
   <div class="row"><label>Site<select id="cmSite">${p.sites.map(x => `<option value="${x.id}" ${x.id === f.site ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
     <label>Switching<select id="cmSw"><option value="stackmatch" ${f.switching === "stackmatch" ? "selected" : ""}>Stack switch: all, pairs, singles</option><option value="full" ${f.switching === "full" ? "selected" : ""}>Whole stack only</option><option value="all" ${f.switching === "all" ? "selected" : ""}>Every combination</option></select></label>
     <label>Tower height (ft)<input type="number" id="cmMax" value="${f.max_height}" title="Highest height any antenna may have. Every group's To (ft) follows it unless you change that group's To"></label>
@@ -1531,7 +1617,7 @@ function compCard() {
       <option value="any" ${(f.order || "any") === "any" ? "selected" : ""}>Any (HFTA decides)</option>
       <option value="first_top" ${f.order === "first_top" ? "selected" : ""}>As listed, first group on top</option>
       <option value="first_bottom" ${f.order === "first_bottom" ? "selected" : ""}>As listed, first group at the bottom</option></select></label>
-    <label>Respect guys of<select id="cmGuy"><option value="">no guy check</option>${guyTowers.map(t => `<option value="${t.id}" ${t.id === f.guys_from_tower ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label></div>
+    <label>Guy constraints only (from tower)<select id="cmGuy"><option value="">no guy check</option>${guyTowers.map(t => `<option value="${t.id}" ${t.id === f.guys_from_tower ? "selected" : ""}>${esc(t.name)}</option>`).join("")}</select></label></div>
   <h3 class="small" style="margin:12px 0 4px">Targets and weights</h3>
   <div class="row">${p.targets.map(t => `<label style="flex-direction:row;align-items:center;gap:4px"><input type="checkbox" data-ct="${t.id}" ${f.weights[t.id] !== 0 ? "checked" : ""}>${esc(t.name)}
     <input type="number" class="s" step="0.5" min="0" data-cw="${t.id}" value="${f.weights[t.id] ?? 1}" title="Weight"></label>`).join("")}</div>
@@ -1548,6 +1634,18 @@ function compCard() {
   <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Design the stack</button></div>
   <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
   const sv = () => save();
+  $("#cmSourceTower").value = f.source_tower_id && p.towers.some(t => t.id === f.source_tower_id) ? f.source_tower_id : "";
+  $("#cmLoadTower").onclick = async () => {
+    const selected = p.towers.find(t => t.id === $("#cmSourceTower").value);
+    if (!selected) { toast("Select an existing tower first.", 5000); return; }
+    let loaded;
+    try { loaded = designerSettingsFromTower(selected, p, f); }
+    catch (error) { toast(error.message, 8000); return; }
+    if (!confirm(`Load ${selected.name}'s height and antenna configuration into Stack Designer? This replaces the current Designer form, but does not modify the saved tower.`)) return;
+    p.settings.compromise = loaded;
+    try { await save(true); compCard(); toast(`Loaded ${selected.name}: ${loaded.max_height} ft, ${selected.antennas.length} antennas.`, 6000); }
+    catch (error) { toast("Could not save imported tower: " + error.message, 8000); }
+  };
   $("#cmSite").onchange = e => { f.site = e.target.value; sv(); }; $("#cmSw").onchange = e => { f.switching = e.target.value; sv(); };
   $("#cmMax").onchange = e => { const old = Number(f.max_height); f.max_height = Number(e.target.value);
     f.groups.forEach(g => { if (g.hi === "" || g.hi == null || Number(g.hi) === old || Number(g.hi) > f.max_height) g.hi = f.max_height; }); sv(); compCard(); }; $("#cmGap").onchange = e => { f.min_gap = Number(e.target.value); sv(); compCard(); };
