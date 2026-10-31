@@ -5,11 +5,13 @@ No external network calls: upstream failures are simulated.
 """
 import io
 import os
+import sys
 import tempfile
 import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 ROOT = Path(tempfile.mkdtemp(prefix="hfta-terrain-failure-"))
 os.environ["PROJECTS_DIR"] = str(ROOT / "projects")
 os.environ.pop("APP_PASSWORD", None)
