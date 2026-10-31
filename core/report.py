@@ -166,7 +166,7 @@ def html_report(proj, slug, res, layers_on, guy_rows=None) -> str:
         o.append("</table></div><p class=mute>&#9888; = spacing warning on that band (see Towers above).</p>")
         if bands and series:
             o.append("<p class=mute>Elevation curves: the gain at each 0.25-degree elevation increment, from a terrain heading nearest the target centre. "
-                     "FOM in the legend is averaged over the target's selected headings and is not the maximum plotted gain. "
+                     "FOM in the legend is for the shown heading; the target-wide mean is in the table above. Neither FOM is the maximum plotted gain. "
                      "FOM summaries remain in the table above; faded bars represent arrival-angle probabilities.</p>")
             for band in bands:
                 svg = _svg_elevation_patterns(proj, slug, t, band, cells, res, S, TW)
