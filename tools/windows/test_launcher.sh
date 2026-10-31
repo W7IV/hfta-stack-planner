@@ -17,7 +17,8 @@ trap cleanup EXIT
 echo "Starting packaged Windows EXE under Wine (no batch file)"
 (
   cd "$PKG"
-  HFTA_NO_BROWSER=1 WINEDEBUG=-all wine "$PKG/Start HFTA Stack Planner.exe" >"$LOG" 2>&1
+  # Wine's embedded Python needs a valid console/PTY for standard streams.
+  HFTA_NO_BROWSER=1 WINEDEBUG=-all script -qec "wine \"$PKG/Start HFTA Stack Planner.exe\"" /dev/null >"$LOG" 2>&1
 ) &
 PID=$!
 
