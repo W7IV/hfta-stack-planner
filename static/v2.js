@@ -361,7 +361,7 @@ function prnGenDialog() {
   <div class="row"><label>Hours (UTC)<select name="hours"><option value="">all 24 hours</option><option value="0-12">00–12 (evening and night in the Americas)</option><option value="12-24">12–24</option><option value="custom">from–to below</option></select></label>
     <label>From<input name="h1" type="number" min="0" max="23" value="0" style="width:70px"></label><label>To<input name="h2" type="number" min="1" max="24" value="24" style="width:70px"></label></div>
   <div class="row"><span class="small mute" style="align-self:center">Solar activity (sunspot number):</span>${(META.ssn_levels || []).map(([k, v]) => `<label style="flex-direction:row;align-items:center;gap:3px"><input type="checkbox" name="ssn" value="${v}" checked>${k} (${v})</label>`).join("")}</div>
-  <p class="small mute">All months, all hours and all three solar levels give a table like the ARRL files. Fewer months or hours give a table for that season or time of day; one solar level gives a table for that part of the cycle. A table takes about half a minute.</p>
+  <p class="small mute">All months, all hours and all three solar levels give tables like the ARRL files. Fewer months or hours give a table for that season or time of day; one solar level gives a table for that part of the cycle. Each checked region produces a separate file; a batch of all regions may take several minutes. Progress and Cancel appear in the Targets page.</p>
   <div class="row"><button type="submit">Generate</button><button type="button" class="ghost" id="genCancel">Cancel</button></div></form>`);
   const f = $("#genForm");
   const regionChecks = () => [...f.querySelectorAll('[name=region]')];
