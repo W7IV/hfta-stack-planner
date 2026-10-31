@@ -23,6 +23,7 @@ jobs:
           git -C ../openhfta checkout 7d62e863f1d27372c97df3ac6ef53092fb58bd50
           make -C ../openhfta all
       - run: python tests/test_accounts.py
+      - run: python tests/test_terrain_fetch_errors.py
       - run: python tests/test_disclaimer_presence.py
   docker-build:
     runs-on: ubuntu-24.04
