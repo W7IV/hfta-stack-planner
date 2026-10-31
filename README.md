@@ -194,7 +194,8 @@ is no login and one store.
 - Terrain requests leave the server only on the user's click: "Fetch terrain online" sends the site position to
   USGS (3DEP) or to Amazon's Terrain Tiles service, which see that position and the server's address. The VOACAP
   calculation and everything else run on the server.
-- Opening **Pick location on map** sends visible map-tile requests directly from the user's browser to OpenStreetMap, revealing the viewed area and the requesting IP address. Map tiles require internet; no location services or tracking scripts are used. Users should avoid opening the map for confidential station positions when sharing the map area with an outside provider is unacceptable.\n- The web server's access log (kept by Railway) records addresses, paths and times, not the contents of requests.
+- Opening **Pick location on map** sends visible map-tile requests directly from the user's browser to OpenStreetMap, revealing the viewed area and the requesting IP address. Map tiles require internet; no location services or tracking scripts are used. Users should avoid opening the map for confidential station positions when sharing the map area with an outside provider is unacceptable.
+- The web server's access log (kept by Railway) records addresses, paths and times, not the contents of requests.
 - The login cookie holds only the user name, signed; it expires after 30 days or at logout.
 
 **Moving a project:** Report → "Project with files (zip)" on one copy, then "Open project zip" on the other.
