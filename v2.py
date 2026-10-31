@@ -296,6 +296,8 @@ def site_auto(slug, sid):
         if src == "3dep": out = TR.fetch_dem_and_generate(*args, *opts)
         elif src == "tiles": out = TR.fetch_tiles_and_generate(*args, P.DATA_DIR / "_cache" / "hgt", *opts)
         else: return err("source must be 3dep, tiles or auto")
+    except TR.TerrainServiceTemporaryError as e:
+        return jsonify({"error": f"Auto terrain: {e}", "retryable": True}), 503
     except Exception as e:  # noqa: BLE001
         return err(f"Auto terrain: {e}")
     return jsonify(out)
