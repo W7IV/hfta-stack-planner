@@ -6,6 +6,12 @@ HFTA Stack Planner for Windows (64-bit)
    Your browser opens http://localhost:5055 . If it does not, open that address yourself.
 3. To stop: close the black window.
 
+IMPORTANT WHEN UPGRADING: Close every old HFTA console first. Only one instance can use
+http://127.0.0.1:5055 at a time. The launcher now refuses to start when that port is
+in use, so a newer version never silently opens an older installation in your browser.
+If you see an occupied-port error, close the old HFTA window (or stop the service
+using port 5055) and launch again.
+
 The program uses a native Windows launcher, not a downloaded batch script. Windows 11
 Smart App Control or SmartScreen may still flag an unsigned/unfamiliar executable.
 Only run software downloaded from the official release page after verifying its source.
