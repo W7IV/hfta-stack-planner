@@ -674,6 +674,7 @@ function towerSvg(t) {
 function rTowers() {
   const p = P(), el = $("#p-towers");
   el.innerHTML = `<h1>Towers</h1><p class="lead">Each tower is a stack of antennas. On each band, the antennas that work on that band form one HFTA stack (at most four, one antenna type).
+  A study can contain just one tower with one antenna; you do not need to create alternatives to evaluate it.
   HFTA treats the antennas as facing the azimuth of the terrain file. Tick the targets each tower serves: that choice sets the directions it is evaluated in.
   Location: pick the site (from the Sites page) where this tower stands, or leave "Every site" to try the tower at all sites and compare them.</p>
   <div id="spcCard"></div><div id="towerCards"></div><div class="row"><button id="addTw">Add tower</button><button class="ghost" id="libTw" title="Add a tower saved from another project">Add from library…</button></div><div id="compCard"></div><div id="scanCard"></div>`;
@@ -820,7 +821,7 @@ function scanCard() {
 }
 /* Progress of a background job, with a Cancel link beside the bar. Cancel asks the server to stop the job at its next
    step; the job then ends with the error "Cancelled", which is reported like any other. */
-async function poll(job, bar) {
+async function poll(job, bar, onError = null) {
   bar.hidden = false; const i = $("i", bar);
   let stop = bar.nextElementSibling && bar.nextElementSibling.classList.contains("jobctl") ? bar.nextElementSibling : null;
   if (!stop) { stop = document.createElement("div"); stop.className = "jobctl small"; bar.insertAdjacentElement("afterend", stop); }
@@ -832,7 +833,7 @@ async function poll(job, bar) {
       i.style.width = j.total ? `${100 * j.done / j.total}%` : "5%";
       $("[data-ph]", stop).textContent = j.total ? `${j.phase}: ${j.done} of ${j.total} runs` : (j.phase || "");
       if (j.state === "done") return j.result;
-      if (j.state === "error") { toast(j.error, 6000); return null; }
+      if (j.state === "error") { if (onError) onError(j.error || "Calculation failed"); else toast(j.error, 6000); return null; }
       await new Promise(r => setTimeout(r, 600));
     }
   } finally { bar.hidden = true; stop.hidden = true; }
@@ -845,15 +846,40 @@ async function rCompare() {
   el.innerHTML = `<h1>Compare</h1><p class="lead">Every value is an HFTA Figure of Merit (dB, higher is better). Click a value to see the HFTA runs behind it and how to reproduce it.
     Differences of 0.3 dB or less are not significant.</p>
   <div class="grid2"><div class="card"><h2>Run</h2><p class="small mute" id="runInfo">${S.has_results ? "Last run " + esc(S.results_stamp) + "." : "Not run yet."}
-    Runs already computed with the same inputs are reused.</p><div class="row"><button id="evalBtn">Evaluate</button></div><div class="prog" hidden id="evProg"><i></i></div></div>
+    Runs already computed with the same inputs are reused. <b>One tower is sufficient</b>, including a tower with a single antenna.</p>
+    <div id="evalNotice" class="note" role="status" hidden></div>
+    <div class="row"><button id="evalBtn">Evaluate</button></div><div class="prog" hidden id="evProg"><i></i></div></div>
   <div class="card aux"><h2>Spacing warnings <span class="chip">not part of HFTA</span></h2>
     <p class="small">A <span class="sp red">&#9888;</span> or <span class="sp amber">&#9888;</span> beside a value: the antennas on that band are too close or close
     (set the limits in step 3). HFTA has no mutual coupling, so the value is probably optimistic. The value itself is still the plain HFTA-method result.</p></div></div>
   <div class="card"><div class="row" id="cmpCtl"></div><div class="tbl" style="margin-top:10px"><table id="cmpTbl"></table></div><div id="cmpPlot" class="plot"></div></div>`;
+  const evalNotice = $("#evalNotice");
+  const showEvalNotice = (message) => {
+    evalNotice.textContent = message; evalNotice.hidden = false; evalNotice.setAttribute("role", "alert");
+  };
+  const readiness = checkReady();
+  if (readiness) showEvalNotice("Before evaluating: " + readiness);
   $("#evalBtn").onclick = async () => {
-    await save(true); const bad = checkReady(); if (bad) return toast(bad, 5000);
-    const { job } = await api("POST", `/api/v2/p/${SLUG}/evaluate`); const r = await poll(job, $("#evProg"));
-    if (r) { toast(`${r.cells} results from ${r.runs} HFTA runs (${r.reused} reused)${r.failed ? `, ${r.failed} failed` : ""}${r.filled ? `, ${r.filled} with filled angles (marked *)` : ""}`); S = await api("GET", `/api/v2/p/${SLUG}`); rCompare(); }
+    try {
+      await save(true);
+      const bad = checkReady();
+      if (bad) { showEvalNotice("Cannot evaluate: " + bad); return; }
+      evalNotice.hidden = true;
+      const { job } = await api("POST", `/api/v2/p/${SLUG}/evaluate`);
+      const r = await poll(job, $("#evProg"), showEvalNotice);
+      if (r) {
+        if (r.cells === 0) showEvalNotice("No evaluable site/tower/target/band combinations. Check that your one tower serves at least one target, that its antennas use that target's bands, and that the target has an elevation-angle table.");
+        else evalNotice.hidden = true;
+        S = await api("GET", `/api/v2/p/${SLUG}`);
+        // rCompare reconstructs the page; render the result before the notice so it remains visible.
+        await rCompare();
+        if (r.cells === 0) {
+          const n = $("#evalNotice");
+          n.textContent = "No evaluable combinations. Check the tower's Served targets, selected bands and target .PRN files.";
+          n.hidden = false; n.setAttribute("role", "alert");
+        }
+      }
+    } catch (err) { showEvalNotice("Evaluation failed: " + err.message); }
   };
   RES = await api("GET", `/api/v2/p/${SLUG}/results`);
   if (!RES.cells.length) { $("#cmpTbl").innerHTML = `<tr><td class="mute">No results yet. Press Evaluate.</td></tr>`; return; }
