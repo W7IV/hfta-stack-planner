@@ -8,8 +8,12 @@
  * Unsigned native EXEs can still be blocked by Smart App Control.
  * This launcher is not a substitute for trusted Authenticode signing.
  */
+#ifndef UNICODE
 #define UNICODE
+#endif
+#ifndef _UNICODE
 #define _UNICODE
+#endif
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
