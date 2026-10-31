@@ -68,7 +68,7 @@ const invalid = [
   { id: "mixed", antennas: [{ h: 70, el: { "20": 3 } }, { h: 110, el: { "20": 4 } }] },
   { id: "badheight", antennas: [{ h: -10, el: { "20": 4 } }] },
 ];
-for (const v of invalid) assert.throws(() => convert(v, project), Error, v.id);
+for (const v of invalid) assert.throws(() => convert(v, project), { name: "Error" }, v.id);
 
 // This user-facing distinction is important: selecting a guy constraint
 // must not pretend to import antenna and tower height.
