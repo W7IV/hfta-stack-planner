@@ -49,7 +49,7 @@ models. Two checks are added as notes only; they never change a number:
 | Guy and ice check | Turning antennas against guy wires, with guy sag and element droop under radial ice (assumptions and range: core/guys.py). |
 
 ## Workflow (five steps)
-1. **Sites**: one or more tower positions on the property. Terrain fetched online for any place in the world (USGS
+1. **Sites**: one or more tower positions on the property. Choose coordinates manually or use **Pick location on map** (interactive OpenStreetMap tiles, online only). Changing coordinates from the map clears that site's old terrain profiles and previous comparison results, so fetch terrain again. Terrain fetched online for any place in the world (USGS
    3DEP in the US, AWS Terrain Tiles elsewhere), from MicroDEM .PRO files, K6TU one-degree terrain sets
    (https://www.k6tu.net), or generated from a DEM file (GeoTIFF or ESRI ASCII grid). Compare the sites' profiles
    and ground slope side by side.
