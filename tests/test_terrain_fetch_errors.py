@@ -39,7 +39,7 @@ with patch.object(TR, "fetch_dem_and_generate", side_effect=TR.TerrainServiceTem
     response = submit()
     assert response.status_code == 503, response.data
     error = response.get_json()
-    assert error["retryable"] is True and "try again" in error["error"].lower(), error
+    assert error["retryable"] is True and "temporarily unavailable" in error["error"].lower(), error
 
 with patch.object(TR, "fetch_dem_and_generate", side_effect=ValueError("USGS 3DEP has no data at the site.")):
     response = submit()
