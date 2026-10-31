@@ -23,7 +23,7 @@ assert "exclude-environment-credential: true" in wf
 assert "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'" in wf
 assert "needs: [windows-sign, docker]" in wf, "Public release must depend on signing."
 assert "name: windows-signed-package, path: dist" in wf
-assert "name: windows-package, path: dist" not in wf, "Never publish original unsigned ZIP."
+assert "with: { name: windows-package, path: dist }" not in wf, "Never publish original unsigned ZIP."
 assert "files: ${{ steps.targets.outputs.files }}" in wf
 assert "Get-AuthenticodeSignature" in ps
 assert "TimeStamperCertificate" in ps
