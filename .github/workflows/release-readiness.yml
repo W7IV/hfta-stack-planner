@@ -53,10 +53,11 @@ jobs:
           p, = glob.glob("dist/*.zip")
           with zipfile.ZipFile(p) as z:
               names = z.namelist()
-              required = ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/PLOTLY-MIT.txt", "voacap/COPYING", "voacap/AUTHORS", "openhfta/LICENSE", "licenses/runtime/python-dependencies.json", "licenses/runtime/PYTHON-DEPENDENCIES.md", "DISCLAIMER.md")
+              required = ("LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/PLOTLY-MIT.txt", "voacap/COPYING", "voacap/AUTHORS", "openhfta/LICENSE", "licenses/runtime/python-dependencies.json", "licenses/runtime/PYTHON-DEPENDENCIES.md", "DISCLAIMER.md", "Start HFTA Stack Planner.exe")
               for name in required:
                   assert any(n.endswith("/" + name) for n in names), name
-              print("Checked", len(names), "files in", p)
+              assert not any(n.endswith("/Start HFTA Stack Planner.bat") for n in names), "batch file must not be packaged as root launcher"
+              print("Checked native launcher and", len(names), "files in", p)
           PY
       - uses: actions/upload-artifact@v4
         with:

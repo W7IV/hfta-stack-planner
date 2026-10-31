@@ -62,6 +62,6 @@ jobs:
         with:
           files: dist/*.zip
           body: |
-            **Windows:** download the zip, unzip, double-click "Start HFTA Stack Planner.bat". No installation.
+            **Windows:** download the zip, unzip, double-click "Start HFTA Stack Planner.exe". No installation or batch scripts. If Windows Smart App Control blocks the unsigned executable, use Docker and report the warning.
             **macOS / Linux / Windows with Docker:** `docker run -p 127.0.0.1:5055:5055 -v hfta-data:/data ghcr.io/w7iv/hfta-stack-planner:${{ github.ref_name }}` then open http://localhost:5055
             Getting started: open Help in the planner, or /guide.

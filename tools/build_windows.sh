@@ -4,7 +4,7 @@
 #   app/       this repository (working tree, without .git)
 #   openhfta/  hfta.py + OpenYTWCore.dll cross-compiled with MinGW gfortran from the pinned OpenHFTA commit
 #   voacap/    voacapl.exe cross-compiled with MinGW + its data folder (coefficient binaries made by the Windows tools under Wine)
-#   Start HFTA Stack Planner.bat, README-Windows.txt
+#   Start HFTA Stack Planner.exe (native launcher), README-Windows.txt
 # Needs: gfortran-mingw-w64-x86-64, gcc-mingw-w64-x86-64, automake, autoconf, wine (the package that provides the `wine` command; wine64 alone does not), python3 + pip, curl, zip.
 # Usage: tools/build_windows.sh [output dir]   -> HFTA-Stack-Planner-windows-<version>.zip
 set -euo pipefail
@@ -60,13 +60,23 @@ find "$PKG/voacap" \( -name "*.exe" -o -name "*.o" -o -name "Makefile*" -o -name
 echo "== app"
 mkdir -p "$PKG/app" "$PKG/data/projects"
 ( cd "$REPO" && tar c --exclude=.git --exclude=__pycache__ --exclude=projects --exclude=COMMIT --exclude=dist --exclude=Dockerfile --exclude=docker-entrypoint.sh . ) | tar x -C "$PKG/app"
-cp "$REPO/tools/windows/Start HFTA Stack Planner.bat" "$REPO/tools/windows/README-Windows.txt" "$PKG/"
+cp "$REPO/tools/windows/README-Windows.txt" "$PKG/"
+echo "== native Windows launcher (no batch interpreter)"
+x86_64-w64-mingw32-gcc -O2 -Wall -Wextra -Werror -municode \
+  "$REPO/tools/windows/launcher.c" -o "$PKG/Start HFTA Stack Planner.exe" \
+  -lws2_32 -lshell32
+test -s "$PKG/Start HFTA Stack Planner.exe"
 echo "$VERSION" > "$PKG/VERSION"
 
 echo "== check: the Windows build must still match the original HFTA (under Wine)"
 # (script gives Wine a terminal; without one Python cannot open its standard streams)
 ( cd "$PKG" && OPENHFTA_DIR="$(winepath -w "$PKG/openhfta")" wpy app/tests/test_hfta_match.py | tee "$WORK/check.log" | tail -2 )
 grep -q "PASS: matches the original HFTA" "$WORK/check.log"
+
+echo "== launcher smoke test (native EXE -> bundled Python -> loopback HTTP)"
+# This runs the distributed EXE, not the legacy batch script, and validates /healthz.
+# No shell or browser is invoked by the program. Wine runs only in CI/build.
+bash "$REPO/tools/windows/test_launcher.sh" "$PKG" "$WORK"
 
 echo "== bundled Python license inventory"
 mkdir -p "$PKG/licenses/runtime"
