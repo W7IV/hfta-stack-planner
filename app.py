@@ -6,6 +6,9 @@ Env:  OPENHFTA_DIR  path to the OpenHFTA checkout (default ../openhfta)
       HFTA_WORKERS  number of calculation processes (default: CPU count)
       PROJECTS_DIR  where projects are stored (default ./projects; on a host, a persistent volume)
       APP_PASSWORD  if set, the browser asks for it (any user name). Use it when the app is on the internet.
+      PUBLIC_MODE   1 = public copy: no accounts, one private workspace per browser (not together with APP_PASSWORD)
+      MAX_UPLOAD_MB largest upload in megabytes (default 512)
+      TRUSTED_PROXY_HOPS  proxies in front of the app that add to X-Forwarded-For (default 1 when hosted, else 0)
 
 Model of a request
   bands : one or more bands analysed with the SAME physical heights (single-band or tribander).
@@ -16,22 +19,32 @@ Model of a request
 from __future__ import annotations
 
 import os
-import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from urllib.parse import quote
 
 from flask import Flask, jsonify, render_template, request
 
 import engine
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
+# One upload limit for the whole app. DEM files can be large and a copy on your own computer needs them, so the
+# default is 512 MB. A hosted copy that many people use can set a lower value.
+MAX_UPLOAD_MB = int(os.environ.get("MAX_UPLOAD_MB", "25" if os.environ.get("PUBLIC_MODE") == "1" else "512"))
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
 
-# A hosted copy must have a password. Railway sets RAILWAY_ENVIRONMENT; HOSTED=1 marks any other server.
-if (os.environ.get("HOSTED") == "1" or os.environ.get("RAILWAY_ENVIRONMENT")) and not APP_PASSWORD:
+# Public mode: no accounts; every browser gets its own private workspace (core/workspaces.py). Off by default.
+PUBLIC_MODE = os.environ.get("PUBLIC_MODE") == "1"
+if PUBLIC_MODE and APP_PASSWORD:
+    raise SystemExit("PUBLIC_MODE=1 and APP_PASSWORD are both set. A copy is either public or password-protected: "
+                     "unset one of them and start again.")
+
+# A hosted copy must have a password, unless it is a public copy. Railway sets RAILWAY_ENVIRONMENT; HOSTED=1 marks
+# any other server.
+if (os.environ.get("HOSTED") == "1" or os.environ.get("RAILWAY_ENVIRONMENT")) and not APP_PASSWORD and not PUBLIC_MODE:
     raise SystemExit("Hosted copy without APP_PASSWORD: set APP_PASSWORD (or unset HOSTED) and start again.")
 
 
@@ -53,9 +66,14 @@ def _same_origin():
 
 # ---------------------------------------------------------------- accounts (hosted copy)
 from flask import session, redirect, g, abort  # noqa: E402
-from core import project as P, users as U  # noqa: E402
+from core import limits as LM, project as P, stats as ST, users as U, workspaces as W  # noqa: E402
 
-if APP_PASSWORD:
+if PUBLIC_MODE:
+    # Anonymous daily usage counts (core/stats.py): every refusal of a limit and every wait in line is counted.
+    ST.ENABLED = True
+    LM.HOOKS.update(refused=ST.refused, queued=ST.queued)
+
+if APP_PASSWORD or PUBLIC_MODE:
     app.secret_key = U.secret_key()
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                       SESSION_COOKIE_SECURE=bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("HOSTED") == "1"),
@@ -68,6 +86,8 @@ def _login():
     admin. Each user works in their own project store. Basic authentication with APP_PASSWORD still works for the
     admin (scripts). Without APP_PASSWORD (own computer) there is no login and one store."""
     P.set_root(None); g.user = None
+    if PUBLIC_MODE:
+        return _public_gate()
     if not APP_PASSWORD or request.path == "/healthz" or request.path.startswith("/static/"):
         return None
     if request.path in ("/login", "/logout", "/guide"):
@@ -85,16 +105,155 @@ def _login():
     return redirect("/login?next=" + request.path)
 
 
+# Number of proxies in front of the app that each add an address to X-Forwarded-For. Railway: 1. On your own computer: 0.
+PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS",
+                                "1" if (os.environ.get("HOSTED") == "1" or os.environ.get("RAILWAY_ENVIRONMENT")) else "0"))
+
+
+def client_key() -> str:
+    """Address used for the login lock-out. A client can write anything into X-Forwarded-For, so only the address
+    added by our own proxy is trusted: the PROXY_HOPS-th value from the right. With no proxy, the direct address."""
+    parts = [p.strip() for p in request.headers.get("X-Forwarded-For", "").split(",") if p.strip()]
+    if PROXY_HOPS > 0 and len(parts) >= PROXY_HOPS:
+        return parts[-PROXY_HOPS]
+    return request.remote_addr or "?"
+
+
+@app.before_request
+def _limits():
+    """Public copy: limits that depend on the request (projects, uploads, terrain fetches, VOACAP tables). Registered
+    after _login, so the workspace is already chosen. Calculations are limited where they are registered."""
+    if not LM.enabled() or request.method != "POST" or not hasattr(g, "workspace"):
+        return None
+    try:
+        LM.guard_request(request, g.workspace, W.workspace_dir(g.workspace), lambda: len(P.list_projects()))
+    except LM.LimitError as e:
+        return jsonify({"error": str(e)}), e.status
+    return None
+
+
+@app.errorhandler(LM.LimitError)
+def _limit_reached(e):
+    return jsonify({"error": str(e)}), e.status
+
+
+def _safe_next(nxt) -> str:
+    """Only a path on this server: starts with one slash, not two."""
+    return nxt if isinstance(nxt, str) and nxt.startswith("/") and not nxt.startswith("//") else "/"
+
+
+def _public_gate():
+    """Public copy: a visitor needs a workspace. Without a valid one, pages go to the notice page and API calls get
+    the same 401 answer as a login (the page script then opens the notice page). The base project store is never
+    used in public mode."""
+    if request.path == "/admin" or request.path.startswith("/admin/"):
+        abort(404)                            # there is no administrator page, whoever asks
+    if request.path == "/healthz" or request.path.startswith("/static/") or request.path in ("/welcome", "/guide", "/privacy", "/stats"):
+        return None
+    wid = session.get("ws")
+    if W.exists(wid):
+        P.set_root(W.root_for(wid)); g.workspace = wid; W.touch(wid); ST.active(wid)
+        return None
+    session.pop("ws", None)
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Please accept the notice first", "login": True}), 401
+    return redirect("/welcome?next=" + quote(request.path))
+
+
+REPO_URL = "https://github.com/W7IV/hfta-stack-planner"
+USAGE_COUNTS = PUBLIC_MODE   # a public copy keeps anonymous daily usage counts (core/stats.py); the privacy page says so
+
+
+@app.context_processor
+def _public_context():
+    """Texts of a public copy for the page templates (footer, privacy page). None on any other copy: no footer."""
+    if not PUBLIC_MODE:
+        return {"public": None}
+    return {"public": {"operator": os.environ.get("OPERATOR_NAME", "Paul F. Merrill, W7IV").strip(),
+                       "contact": os.environ.get("OPERATOR_CONTACT", "").strip(),
+                       "expiry_days": W.expiry_days(), "workspace_mb": LM.CFG["workspace_mb"],
+                       "usage_counts": USAGE_COUNTS, "prn_upload": LM.prn_upload_allowed(),
+                       "repo": REPO_URL, "releases": REPO_URL + "/releases/latest"}}
+
+
+@app.get("/privacy")
+def privacy_page():
+    if not PUBLIC_MODE: abort(404)       # the privacy note describes a public copy
+    return render_template("privacy.html")
+
+
+STATS_JOBS = [("hfta", "HFTA runs"), ("designer", "Designer"), ("scan", "Height scans"), ("voacap", "VOACAP tables"),
+              ("terrain", "Terrain fetches"), ("classic", "Classic optimiser")]
+
+
+@app.get("/stats")
+def stats_page():
+    """Usage counts for the operator. Only on a public copy with STATS_PASSWORD set (any user name); otherwise 404.
+    Shows totals only: the counts hold no address and no workspace number (core/stats.py)."""
+    import hmac
+    pw = os.environ.get("STATS_PASSWORD", "")
+    if not PUBLIC_MODE or not pw:
+        abort(404)
+    key = "stats:" + client_key()
+    if U.too_many_failures(key):
+        return "Too many failed attempts. Wait five minutes.", 429
+    a = request.authorization
+    if not (a and a.type == "basic" and a.password and hmac.compare_digest(a.password, pw)):
+        if a: U.note_failure(key)
+        return "Password required.", 401, {"WWW-Authenticate": 'Basic realm="HFTA Stack Planner statistics"'}
+    U.clear_failures(key)
+    try:
+        n_days = min(max(int(request.args.get("days", 30)), 1), ST.KEEP_DAYS)
+    except ValueError:
+        n_days = 30
+    days = ST.days(n_days)
+    base = W.public_dir()
+    now = {"workspaces": len(W.list_ids()),
+           "workspace_mb": round(LM.workspace_bytes(base) / 1048576, 1) if base.exists() else 0.0,
+           "cache_mb": round(LM.workspace_bytes(P.DATA_DIR / "_cache") / 1048576, 1),
+           "cleanup": dict(W.LAST), "running": sum(1 for j in JOBS.values() if j.get("state") == "running"),
+           "waiting": len(LM.GATE.waiting), "memory": LM.memory_fraction()}
+    if request.args.get("format") == "json":
+        return jsonify({"days": [{"date": d, **c} for d, c in days], "now": now})
+    if now["cleanup"].get("time"):
+        now["cleanup"]["time"] = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(now["cleanup"]["time"]))
+    return render_template("stats.html", days=days, now=now, jobs=STATS_JOBS)
+
+
+@app.get("/welcome")
+def welcome_page():
+    if not PUBLIC_MODE: return redirect("/")
+    if W.exists(session.get("ws")): return redirect(_safe_next(request.args.get("next", "/")))
+    return render_template("welcome.html", next=_safe_next(request.args.get("next", "/")), message=None)
+
+
+@app.post("/welcome")
+def welcome_post():
+    if not PUBLIC_MODE: return redirect("/")
+    wid = session.get("ws")
+    if not W.exists(wid):
+        try:
+            LM.spend("new_workspaces", client_key(), 1, LM.CFG["new_workspaces_per_day"],
+                     "Too many new workspaces were made from this address today. Try again tomorrow.")
+        except LM.LimitError as e:
+            return render_template("welcome.html", next=_safe_next(request.form.get("next", "/")), message=str(e)), e.status
+        wid = W.create(); ST.new_workspace()
+        session.clear(); session["ws"] = wid; session.permanent = True
+    return redirect(_safe_next(request.form.get("next", "/")))
+
+
 @app.get("/login")
 def login_page():
+    if PUBLIC_MODE: return redirect("/welcome?next=" + quote(_safe_next(request.args.get("next", "/"))))
     if not APP_PASSWORD: return redirect("/")
     return render_template("login.html", error=None, next=request.args.get("next", "/"))
 
 
 @app.post("/login")
 def login_post():
+    if PUBLIC_MODE: return redirect("/welcome")
     if not APP_PASSWORD: return redirect("/")
-    key = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    key = client_key()
     if U.too_many_failures(key):
         return render_template("login.html", error="Too many failed attempts. Wait five minutes.", next="/"), 429
     name = U.authenticate(request.form.get("user", ""), request.form.get("password", ""), APP_PASSWORD)
@@ -108,15 +267,19 @@ def login_post():
 
 @app.route("/logout", methods=["GET", "POST"])
 def logout():
+    if PUBLIC_MODE: return redirect("/")      # no log-out: the workspace stays with the browser until it expires
     session.clear(); return redirect("/login" if APP_PASSWORD else "/")
 
 
 @app.get("/api/whoami")
 def whoami():
-    return jsonify({"user": g.user, "admin": g.user == U.ADMIN, "accounts": bool(APP_PASSWORD)})
+    out = {"user": g.user, "admin": g.user == U.ADMIN, "accounts": bool(APP_PASSWORD)}
+    if PUBLIC_MODE: out["public"] = True      # the answer of a password or local copy is unchanged
+    return jsonify(out)
 
 
 def _admin_only():
+    if PUBLIC_MODE: abort(404)                # no user list and no administrator page on a public copy
     if not APP_PASSWORD or g.user != U.ADMIN: abort(403)
 
 
@@ -157,7 +320,7 @@ def _headers(resp):
 def _healthz():
     return "ok"
 
-WORKERS = int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))
+WORKERS = LM.workers()
 POOL = None
 JOBS: dict = {}
 EVAL_BUDGET = 500  # max combinations in one search pass before coarse-to-fine is used
@@ -318,6 +481,19 @@ def analyse():
                     "geometry": geometry_warnings(c, h_ft)})
 
 
+def new_search_job() -> tuple:
+    """Register a job of the classic optimiser. It belongs to the project store of the request, like a Designer job,
+    so another user cannot read or cancel it."""
+    if LM.enabled():
+        LM.check_new_job(str(P.root()), JOBS, P.root().parent)
+    jid = uuid.uuid4().hex[:12]
+    job = {"id": jid, "state": "running", "phase": "", "done": 0, "total": 0, "started": time.time(),
+           "result": None, "error": None, "cancel": False, "owner": str(P.root())}
+    JOBS[jid] = job
+    ST.job("classic")
+    return jid, job
+
+
 @app.post("/api/optimise")
 def optimise():
     try:
@@ -350,12 +526,9 @@ def optimise():
     except (KeyError, ValueError, TypeError) as e:
         return err(str(e))
 
-    jid = uuid.uuid4().hex[:12]
-    job = {"id": jid, "state": "running", "phase": "", "done": 0, "total": 0, "started": time.time(),
-           "result": None, "error": None, "cancel": False}
-    JOBS[jid] = job
+    jid, job = new_search_job()
     args = dict(specs=specs, phases=phases, step=step, bottom=bottom, spacing=spacing)
-    threading.Thread(target=run_search, args=(job, c, grids, args), daemon=True).start()
+    v2.start_thread(run_search, job, c, grids, args)      # in line with the Designer jobs on a public copy
     return jsonify({"job": jid, "combinations": {k: len(v) for k, v in grids.items()}})
 
 
@@ -435,7 +608,7 @@ def job_status(jid):
     job = JOBS.get(jid)
     if not job:
         return err("Unknown job", 404)
-    if job.get("owner") not in (None, str(P.root())):
+    if job.get("owner") != str(P.root()):
         return err("Unknown job", 404)
     return jsonify({k: job[k] for k in ("state", "phase", "done", "total", "result", "error")})
 
@@ -443,7 +616,7 @@ def job_status(jid):
 @app.post("/api/job/<jid>/cancel")
 def job_cancel(jid):
     job = JOBS.get(jid)
-    if job and job.get("owner") in (None, str(P.root())):
+    if job and job.get("owner") == str(P.root()):
         job["cancel"] = True
     return jsonify({"ok": True})
 
@@ -451,7 +624,11 @@ def job_cancel(jid):
 import v2  # noqa: E402
 v2.CTX.update(pool=pool, jobs=JOBS)
 app.register_blueprint(v2.bp)
-app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024   # DEM files can be large; the app runs locally
+
+if PUBLIC_MODE:
+    # Once a day, delete workspaces that were not used for WORKSPACE_EXPIRY_DAYS days (default 30), unless a
+    # calculation of that workspace is still running.
+    W.start_cleanup(lambda: [j.get("owner") for j in list(JOBS.values()) if j.get("state") == "running"])
 
 if __name__ == "__main__":
     app.run(host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)), debug=False, threaded=True)

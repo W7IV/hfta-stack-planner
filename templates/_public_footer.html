@@ -1,0 +1,12 @@
+{% if public %}
+<footer class="pubfoot" style="margin:28px 0 8px;padding-top:10px;border-top:1px solid rgba(128,128,128,.4);font-size:12px;line-height:1.5;opacity:.85">
+  <p style="margin:0 0 4px">Public copy operated by {{ public.operator }}{% if public.contact %} ({{ public.contact }}){% endif %}.
+    Free software, MIT licence. Source: <a href="{{ public.repo }}" target="_blank" rel="noopener">GitHub</a>.
+    Not affiliated with ARRL or the OpenHFTA authors.</p>
+  <p style="margin:0">
+    <a href="/privacy">Privacy</a> ·
+    <a href="/guide#safety-disclaimer">Safety and legal limitations</a> ·
+    For larger studies, <a href="{{ public.releases }}" target="_blank" rel="noopener">download the free Windows or Docker version</a> ·
+    Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>.</p>
+</footer>
+{% endif %}

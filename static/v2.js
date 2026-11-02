@@ -576,10 +576,13 @@ function rTargets() {
   el.innerHTML = `<h1>Targets</h1><p class="lead">A target is a path you want to work, for example Europe at 52°. Each target uses one elevation-angle file (.PRN: an ARRL file,
   or one generated with VOACAP) and one or more headings around its bearing. The result is the weighted mean of the FOM at those headings, exactly as you would average several HFTA runs.</p>
   <div class="card"><h2>Elevation-angle files (.PRN)</h2>
-    <p class="small mute">The ARRL files come with the ARRL Antenna Book (e.g. W1-MA-EU.PRN). They are not included in the program; add your own copies once and save them to the library.</p>
-    <div class="row"><button id="prnBtn">Add .PRN files</button><input type="file" id="prnIn" multiple accept=".prn,.PRN" hidden>
-      <button class="ghost" id="prnToLib" title="Keep a copy of these files in your library. Every new project then starts with them" ${S.prns.length ? "" : "disabled"}>Save to library</button>
-      <button class="ghost" id="prnFromLib" title="Add the library's .PRN files to this project">Add from library</button>
+    ${META.public ? (META.public.prn_upload
+      ? `<p class="small mute" id="prnPublicNote"><b>Public copy.</b> Upload only files you are entitled to use: the ARRL elevation-angle files are copyright ARRL. Your files stay in your private workspace, are never shared or listed, and are deleted with the workspace after ${META.public.expiry_days} days without use.</p>`
+      : `<p class="small mute" id="prnPublicNote"><b>Public copy.</b> This server does not accept ARRL files. Make a table with VOACAP instead (the button below), or use the free Windows or Docker version.</p>`) : ""}
+    ${META.public && !META.public.prn_upload ? "" : `<p class="small mute">The ARRL files come with the ARRL Antenna Book (e.g. W1-MA-EU.PRN). They are not included in the program; add your own copies once and save them to the library.</p>`}
+    <div class="row"><button id="prnBtn" ${META.public && !META.public.prn_upload ? "hidden" : ""}>Add .PRN files</button><input type="file" id="prnIn" multiple accept=".prn,.PRN" hidden>
+      <button class="ghost" id="prnToLib" ${META.public && !META.public.prn_upload ? "hidden" : ""} title="Keep a copy of these files in your library. Every new project then starts with them" ${S.prns.length ? "" : "disabled"}>Save to library</button>
+      <button class="ghost" id="prnFromLib" ${META.public && !META.public.prn_upload ? "hidden" : ""} title="Add the library's .PRN files to this project">Add from library</button>
       ${META.voacap ? `<button class="ghost" id="prnGen" title="Make an elevation-angle table with VOACAP for any origin in the world: the method of the ARRL files, with your own choice of months, hours and solar activity">Generate with VOACAP…</button>` : ""}</div>
     <p class="small mute" id="prnLibInfo" style="margin:6px 0 0"></p>
     ${META.voacap ? `<p class="small mute" style="margin:6px 0 0">No ARRL files? <b>Generate with VOACAP</b> makes a table for your own position and any region (checked against the ARRL W1 files; see Help). Such files are marked "VOACAP-generated".</p>` : ""}
@@ -613,6 +616,7 @@ function rTargets() {
   api("GET", "/api/v2/library").then(L => {
     const el = $("#prnLibInfo"); if (!el) return;
     el.innerHTML = L.prns.length ? `Library: ${L.prns.length} files (${L.prns.map(esc).join(", ")}). They are copied into every new project.`
+      : META.public ? (META.public.prn_upload ? `Your library has no .PRN files yet. "Save to library" keeps these files for every new project in this workspace.` : "")
       : `Your library has no .PRN files yet. "Save to library" keeps these files for every new project. They stay on this computer and are not part of the program.`;
   });
   if ($("#prnGen")) $("#prnGen").onclick = () => prnGenDialog();
@@ -1568,7 +1572,7 @@ function showHelp() {
   </ul>
 
   <h3>Accounts, sharing and privacy</h3>
-  <p>On a hosted copy each user has a login and a project store of their own; nothing is shared between users. The ARRL .PRN files are copyright: keep them in your own account, and give other people the <b>shareable</b> exports (Report page), which leave the files out and list them by checksum. "Delete project" on the Report page removes a project with all its files.</p>`;
+  <p>${META.public ? `This is a public copy. You have a private workspace tied to this browser; nothing is shared with other visitors. A workspace that is not used for ${META.public.expiry_days} days is deleted, and clearing your cookies loses access to it, so export your project zip (Report page) to keep your work.` : "On a hosted copy each user has a login and a project store of their own; nothing is shared between users."} The ARRL .PRN files are copyright: keep them in your own account, and give other people the <b>shareable</b> exports (Report page), which leave the files out and list them by checksum. "Delete project" on the Report page removes a project with all its files.</p>`;
   $("#drawer").hidden = false;
 }
 

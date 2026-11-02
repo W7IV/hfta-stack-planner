@@ -472,12 +472,44 @@ def tiles_needed(lat: float, lon: float, length_m: float) -> list:
     los = range(int(math.floor(lon - half_lon)), int(math.floor(lon + half_lon)) + 1)
     return [(a, ((b + 180) % 360) - 180) for a in las for b in los if -90 <= a < 90]
 
+def cache_limit_bytes():
+    """Largest size of the tile cache, in bytes, or None for no limit. TERRAIN_CACHE_MB sets it. A public copy keeps
+    its cache for all visitors (public elevation data only), so it has a default of 1000 MB (about 38 tiles)."""
+    value = os.environ.get("TERRAIN_CACHE_MB")
+    if value: return int(value) * 1024 * 1024
+    return 1000 * 1024 * 1024 if os.environ.get("PUBLIC_MODE") == "1" else None
+
+def trim_cache(cache_dir: Path, incoming: int = 0, limit=None) -> list:
+    """Delete the tiles used longest ago until the folder, plus incoming bytes, fits in the limit. Also removes
+    half-written files (.tmp) older than one hour. Returns the names of the deleted tiles."""
+    limit = cache_limit_bytes() if limit is None else limit
+    now = time.time(); tiles = []
+    for p in cache_dir.glob("*"):
+        try:
+            if p.suffix == ".tmp":
+                if now - p.stat().st_mtime > 3600: p.unlink()
+            elif p.suffix == ".hgt":
+                st = p.stat(); tiles.append((st.st_mtime, st.st_size, p))
+        except OSError: pass
+    removed = []
+    if limit is None: return removed
+    total = sum(s for _, s, _ in tiles) + incoming
+    for _, size, p in sorted(tiles):                           # oldest use first
+        if total <= limit: break
+        try: p.unlink(); total -= size; removed.append(p.name)
+        except OSError: pass
+    return removed
+
 def download_tile(la: int, lo: int, cache_dir: Path, timeout: int = 180):
     """The tile's bytes (unpacked), from the cache folder or downloaded. None when the service has no tile there
-    (open ocean), which the service answers with 403/404."""
+    (open ocean), which the service answers with 403/404. The cache folder is shared by everyone who uses this server."""
     import gzip, urllib.error
     cache_dir.mkdir(parents=True, exist_ok=True); f = cache_dir / f"{tile_name(la, lo)}.hgt"
-    if f.exists(): return f.read_bytes()
+    if f.exists():
+        try:
+            data = f.read_bytes(); os.utime(f)                 # a tile in use is the last to be removed
+            return data
+        except OSError: pass                                   # removed by another request just now: download again
     req = urllib.request.Request(tile_url(la, lo), headers={"User-Agent": "hfta-stack-planner/1.0"})
     try:
         _, raw = fetch_terrain_response(req, "Terrain Tiles", timeout=timeout)
@@ -487,7 +519,13 @@ def download_tile(la: int, lo: int, cache_dir: Path, timeout: int = 180):
         raise
     data = gzip.decompress(raw)
     if len(data) > 40_000_000: raise ValueError("Terrain tile larger than expected")
-    tmp = f.with_suffix(".tmp"); tmp.write_bytes(data); os.replace(tmp, f)
+    trim_cache(cache_dir, incoming=len(data))
+    tmp = f.with_name(f"{f.stem}.{uuid.uuid4().hex[:8]}.tmp")  # own temporary name: two requests may load the same tile
+    tmp.write_bytes(data)
+    try: os.replace(tmp, f)
+    except OSError:                                            # Windows refuses when another request replaces the same tile
+        tmp.unlink(missing_ok=True)
+        if not f.exists(): raise                               # the other request has put the tile there: nothing to do
     return data
 
 def fetch_tiles_and_generate(lat: float, lon: float, out_dir: Path, prefix: str, cache_dir: Path,

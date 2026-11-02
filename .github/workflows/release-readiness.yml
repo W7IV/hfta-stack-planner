@@ -23,6 +23,14 @@ jobs:
           git -C ../openhfta checkout 7d62e863f1d27372c97df3ac6ef53092fb58bd50
           make -C ../openhfta all
       - run: python tests/test_accounts.py
+      - run: python tests/test_hardening.py
+      - run: python tests/test_public_mode.py
+      - run: python tests/test_limits.py
+      - run: python tests/test_cleanup.py
+      - run: python tests/test_terrain_cache.py
+      - run: python tests/test_arrl_files.py
+      - run: python tests/test_public_pages.py
+      - run: python tests/test_stats.py
       - run: python tests/test_single_tower.py
       - run: node --check static/v2.js
       - run: node --check static/site-map.js

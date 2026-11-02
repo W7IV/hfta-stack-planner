@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner: privacy</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+</head>
+<body class="login-body">
+<main class="login" style="max-width:720px">
+  <h1>Privacy</h1>
+  <p class="small mute">What this public copy of HFTA Stack Planner keeps, for how long, and where data goes.
+    It is run by {{ public.operator }}{% if public.contact %} ({{ public.contact }}){% endif %}.</p>
+
+  <h2>What the server keeps</h2>
+  <ul class="small">
+    <li>A random workspace number, in one cookie in your browser. The cookie is signed. It is needed to find your
+      workspace. It is not used to track you.</li>
+    <li>What you enter or make in your workspace: project names, site positions, notes, antennas, terrain
+      profiles, the elevation-angle files you add or generate, and calculation results.</li>
+    <li>There is no account. The server does not ask for or keep your name, e-mail address or password.</li>
+    <li>No scripts from other websites run on these pages.</li>
+  </ul>
+
+  <h2>How long it is kept</h2>
+  <ul class="small">
+    <li>A workspace that is not used for {{ public.expiry_days }} days is deleted, with everything in it. This cannot be undone.</li>
+    <li>You can delete a project earlier (Report page, Delete project).</li>
+    <li>If you clear your browser's cookies, you lose access to your workspace. It stays on the server until it expires.</li>
+    <li>To keep your work, export the project zip (Report page) and open it again later.</li>
+    <li>Each workspace may hold up to {{ public.workspace_mb }} MB.</li>
+  </ul>
+
+  <h2>Where data goes</h2>
+  <ul class="small">
+    <li><b>Terrain.</b> Only when you click "Fetch terrain online", the site position is sent to USGS (3DEP) or to
+      Amazon's Terrain Tiles service. They also see the address of this server, not yours. The elevation tiles
+      are kept on the server for all visitors. They are public data and are not linked to you.</li>
+    <li><b>Map.</b> When you open "Pick location on map", your browser loads map tiles directly from
+      OpenStreetMap. OpenStreetMap can see the area you view and your IP address. Do not open the map if you do
+      not want to share a confidential station position this way.</li>
+    <li><b>Access log.</b> The hosting service (Railway) keeps a web access log with addresses, paths and times.
+      It does not record the contents of your requests.</li>
+  </ul>
+
+  <h2>Usage counts</h2>
+  {% if public.usage_counts %}
+  <p class="small">The server keeps daily totals of use: how many workspaces were made and used, how many calculations
+    and terrain fetches ran, and how often a limit was reached. The totals hold no personal data, no address and no
+    workspace number. Only the operator can see them. No outside analytics service is used.</p>
+  {% else %}
+  <p class="small">The server does not run any analytics.</p>
+  {% endif %}
+
+  <h2>ARRL files</h2>
+  {% if public.prn_upload %}
+  <p class="small">ARRL elevation-angle (.PRN) files are copyright ARRL. If you upload one, upload only a file you are
+    entitled to use. It stays in your private workspace. It is never shared or listed, and it is deleted with the workspace.</p>
+  {% else %}
+  <p class="small">This public copy does not accept ARRL elevation-angle (.PRN) files. Make a table with VOACAP instead.</p>
+  {% endif %}
+
+  <h2>Questions</h2>
+  <p class="small">Because workspaces are anonymous, the operator cannot look up your workspace by name.
+    {% if public.contact %}For other questions, write to {{ public.contact }}.{% endif %}
+    This page describes what the software does. It is not legal advice.
+    Read also the <a href="/guide#safety-disclaimer">safety and legal limitations</a>.</p>
+  <p class="small"><a href="/">Back to the planner</a></p>
+  {% include "_public_footer.html" %}
+</main>
+</body>
+</html>

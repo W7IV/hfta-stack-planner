@@ -4,12 +4,17 @@ import contextvars, io, json, os, threading, time, uuid
 from pathlib import Path
 from flask import Blueprint, jsonify, request, send_file, render_template
 import engine
-from core import library as LB, antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP, aoa_gen as AG
+from core import library as LB, antennas as A, project as P, terrain as TR, evaluate as EV, exports as EX, guys as G, report as RP, compromise as CM, spacing as SP, aoa_gen as AG, limits as LM, stats as ST, workspaces as W
 
 bp = Blueprint("v2", __name__)
 CTX = {}   # set by app.py: pool(), JOBS
 
 def err(msg, code=400): return jsonify({"error": msg}), code
+
+@bp.errorhandler(LM.LimitError)
+def _limit_reached(e):
+    """A limit of the public copy (core/limits.py): the message is written for the user."""
+    return err(str(e), e.status)
 
 @bp.errorhandler(ValueError)
 def _bad_value(e):
@@ -21,18 +26,23 @@ def results_path(slug): return P.path(slug) / "results.json"
 def start_thread(fn, *args):
     """Run fn in a background thread with the same project store (contextvars) as the request that started it."""
     ctx = contextvars.copy_context()
-    threading.Thread(target=ctx.run, args=(fn, *args), daemon=True).start()
+    # args[0] is the job. On a public copy it waits in line until a place is free (core/limits.py).
+    run = (lambda: LM.GATE.run(args[0], lambda: fn(*args))) if LM.enabled() else (lambda: fn(*args))
+    threading.Thread(target=ctx.run, args=(run,), daemon=True).start()
 
-def new_job() -> tuple:
-    """Register a background job. Finished jobs older than one hour are forgotten, so memory stays bounded."""
+def new_job(kind: str = "other", n: int = 1) -> tuple:
+    """Register a background job. Finished jobs older than one hour are forgotten, so memory stays bounded.
+    kind and n feed the usage counts of a public copy (core/stats.py)."""
     now = time.time(); jobs = CTX["jobs"]
     for k in [k for k, j in list(jobs.items()) if j["state"] != "running" and now - j["started"] > 3600]: jobs.pop(k, None)
-    if sum(1 for j in jobs.values() if j["state"] == "running") >= 4:
+    if LM.enabled():
+        LM.check_new_job(str(P.root()), jobs, P.root().parent)
+    elif sum(1 for j in jobs.values() if j["state"] == "running") >= 4:
         raise ValueError("Four calculations are already running. Wait for one to finish.")
     jid = uuid.uuid4().hex[:8]
     job = {"state": "running", "phase": "Planning", "done": 0, "total": 0, "result": None, "error": None, "cancel": False, "started": now,
            "owner": str(P.root())}
-    jobs[jid] = job; return jid, job
+    jobs[jid] = job; ST.job(kind, n); return jid, job
 def load_results(slug):
     p = results_path(slug); return json.loads(p.read_text()) if p.exists() else None
 
@@ -71,7 +81,14 @@ def guide():
 
 @bp.get("/api/v2/meta")
 def meta():
-    return jsonify({"elements": A.ELEMENTS, "types": {str(k): v for k, v in A.TYPE.items()}, "spacing_defaults": P.SPACING_DEFAULTS, "bands": A.BANDS, "band_freq": A.BAND_FREQ, "soils": P.SOILS,
+    out = _meta()
+    if LM.enabled():      # the page script shows the notices of a public copy; other copies answer as before
+        out["public"] = {"prn_upload": LM.prn_upload_allowed(), "expiry_days": W.expiry_days(),
+                         "workspace_mb": LM.CFG["workspace_mb"], "projects": LM.CFG["projects"]}
+    return jsonify(out)
+
+def _meta():
+    return ({"elements": A.ELEMENTS, "types": {str(k): v for k, v in A.TYPE.items()}, "spacing_defaults": P.SPACING_DEFAULTS, "bands": A.BANDS, "band_freq": A.BAND_FREQ, "soils": P.SOILS,
                     "wires": {k: {"lb_ft": v[0], "dia_in": v[1], "tension": v[2]} for k, v in G.WIRES.items()},
                     "projects": P.list_projects(),
                     "voacap": AG.available(), "regions": {k: v["name"] for k, v in AG.REGIONS.items()}, "ssn_levels": list(AG.SSN_LEVELS.items())})
@@ -100,7 +117,7 @@ def import_project():
     if not pj: return err("project.json not found in the zip")
     root = pj[: -len("project.json")]
     infos = {i.filename: i for i in z.infolist()}
-    if len(infos) > 20000 or sum(i.file_size for i in infos.values()) > 500_000_000:
+    if len(infos) > 20000 or sum(i.file_size for i in infos.values()) > LM.unpacked_limit():
         return err("The zip is too large when unpacked")
     try:
         proj = P.validate(P.upgrade(json.loads(z.read(pj))))     # checked before anything is written
@@ -115,7 +132,8 @@ def import_project():
         if infos[n_].file_size > 5_000_000: continue
         if len(parts) == 3 and parts[0] == "sites" and parts[1] in site_ids and re.fullmatch(r"[\w.\- ]+\.pro", parts[2], re.I) and ".." not in parts[2]:
             take.append((n_, ("sites", parts[1], parts[2])))
-        elif len(parts) == 2 and parts[0] in ("prn", "angles") and re.fullmatch(r"[\w.\- ]+\.prn", parts[1], re.I) and ".." not in parts[1]:
+        elif (len(parts) == 2 and parts[0] in ("prn", "angles") and re.fullmatch(r"[\w.\- ]+\.prn", parts[1], re.I) and ".." not in parts[1]
+              and (LM.prn_upload_allowed() or not LM.enabled())):          # a public copy may refuse ARRL files (PRN_UPLOAD=off)
             take.append((n_, ("prn", parts[1])))
     base = P.slug(proj.get("name") or "Imported"); slug = base; n = 2
     while P.path(slug).exists(): slug = f"{base}-{n}"; n += 1
@@ -316,6 +334,11 @@ def site_dem(slug, sid):
 
 @bp.post("/api/v2/p/<slug>/sites/<sid>/auto")
 def site_auto(slug, sid):
+    with LM.terrain_slot():            # a public copy runs only a few online fetches at the same time
+        ST.job("terrain")
+        return _site_auto(slug, sid)
+
+def _site_auto(slug, sid):
     """Fetch elevation data online and generate terrain profiles. Body: {lat, lon, source?, prefix?, az_step?, spacing_m?, length_m?}.
     source: "3dep" (USGS, United States, 1 m), "tiles" (AWS Terrain Tiles, worldwide, 30 m) or "auto" (3DEP inside the US)."""
     body = request.get_json() or {}
@@ -446,7 +469,7 @@ def _run_prn_batch(job, slug, body, lat, lon):
             h = AG.generate(
                 (lat, lon), reg, Path(tmp) / filename,
                 title=f"{origin_name} to {reg['name']}"[:60], months=months, hours=hours, ssns=ssn,
-                workers=min(4, int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))),
+                workers=min(4, LM.workers()),
                 progress=progress, cancel=lambda: job["cancel"]
             )
             bands = [b for b in AG.BANDS if h["weight_total"].get(b, 0) > 0]
@@ -486,7 +509,7 @@ def _run_prn_gen(job, slug, body):
         job.update(phase="VOACAP runs", done=0, total=len(reg["points"]) * len(ssn))
         def progress(d, n): job["done"] = d
         h = AG.generate((lat, lon), reg, P.prn_file(slug, name), title=title, months=months, hours=hours, ssns=ssn,
-                        workers=min(4, int(os.environ.get("HFTA_WORKERS", os.cpu_count() or 1))), progress=progress, cancel=lambda: job["cancel"])
+                        workers=min(4, LM.workers()), progress=progress, cancel=lambda: job["cancel"])
         bands = [b for b in AG.BANDS if h["weight_total"].get(b, 0) > 0]
         job["result"] = {"file": name, "bands": bands, "describe": AG.describe(h["meta"]), "empty_bands": [b for b in AG.BANDS if b not in bands]}
         job["state"] = "done"
@@ -498,7 +521,8 @@ def prn_generate(slug):
     """Generate one .PRN using the legacy region/points body, or independent tables for each code in regions[]."""
     if not AG.available(): return err("VOACAP (voacapl) is not installed on this computer.")
     if not (P.path(slug) / "project.json").exists(): return err("Project not found", 404)
-    jid, job = new_job(); start_thread(_run_prn_gen, job, slug, request.get_json() or {})
+    body = request.get_json() or {}
+    jid, job = new_job("voacap", LM.voacap_tables(body)); start_thread(_run_prn_gen, job, slug, body)
     return jsonify({"job": jid})
 
 # ------------------------------------------------------------ evaluation
@@ -528,7 +552,7 @@ def _run_eval(job, slug):
 
 @bp.post("/api/v2/p/<slug>/evaluate")
 def evaluate(slug):
-    jid, job = new_job(); start_thread(_run_eval, job, slug)
+    jid, job = new_job("hfta"); start_thread(_run_eval, job, slug)
     return jsonify({"job": jid})
 
 @bp.get("/api/v2/p/<slug>/results")
@@ -599,7 +623,7 @@ def _run_scan(job, slug, body):
 
 @bp.post("/api/v2/p/<slug>/scan")
 def scan(slug):
-    jid, job = new_job(); start_thread(_run_scan, job, slug, request.get_json())
+    jid, job = new_job("scan"); start_thread(_run_scan, job, slug, request.get_json())
     return jsonify({"job": jid})
 
 # ------------------------------------------------------------ one-tower compromise
@@ -614,7 +638,7 @@ def _run_comp(job, slug, body):
 
 @bp.post("/api/v2/p/<slug>/compromise")
 def compromise(slug):
-    jid, job = new_job(); start_thread(_run_comp, job, slug, request.get_json())
+    jid, job = new_job("designer"); start_thread(_run_comp, job, slug, request.get_json())
     return jsonify({"job": jid})
 
 @bp.get("/api/v2/p/<slug>/compromise")

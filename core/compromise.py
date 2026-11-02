@@ -9,16 +9,17 @@ optional equal spacing, minimum gap between groups, maximum height, and optional
 tower's guy plan.
 """
 from __future__ import annotations
-import heapq, itertools, math, time
+import heapq, itertools, math, os, time
 import numpy as np
 import engine
 from . import antennas as A, terrain as TR, project as P, guys as G, spacing as SP
 from .evaluate import switch_options, target_azimuths, band_freq, run_one, aoa_status
 
-STAGE_SECONDS = 240   # wall-clock budget per search stage; the height grid is coarsened until the stage fits it
+_PUBLIC = os.environ.get("PUBLIC_MODE") == "1"   # a public copy uses smaller limits; both can be set in the environment
+STAGE_SECONDS = int(os.environ.get("STAGE_SECONDS", "60" if _PUBLIC else "240"))   # wall-clock budget per search stage; the height grid is coarsened until the stage fits it
 MIN_STAGE_RUNS = 1500   # a stage is never cut below this many runs, however slow the core is on the terrain
 NODE_BUDGET = 3_000_000   # combinations examined by the branch-and-bound search before it stops and says so
-MAX_GROUP_LAYOUTS = 200_000   # layouts of one group; above this the request is refused before any work
+MAX_GROUP_LAYOUTS = int(os.environ.get("MAX_GROUP_LAYOUTS", "50000" if _PUBLIC else "200000"))   # layouts of one group; above this the request is refused before any work
 
 def _axis(lo, hi, step): return [round(lo + i * step, 2) for i in range(int(math.floor((hi - lo) / step + 1e-9)) + 1)]
 

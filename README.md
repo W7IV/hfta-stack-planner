@@ -126,7 +126,7 @@ and VOACAP. Install [Docker Engine](https://docs.docker.com/engine/install/) on 
 docker run -d --name hfta-planner --platform linux/amd64 \
   -p 127.0.0.1:5055:5055 \
   -v hfta-data:/data \
-  ghcr.io/w7iv/hfta-stack-planner:v1.0.6
+  ghcr.io/w7iv/hfta-stack-planner:v1.1.0
 ```
 
 Open **http://localhost:5055** in your browser. Data persists in the named Docker volume `hfta-data`,
@@ -203,9 +203,11 @@ is no login and one store.
 **What a hosted copy stores, and where it goes** (for users who ask):
 - On the server, per user: project files (names, site positions, notes, antennas), terrain profiles, the
   elevation-angle files the user adds or generates, calculation results, and the user name with a salted password
-  hash. Nothing else: no e-mail address, no analytics, no scripts from other sites.
+  hash. Nothing else: no e-mail address, no analytics, no scripts from other sites. (This section describes a
+  copy with accounts. A public copy has no accounts; see "Public copy" below.)
 - Data is kept until the user deletes it (Report → Delete project; Sites → Remove profiles) or the administrator
-  removes the user's folder. There is no automatic retention or deletion. Railway volume backups, if enabled, keep
+  removes the user's folder. A copy with accounts has no automatic retention or deletion; a public copy deletes
+  workspaces that are not used for 30 days. Railway volume backups, if enabled, keep
   copies for as long as Railway's backup settings say.
 - Terrain requests leave the server only on the user's click: "Fetch terrain online" sends the site position to
   USGS (3DEP) or to Amazon's Terrain Tiles service, which see that position and the server's address. The VOACAP
@@ -216,7 +218,8 @@ is no login and one store.
 
 **Moving a project:** Report → "Project with files (zip)" on one copy, then "Open project zip" on the other.
 The zip holds the terrain and .PRN files; results are recomputed. The ARRL .PRN files are copyright: keep such
-zips and any hosted copy private.
+zips private, and keep any password-protected hosted copy private. On a public copy, each visitor's files stay
+in that visitor's own workspace and are never shared (see "Public copy" below).
 
 **Sharing with someone else:** use the *shareable* downloads (Report page): the replay pack and the project zip
 then leave the .PRN files out and list them by name and SHA-256, so the other person can check that their own copy
@@ -231,6 +234,46 @@ is the same file. The private versions are for your own records only.
 | `HOSTED` | `1` = server on a network: a password is then required | not set |
 | `SECRET_KEY` | signing key for login cookies | random, kept on the data volume |
 | `OPENHFTA_DIR` | OpenHFTA checkout | `../openhfta` (`/opt/openhfta` in the container) |
+
+## Public copy (`PUBLIC_MODE=1`)
+A public copy lets any radio amateur use the planner in a browser, with no account. It is a separate server (for
+example a second Railway project with its own volume, domain and secrets), and it is off by default: a copy
+without `PUBLIC_MODE=1` behaves as described above. `PUBLIC_MODE=1` and `APP_PASSWORD` cannot be set together.
+
+- **Access.** A first visit shows a notice page ("planning estimates only"). The button *I understand* makes a
+  private workspace, tied to a signed cookie. A visitor sees only their own workspace. There is no user list and no
+  administrator page (`/admin` returns 404).
+- **Retention.** A workspace not used for 30 days (`WORKSPACE_EXPIRY_DAYS`) is deleted, with its files. Visitors keep
+  work by exporting the project zip. Clearing cookies loses access to the workspace.
+- **ARRL files.** With the default `PRN_UPLOAD=private`, a visitor may upload their own `.PRN` files into their own
+  workspace only. They are never shared or listed. `PRN_UPLOAD=off` refuses ARRL files; visitors use VOACAP tables.
+- **Limits.** One calculation per workspace; two at once on the server, others wait in line; a memory guard; 5
+  projects and 50 MB per workspace; 25 MB uploads; 3 VOACAP tables and 20 online terrain fetches per workspace per
+  day; 10 new workspaces per address per day; shorter Designer search (60 s per stage, 50,000 layouts). Each value
+  has a setting; the list is at the top of `core/limits.py`.
+- **Pages.** Every page has a footer with the operator, the licence, a link to the source and to the free Windows
+  and Docker downloads, and the OpenStreetMap credit. `/privacy` tells visitors what is stored and where data goes.
+- **Usage counts.** The server keeps daily totals only (new and active workspaces, calculations and terrain fetches
+  by type, waits in line, refusals by limit) in `stats/usage.json` on the volume: no address, no workspace number,
+  no third-party service. The operator reads them at `/stats` with `STATS_PASSWORD` (any user name); without that
+  setting the page does not exist.
+- **Deploy a tagged image** (for example `ghcr.io/w7iv/hfta-stack-planner:v1.1.0`), not `main`, so a push cannot
+  change the public copy by accident. Add a volume at `/data`. Do not copy variables from another project.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `PUBLIC_MODE` | `1` = public copy | not set |
+| `OPERATOR_NAME` | operator shown in the footer and privacy page | Paul F. Merrill, W7IV |
+| `OPERATOR_CONTACT` | contact text shown beside the operator (not shown if empty) | empty |
+| `WORKSPACE_EXPIRY_DAYS` | days without use before a workspace is deleted | 30 |
+| `PRN_UPLOAD` | `private` or `off` | `private` |
+| `STATS_PASSWORD` | password of the `/stats` page; empty = no page | empty |
+| `MAX_UPLOAD_MB` | largest upload | 25 on a public copy, 512 otherwise |
+| `TERRAIN_CACHE_MB` | size limit of the shared terrain-tile cache | 1000 on a public copy, none otherwise |
+| `TRUSTED_PROXY_HOPS` | proxies in front of the app that add to `X-Forwarded-For` | 1 when hosted, 0 otherwise |
+| `LIMIT_*`, `STAGE_SECONDS`, `MAX_GROUP_LAYOUTS` | limits of a public copy | see `core/limits.py` |
+
+The plan and the work done are in `docs/PUBLIC_MODE_BRIEF.md`.
 
 ## VOACAP angle tables (any origin in the world)
 Targets → **Generate with VOACAP…** lets you check one, several or **all seven standard regions** in a single run. It writes a separate, clearly named `.PRN` file for each selected region (e.g., `My-station-EU-VOACAP.PRN`) **and creates the corresponding target automatically**, using the region's great-circle bearing and available bands. Existing targets are preserved, not duplicated. The Targets page also offers **Add missing targets from VOACAP files** for files generated before this update; custom receive points remain available as a separate mode. A station

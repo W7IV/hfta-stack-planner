@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner: before you start</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+</head>
+<body class="login-body">
+<main class="login" style="max-width:640px">
+  <h1>HFTA Stack Planner</h1>
+  <p class="small mute">A free, public copy for amateur-radio station planning. Please read this before you start.</p>
+  {% if message %}<div class="note">{{ message }}</div>{% endif %}
+  <div class="note"><b>Planning estimates only.</b> This is comparative planning software. It is not tower, guy, anchor or
+    structural engineering advice, and it gives no guarantee of safety or radio performance. Read the
+    <a href="/guide#safety-disclaimer">safety and legal limitations</a> and the full
+    <a href="https://github.com/W7IV/hfta-stack-planner/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">disclaimer</a>.</div>
+  <p><b>How your work is kept.</b></p>
+  <ul class="small">
+    <li>You get a private workspace tied to this browser. There is no account and no password.</li>
+    <li>A workspace that is not used for 30 days is deleted.</li>
+    <li>If you clear this browser's cookies, you lose access to the workspace.</li>
+    <li>To keep your work, export the project zip and open it again later.</li>
+    <li>Upload only files you are entitled to use. ARRL elevation-angle (.PRN) files are copyright ARRL.</li>
+  </ul>
+  <form method="post" action="/welcome">
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit">I understand</button>
+  </form>
+  {% include "_public_footer.html" %}
+</main>
+</body>
+</html>

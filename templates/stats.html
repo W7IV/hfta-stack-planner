@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HFTA Stack Planner: usage</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='v2.css') }}">
+</head>
+<body class="login-body">
+<main class="login admin" style="max-width:1000px">
+  <h1>Usage of the public copy</h1>
+  <p class="small mute">Daily totals (UTC). No address, workspace number or browser detail is stored.
+    Active workspaces are counted once per day; after a server restart a workspace may be counted twice that day.</p>
+
+  <h2>Now</h2>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th>Workspaces on the volume</th><td>{{ now.workspaces }}</td></tr>
+    <tr><th>Space used by workspaces</th><td>{{ now.workspace_mb }} MB</td></tr>
+    <tr><th>Terrain tile cache</th><td>{{ now.cache_mb }} MB</td></tr>
+    <tr><th>Calculations running / waiting</th><td>{{ now.running }} / {{ now.waiting }}</td></tr>
+    <tr><th>Memory in use</th><td>{% if now.memory is none %}not known (no container limit; set LIMIT_MEMORY_MB){% else %}{{ (now.memory * 100) | round(0) | int }} % of the limit{% endif %}</td></tr>
+    <tr><th>Latest clean-up</th><td>{% if now.cleanup.time %}{{ now.cleanup.time }}: {{ now.cleanup.removed }} deleted, {{ now.cleanup.kept }} expired but kept{% else %}not run since the server started{% endif %}</td></tr>
+  </table>
+  </div>
+
+  <h2>By day</h2>
+  {% if days %}
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th>Date</th><th>New workspaces</th><th>Active workspaces</th>
+      {% for key, label in jobs %}<th>{{ label }}</th>{% endfor %}
+      <th>Waited in line</th><th>Refused</th></tr>
+    {% for date, c in days %}
+    <tr><td>{{ date }}</td><td>{{ c.new_workspaces or 0 }}</td><td>{{ c.active_workspaces or 0 }}</td>
+      {% for key, label in jobs %}<td>{{ (c.jobs or {}).get(key, 0) }}</td>{% endfor %}
+      <td>{{ c.queue_waits or 0 }}</td>
+      <td>{% set r = c.refused or {} %}{{ r.values() | sum }}{% if r %} <span class="small mute">({% for k, v in r | dictsort %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %})</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <p class="small">No counts yet.</p>
+  {% endif %}
+  <p class="small mute">The same data as JSON: <a href="/stats?format=json">/stats?format=json</a>. More days: /stats?days=90.</p>
+</main>
+</body>
+</html>

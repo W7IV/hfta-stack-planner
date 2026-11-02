@@ -1,7 +1,25 @@
 # HFTA Stack Planner — status and handoff
 
-Updated 15 October 2026. Read this first when you pick the project up again (person or AI assistant).
-The README describes the program; this file says where it stands, what is open and what was decided.
+Updated 2 November 2026 (public copy, v1.1.0). Read this first when you pick the project up again (person or AI
+assistant). The README describes the program; this file says where it stands, what is open and what was decided.
+
+## Public copy (2 November 2026)
+Decision: a second, public copy on its own Railway project, with `PUBLIC_MODE=1`, so that anyone can use the planner
+without an account or an installation. Paul's own copy keeps its accounts and keeps deploying `main`; the public copy
+deploys a tagged image only. Full plan, owner decisions D1–D6 and the status of each step:
+`docs/PUBLIC_MODE_BRIEF.md`. What changed: `docs/RELEASE_NOTES_v1.1.0.md`.
+
+Open, in order:
+1. **Paul:** commit and push this work, check that the release-readiness workflow passes, then tag `v1.1.0`.
+2. **Memory measurement:** run one Designer search at the public limits in the Docker image and note the peak
+   memory. The native library is not built on the laptop, so this cannot be done there. Then set the replica limits
+   of the public Railway project (suggested 2 vCPU, 4 GB) and `LIMIT_MEMORY_MB`.
+3. **Paul:** create the public Railway project (brief, "After release"), with `OPERATOR_CONTACT`, `STATS_PASSWORD`
+   and a $10 spending limit; a one-week private trial; then announce.
+4. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
+
+The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new
+deploys (five or more pushes that day), not a crash or a memory kill. `HFTA_WORKERS` was 24 on Railway and is now 2.
 
 ## Where things are
 | Item | Location |

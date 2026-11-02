@@ -207,6 +207,7 @@
   </div>
 </template>
 
+{% include "_public_footer.html" %}
 <script id="antTypes" type="application/json">{{ antenna_types|tojson }}</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
