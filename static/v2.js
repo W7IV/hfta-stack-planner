@@ -510,7 +510,7 @@ function prnGenDialog() {
     <label>From<input name="h1" type="number" min="0" max="23" value="0" style="width:70px"></label><label>To<input name="h2" type="number" min="1" max="24" value="24" style="width:70px"></label></div>
   <div class="row"><span class="small mute" style="align-self:center">Solar activity (sunspot number):</span>${(META.ssn_levels || []).map(([k, v]) => `<label style="flex-direction:row;align-items:center;gap:3px"><input type="checkbox" name="ssn" value="${v}" checked>${k} (${v})</label>`).join("")}</div>
   <p class="small mute">All months, all hours and all three solar levels give tables like the ARRL files. Fewer months or hours give a table for that season or time of day; one solar level gives a table for that part of the cycle. Each checked region produces a separate file; a batch of all regions may take several minutes. Progress and Cancel appear in the Targets page.</p>
-  <div class="row"><button type="submit">Generate</button><button type="button" class="ghost" id="genCancel">Cancel</button></div></form>`);
+  <div class="row"><button type="submit">Generate</button><button type="button" class="ghost" id="genCancel">Cancel</button></div>${allowNote("voacap")}</form>`);
   const f = $("#genForm");
   const regionChecks = () => [...f.querySelectorAll('[name=region]')];
   const checkedRegions = () => regionChecks().filter(x => x.checked).map(x => x.value);
@@ -1000,7 +1000,7 @@ function scanCard() {
     <label>Antenna type<select id="scEl">${META.elements.map(k => `<option value="${k}" ${k === 4 ? "selected" : ""}>${elName(k)}</option>`).join("")}</select></label>
     <label>Band<select id="scBand">${META.bands.map(b => `<option ${b === "20" ? "selected" : ""}>${b}</option>`).join("")}</select></label>
     <label>From (ft)<input type="number" id="scLo" value="30"></label><label>To (ft)<input type="number" id="scHi" value="150"></label><label>Step (ft)<input type="number" id="scSt" value="5"></label>
-    <button id="scGo">Scan</button></div><div class="prog" hidden id="scProg"><i></i></div><div id="scPlot" class="plot" hidden></div></div>`;
+    <button id="scGo">Scan</button></div>${allowNote("scan")}<div class="prog" hidden id="scProg"><i></i></div><div id="scPlot" class="plot" hidden></div></div>`;
   $("#scGo").onclick = async () => {
     const body = { site: $("#scSite").value, target: $("#scTg").value, elements: Number($("#scEl").value), band: $("#scBand").value, lo: $("#scLo").value, hi: $("#scHi").value, step: $("#scSt").value };
     const { job } = await api("POST", `/api/v2/p/${SLUG}/scan`, body); const r = await poll(job, $("#scProg"));
@@ -1008,6 +1008,20 @@ function scanCard() {
     Plotly.react("scPlot", [{ x: r.rows.map(x => x.h), y: r.rows.map(x => x.fom), mode: "lines+markers", line: { color: PAL[0] } }],
       plotLayout({ title: { text: `${r.type}, ${body.band} m, ${$("#scTg").selectedOptions[0].text}`, font: { size: 13 } }, xaxis: { title: "height (ft)", gridcolor: css("--line") }, yaxis: { title: "FOM (dB)", gridcolor: css("--line") } }), { displaylogo: false, responsive: true });
   };
+}
+/* Public copy: how many runs of a kind this workspace has left (designer, scan, voacap). Empty on any other copy. */
+function allowText(kind) {
+  const a = META.public && META.public.allowance && META.public.allowance[kind];
+  if (!a) return "";
+  return a.left > 0
+    ? `<b>Public copy:</b> ${a.left} of ${a.limit} ${a.name} left in this workspace. For more, use the <a href="${META.public.releases}" target="_blank" rel="noopener">free planner</a> on your own computer.`
+    : `<b>Public copy:</b> all ${a.limit} ${a.name} of this workspace are used. Download the <a href="${META.public.releases}" target="_blank" rel="noopener">free planner</a> (Windows or Docker), export this project (zip) and import it there: your work comes with you.`;
+}
+function allowNote(kind) { return META.public && META.public.allowance && META.public.allowance[kind] ? `<p class="small mute" data-allow="${kind}">${allowText(kind)}</p>` : ""; }
+async function refreshAllowance() {
+  if (!META.public) return;
+  try { META = await api("GET", "/api/v2/meta"); } catch (e) { return; }
+  $$("[data-allow]").forEach(p => { p.innerHTML = allowText(p.dataset.allow); });
 }
 /* Progress of a background job, with a Cancel link beside the bar. Cancel asks the server to stop the job at its next
    step; the job then ends with the error "Cancelled", which is reported like any other. */
@@ -1022,7 +1036,7 @@ async function poll(job, bar, onError = null) {
       const j = await api("GET", `/api/job/${job}`);
       i.style.width = j.total ? `${100 * j.done / j.total}%` : "5%";
       $("[data-ph]", stop).textContent = j.total ? `${j.phase}: ${j.done} of ${j.total} runs` : (j.phase || "");
-      if (j.state === "done") return j.result;
+      if (j.state === "done") { refreshAllowance(); return j.result; }
       if (j.state === "error") { if (onError) onError(j.error || "Calculation failed"); else toast(j.error, 6000); return null; }
       await new Promise(r => setTimeout(r, 600));
     }
@@ -1703,7 +1717,7 @@ function compCard() {
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
   <p class="small mute" style="margin:4px 0 0">Elements per band as in HFTA. Turning radius and droop are needed only with the guy check.</p>
   ${warnList(compFormWarnings(f), "Spacing rules: no warnings.")}
-  <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Design the stack</button></div>
+  <div class="row" style="margin-top:8px"><button class="ghost small" id="cmAddG">Add group</button><button id="cmGo">Design the stack</button></div>${allowNote("designer")}
   <div class="prog" hidden id="cmProg"><i></i></div><div id="cmOut"></div></div>`;
   const sv = () => save();
   $("#cmSourceTower").value = f.source_tower_id && p.towers.some(t => t.id === f.source_tower_id) ? f.source_tower_id : "";
@@ -1777,6 +1791,9 @@ function compResult(r) {
           ? `<b>Best found.</b> The height grid was too large, so it was searched coarse first and then fine around the best coarse layouts; a layout between them could be slightly better.`
           : `<b>Complete:</b> no other layout on this height grid scores higher. Combinations that could not beat the best were skipped by calculation, not by guess.`)
       : `<b>Search limit reached:</b> best found, not proven best. Narrow the height ranges or use a larger step.`}
+    ${st.time_cut && st.time_cut.length ? `<b>Time limit of this server (${Math.round(st.search_seconds / 60)} min):</b> ${st.time_cut.map(c => c.stopped
+      ? `${esc(c.group)}: the fine search stopped at a ${c.step} ft grid`
+      : `${esc(c.group)}: at ${c.step} ft only the ${c.top} best layout(s) were refined`).join("; ")}. The free planner on your own computer has no such limit.` : ""}
     ${st.failed_runs ? `<span class="neg">${n(st.failed_runs)} run(s) failed in the calculation core; ${n(st.layouts_dropped)} layout(s) without a complete score were left out.</span>` : ""}
     ${st.filled_runs ? `${n(st.filled_runs)} run(s) had a few invalid angles filled by interpolation.` : ""}
     Time ${st.seconds < 90 ? st.seconds + " s" : (st.seconds / 60).toFixed(1) + " min"}.

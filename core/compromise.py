@@ -17,6 +17,11 @@ from .evaluate import switch_options, target_azimuths, band_freq, run_one, aoa_s
 
 _PUBLIC = os.environ.get("PUBLIC_MODE") == "1"   # a public copy uses smaller limits; both can be set in the environment
 STAGE_SECONDS = int(os.environ.get("STAGE_SECONDS", "60" if _PUBLIC else "240"))   # wall-clock budget per search stage; the height grid is coarsened until the stage fits it
+# Time budget of the WHOLE search (seconds; 0 = none). STAGE_SECONDS limits only the first (coarse) stage of each group;
+# without this the refine stages can run for a long time (45 min measured on 2 workers, 2 Nov 2026). The budget is shared
+# out between the groups; a refine stage that would not fit is made smaller (fewer best layouts refined), or skipped,
+# and the result says so.
+SEARCH_SECONDS = int(os.environ.get("SEARCH_SECONDS", "600" if _PUBLIC else "0"))
 MIN_STAGE_RUNS = 1500   # a stage is never cut below this many runs, however slow the core is on the terrain
 NODE_BUDGET = 3_000_000   # combinations examined by the branch-and-bound search before it stops and says so
 MAX_GROUP_LAYOUTS = int(os.environ.get("MAX_GROUP_LAYOUTS", "50000" if _PUBLIC else "200000"))   # layouts of one group; above this the request is refused before any work
@@ -187,7 +192,11 @@ def search(proj, slug, body, pool, job):
     sc = Scorer(proj, slug, body["site"], targets, pool, job)
     if not sc.idx: raise ValueError("The chosen site has no terrain profiles")
     per_group = []
+    deadline = t0 + SEARCH_SECONDS if SEARCH_SECONDS > 0 else None
+    cut = []          # refine stages made smaller or stopped by the time budget, for the summary
     for gi, g in enumerate(groups):
+        # This group's share of the time that is left: the groups still to come get equal shares.
+        g_end = None if deadline is None else time.time() + max(0.0, deadline - time.time()) / (len(groups) - gi)
         step = g["step"]
         if step <= 0 or g["hi"] < g["lo"]: raise ValueError(f"{g['name']}: check the height range and step")
         # Size check BEFORE listing layouts: if the height grid gives too many layouts, start on a coarser grid
@@ -203,7 +212,8 @@ def search(proj, slug, body, pool, job):
         # Run cost depends on the terrain, the band and the stack size (0.01 to 0.7 s seen), so the budget is time, not
         # a run count: a few representative runs are timed first and the grid is coarsened until the stage fits.
         per_run = sc.calibrate(g["ant"], g["bands"], cands[len(cands) // 2], mode)
-        budget = max(MIN_STAGE_RUNS, int(STAGE_SECONDS * sc.workers / per_run))
+        stage_s = STAGE_SECONDS if g_end is None else min(STAGE_SECONDS, max(1.0, (g_end - time.time()) / 2))
+        budget = max(MIN_STAGE_RUNS, int(stage_s * sc.workers / per_run))
         while cands and len(sc.needed(g["ant"], g["bands"], cands, mode)) > budget:
             coarse = (coarse or step) * 2; cands = group_candidates(g, coarse, rules, allowed)
         if not cands: raise ValueError(f"No heights fit the rules for {g['name']} (spacing, height limits or guys)")
@@ -217,10 +227,17 @@ def search(proj, slug, body, pool, job):
             cur = coarse
             while cur > step:
                 nxt = max(step, cur / 2)
-                top = sorted(scored, key=lambda c: -gscore(scored[c]))[:6]
-                fine = [c for c in refine(top, g, nxt, cur, rules, allowed) if c not in scored]
+                ranked = sorted(scored, key=lambda c: -gscore(scored[c]))
+                # Refine around the 6 best layouts; with a time budget, around fewer (3, then 1) when 6 would not fit.
+                for top in (6, 3, 1):
+                    fine = [c for c in refine(ranked[:top], g, nxt, cur, rules, allowed) if c not in scored]
+                    need = sc.needed(g["ant"], g["bands"], fine, mode) if fine else []
+                    if g_end is None or not need or time.time() + len(need) * per_run / sc.workers <= g_end: break
+                else:
+                    cut.append({"group": g["name"], "step": cur, "stopped": True})
+                    break
+                if top < 6: cut.append({"group": g["name"], "step": nxt, "top": top})
                 if fine:
-                    need = sc.needed(g["ant"], g["bands"], fine, mode)
                     sc.compute(need, f"{g['name']}: fine search at {nxt:g} ft, {len(fine)} layouts, about {max(1, round(len(need) * per_run / sc.workers / 60))} min")
                     for c in fine: scored[c] = sc.score(g["ant"], g["bands"], c, mode)
                 cur = nxt
@@ -336,5 +353,6 @@ def search(proj, slug, body, pool, job):
                       "combinations_checked": n_combos, "combinations_kept": len(rows), "own_best_steps": nodes_own,
                       "complete": exhaustive, "coarse_grid": any(st_["stage"].find("coarse") >= 0 for st_ in sc.stages),
                       "failed_runs": sc.n_failed, "filled_runs": sc.n_filled, "layouts_dropped": dropped,
+                      "time_cut": cut, "search_seconds": SEARCH_SECONDS,
                       "seconds": round(time.time() - t0, 1)}, "rows": rows, "evaluated": len(rows), "runs": len(sc.pat),
             "targets": [{"id": t["id"], "name": t["name"]} for t in targets]}

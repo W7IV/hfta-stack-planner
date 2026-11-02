@@ -26,8 +26,14 @@ def results_path(slug): return P.path(slug) / "results.json"
 def start_thread(fn, *args):
     """Run fn in a background thread with the same project store (contextvars) as the request that started it."""
     ctx = contextvars.copy_context()
-    # args[0] is the job. On a public copy it waits in line until a place is free (core/limits.py).
-    run = (lambda: LM.GATE.run(args[0], lambda: fn(*args))) if LM.enabled() else (lambda: fn(*args))
+    # args[0] is the job. On a public copy it waits in line until a place is free (core/limits.py), and a job that
+    # finishes is counted against the workspace's allowance (an error or a cancel is not counted).
+    job = args[0]
+    def counted():
+        fn(*args)
+        if job.get("state") == "done":
+            LM.use_allowance(job.get("kind"), job.get("n", 1), Path(job["owner"]).parent)
+    run = (lambda: LM.GATE.run(job, counted)) if LM.enabled() else (lambda: fn(*args))
     threading.Thread(target=ctx.run, args=(run,), daemon=True).start()
 
 def new_job(kind: str = "other", n: int = 1) -> tuple:
@@ -36,12 +42,13 @@ def new_job(kind: str = "other", n: int = 1) -> tuple:
     now = time.time(); jobs = CTX["jobs"]
     for k in [k for k, j in list(jobs.items()) if j["state"] != "running" and now - j["started"] > 3600]: jobs.pop(k, None)
     if LM.enabled():
+        LM.check_allowance(kind, n, P.root().parent)
         LM.check_new_job(str(P.root()), jobs, P.root().parent)
     elif sum(1 for j in jobs.values() if j["state"] == "running") >= 4:
         raise ValueError("Four calculations are already running. Wait for one to finish.")
     jid = uuid.uuid4().hex[:8]
     job = {"state": "running", "phase": "Planning", "done": 0, "total": 0, "result": None, "error": None, "cancel": False, "started": now,
-           "owner": str(P.root())}
+           "owner": str(P.root()), "kind": kind, "n": n}
     jobs[jid] = job; ST.job(kind, n); return jid, job
 def load_results(slug):
     p = results_path(slug); return json.loads(p.read_text()) if p.exists() else None
@@ -84,7 +91,8 @@ def meta():
     out = _meta()
     if LM.enabled():      # the page script shows the notices of a public copy; other copies answer as before
         out["public"] = {"prn_upload": LM.prn_upload_allowed(), "expiry_days": W.expiry_days(),
-                         "workspace_mb": LM.CFG["workspace_mb"], "projects": LM.CFG["projects"]}
+                         "workspace_mb": LM.CFG["workspace_mb"], "projects": LM.CFG["projects"],
+                         "allowance": LM.allowance(P.root().parent), "releases": "https://github.com/W7IV/hfta-stack-planner/releases/latest"}
     return jsonify(out)
 
 def _meta():

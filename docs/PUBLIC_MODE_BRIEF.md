@@ -122,9 +122,13 @@ Decisions taken while building, to confirm:
 - Default calculation processes: 2 on a public copy, at most 4 on any other
   hosted copy, all CPUs on your own computer. This also answers the 24-process
   setting seen on Railway.
-- Still to do: measure the real peak memory of a Designer run at these limits.
-  The native OpenHFTA library is not built on the development laptop, so this
-  must be done where it is built (the Docker image).
+- Measured 2 November 2026 in the v1.1.0 image (public mode, 2 CPUs, 4 GB):
+  one large Designer search peaks at 136 MB for the whole container, so the
+  replica can be 1 GB (`LIMIT_MEMORY_MB=1024`). The same search took 45
+  minutes, because `STAGE_SECONDS` limited only the first stage. v1.1.1 adds
+  a limit for the whole search (`SEARCH_SECONDS`, 600 s) and, on Paul's
+  proposal, an allowance per workspace (2 Designer searches, 3 height scans,
+  3 VOACAP tables, in total). See `docs/RELEASE_NOTES_v1.1.1.md`.
 
 Environment settings, with these defaults for public mode only:
 
@@ -272,7 +276,9 @@ stored file, and `/stats` returns 404 without the password.
 
 ## Step 9: Release
 
-**Status: prepared on 2 November 2026; waiting for Paul.** The version comes
+**Status: v1.1.0 released on 2 November 2026 (commit 8ac22b7). v1.1.1
+(allowance and search time limit) prepared the same day; waiting for Paul.**
+The version comes
 from the git tag (there is no version file). Release notes:
 `docs/RELEASE_NOTES_v1.1.0.md`. README Docker example now names `v1.1.0`.
 `HANDOFF.md` has a "Public copy" section with the open items. A clean copy
@@ -289,12 +295,12 @@ existing workflow builds the image.
 ## After release (Paul)
 
 1. Railway: New Project, then Deploy a Docker image
-   `ghcr.io/w7iv/hfta-stack-planner:v1.1.0`. Use a new project, not a new
-   service in the present one.
+   `ghcr.io/w7iv/hfta-stack-planner:v1.1.1`. Use a new project, not a new
+   service in the present one. Replica limits: 2 vCPU, 1 GB.
 2. Add a volume at `/data`.
-3. Variables: `PUBLIC_MODE=1`, `HOSTED=1`, `HFTA_WORKERS=2`, a new
-   `SECRET_KEY`, operator name and contact. Do not copy variables from the
-   present project.
+3. Variables: `PUBLIC_MODE=1`, `HOSTED=1`, `HFTA_WORKERS=2`,
+   `LIMIT_MEMORY_MB=1024`, a new `SECRET_KEY`, `STATS_PASSWORD`, operator name
+   and contact. Do not copy variables from the present project.
 4. Networking: generate a domain, or add a custom domain and its DNS record.
 5. Health check path `/healthz`; restart policy "on failure".
 6. Set the usage limit and alert (Workspace, then Usage).
@@ -305,8 +311,10 @@ existing workflow builds the image.
 - Two browsers: each sees only its own projects.
 - Paul's own copy still works with its login. The two copies share no volume,
   secret or domain.
-- One Designer run at the public limits finishes in the time shown, with no
-  memory stop (check Railway metrics).
+- One Designer run at the public limits finishes in about 10 minutes or less,
+  with no memory stop (check Railway metrics).
+- After 2 finished Designer searches, a third is refused with the download
+  message, and the Designer step shows "all 2 ... are used".
 - A second job from the same browser is refused with the plain message. A
   third browser waits in the queue.
 - A workspace older than 30 days is deleted by the clean-up. A newer one is

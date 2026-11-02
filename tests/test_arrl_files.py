@@ -55,7 +55,9 @@ def the_page_tells_the_visitor_what_happens_to_their_files():
     js = (REPO / "static" / "v2.js").read_text(encoding="utf-8")
     assert "Upload only files you are entitled to use" in js and "are never shared or listed" in js
     c = visitor()
-    assert c.get("/api/v2/meta").get_json()["public"] == {"prn_upload": True, "expiry_days": 30, "workspace_mb": 50, "projects": 5}
+    pub = c.get("/api/v2/meta").get_json()["public"]
+    assert {k: pub[k] for k in ("prn_upload", "expiry_days", "workspace_mb", "projects")} == {"prn_upload": True, "expiry_days": 30, "workspace_mb": 50, "projects": 5}, pub
+    assert set(pub["allowance"]) == {"designer", "scan", "voacap"}, pub          # v1.1.1: the allowance (tests/test_allowance.py)
 
 @test
 def a_copy_that_is_not_public_answers_as_before():

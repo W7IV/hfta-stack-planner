@@ -173,7 +173,8 @@ def _public_context():
                        "contact": os.environ.get("OPERATOR_CONTACT", "").strip(),
                        "expiry_days": W.expiry_days(), "workspace_mb": LM.CFG["workspace_mb"],
                        "usage_counts": USAGE_COUNTS, "prn_upload": LM.prn_upload_allowed(),
-                       "repo": REPO_URL, "releases": REPO_URL + "/releases/latest"}}
+                       "repo": REPO_URL, "releases": REPO_URL + "/releases/latest",
+                       "allowance": [f"{LM.CFG[key]} {name}" for key, name in LM.ALLOWANCE.values() if LM.CFG[key] >= 0]}}
 
 
 @app.get("/privacy")

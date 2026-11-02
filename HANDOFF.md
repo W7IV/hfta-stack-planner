@@ -10,12 +10,23 @@ deploys a tagged image only. Full plan, owner decisions D1–D6 and the status o
 `docs/PUBLIC_MODE_BRIEF.md`. What changed: `docs/RELEASE_NOTES_v1.1.0.md`.
 
 Open, in order:
-1. **Paul:** commit and push this work, check that the release-readiness workflow passes, then tag `v1.1.0`.
-2. **Memory measurement:** run one Designer search at the public limits in the Docker image and note the peak
-   memory. The native library is not built on the laptop, so this cannot be done there. Then set the replica limits
-   of the public Railway project (suggested 2 vCPU, 4 GB) and `LIMIT_MEMORY_MB`.
-3. **Paul:** create the public Railway project (brief, "After release"), with `OPERATOR_CONTACT`, `STATS_PASSWORD`
-   and a $10 spending limit; a one-week private trial; then announce.
+1. Done, 2 November: commit 8ac22b7, release-readiness green, tag `v1.1.0` released (Windows zip on GitHub
+   Releases; Docker image `ghcr.io/w7iv/hfta-stack-planner:v1.1.0`, publicly pullable).
+2. **Memory measurement:** done 2 November in the v1.1.0 image (public mode, 2 CPUs, 4 GB). Heavy Designer
+   search: 6 targets x 3 headings, 72 real profiles, tribanders 2-4 high (20-200 ft) plus 40 m 1-2 high.
+   Peak memory of the whole container: **136 MB**. Memory is not the limit: set the public replica to 2 vCPU and
+   1 GB, and `LIMIT_MEMORY_MB=1024`.
+   **Finding:** the same search took **45 minutes** (20,238 HFTA runs, about 0.27 s each on 2 workers).
+   `STAGE_SECONDS` limits only the first (coarse) stage of each group; the refine stages (40, 20, 10, 5 ft)
+   have no time limit and took 40 of the 45 minutes. One such search holds one of the two server places for
+   45 minutes. Fixed in v1.1.1 (2 November): a 10-minute limit for the whole search in public mode
+   (`SEARCH_SECONDS`), and the per-workspace allowance Paul proposed: 2 Designer searches, 3 height scans,
+   3 VOACAP tables, in total, shown up front. See `docs/RELEASE_NOTES_v1.1.1.md`. Checked in a local build of
+   v1.1.1: the same search took 7.3 minutes, best FOM 0.28 dB below the 45-minute result, 107 MB peak.
+   **Paul:** commit, check release-readiness, tag `v1.1.1`.
+3. **Paul:** create the public Railway project (brief, "After release") from image `v1.1.1`, replica 2 vCPU and
+   1 GB, with `LIMIT_MEMORY_MB=1024`, `OPERATOR_CONTACT`, `STATS_PASSWORD` and a $10 spending limit; a one-week
+   private trial; then announce.
 4. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new

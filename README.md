@@ -126,7 +126,7 @@ and VOACAP. Install [Docker Engine](https://docs.docker.com/engine/install/) on 
 docker run -d --name hfta-planner --platform linux/amd64 \
   -p 127.0.0.1:5055:5055 \
   -v hfta-data:/data \
-  ghcr.io/w7iv/hfta-stack-planner:v1.1.0
+  ghcr.io/w7iv/hfta-stack-planner:v1.1.1
 ```
 
 Open **http://localhost:5055** in your browser. Data persists in the named Docker volume `hfta-data`,
@@ -249,15 +249,21 @@ without `PUBLIC_MODE=1` behaves as described above. `PUBLIC_MODE=1` and `APP_PAS
   workspace only. They are never shared or listed. `PRN_UPLOAD=off` refuses ARRL files; visitors use VOACAP tables.
 - **Limits.** One calculation per workspace; two at once on the server, others wait in line; a memory guard; 5
   projects and 50 MB per workspace; 25 MB uploads; 3 VOACAP tables and 20 online terrain fetches per workspace per
-  day; 10 new workspaces per address per day; shorter Designer search (60 s per stage, 50,000 layouts). Each value
-  has a setting; the list is at the top of `core/limits.py`.
+  day; 10 new workspaces per address per day; shorter Designer search (60 s per stage, 10 minutes for the whole
+  search, 50,000 layouts). Each value has a setting; the list is at the top of `core/limits.py`.
+- **Allowance (v1.1.1).** The public copy is for trying the planner. Each workspace can run 2 Designer searches,
+  3 height scans and 3 VOACAP tables in total (not per day); Evaluate and Compare are not counted. Only a calculation
+  that finishes is counted. The notice page and the buttons show what is left; when it is used, the page points to
+  the free Windows and Docker downloads, where the exported project zip can be imported.
 - **Pages.** Every page has a footer with the operator, the licence, a link to the source and to the free Windows
   and Docker downloads, and the OpenStreetMap credit. `/privacy` tells visitors what is stored and where data goes.
 - **Usage counts.** The server keeps daily totals only (new and active workspaces, calculations and terrain fetches
   by type, waits in line, refusals by limit) in `stats/usage.json` on the volume: no address, no workspace number,
   no third-party service. The operator reads them at `/stats` with `STATS_PASSWORD` (any user name); without that
   setting the page does not exist.
-- **Deploy a tagged image** (for example `ghcr.io/w7iv/hfta-stack-planner:v1.1.0`), not `main`, so a push cannot
+- **Size.** Measured 2 November 2026: one large Designer search peaks at 136 MB for the whole container, so a
+  replica of 2 vCPU and 1 GB is enough (set `LIMIT_MEMORY_MB=1024`).
+- **Deploy a tagged image** (for example `ghcr.io/w7iv/hfta-stack-planner:v1.1.1`), not `main`, so a push cannot
   change the public copy by accident. Add a volume at `/data`. Do not copy variables from another project.
 
 | Variable | Meaning | Default |
@@ -271,6 +277,8 @@ without `PUBLIC_MODE=1` behaves as described above. `PUBLIC_MODE=1` and `APP_PAS
 | `MAX_UPLOAD_MB` | largest upload | 25 on a public copy, 512 otherwise |
 | `TERRAIN_CACHE_MB` | size limit of the shared terrain-tile cache | 1000 on a public copy, none otherwise |
 | `TRUSTED_PROXY_HOPS` | proxies in front of the app that add to `X-Forwarded-For` | 1 when hosted, 0 otherwise |
+| `SEARCH_SECONDS` | time budget of a whole Designer search, in seconds (0 = none) | 600 on a public copy, 0 otherwise |
+| `LIMIT_DESIGNER_RUNS`, `LIMIT_SCAN_RUNS`, `LIMIT_VOACAP_TABLES` | allowance of a workspace, in total (negative = no limit) | 2, 3, 3 |
 | `LIMIT_*`, `STAGE_SECONDS`, `MAX_GROUP_LAYOUTS` | limits of a public copy | see `core/limits.py` |
 
 The plan and the work done are in `docs/PUBLIC_MODE_BRIEF.md`.

@@ -21,6 +21,10 @@
     <li>A workspace that is not used for 30 days is deleted.</li>
     <li>If you clear this browser's cookies, you lose access to the workspace.</li>
     <li>To keep your work, export the project zip and open it again later.</li>
+    {% if public and public.allowance %}<li><b>This copy is for trying the planner.</b> Each workspace can run
+      {{ public.allowance | join(", ") }}. For more, download the
+      <a href="{{ public.releases }}" target="_blank" rel="noopener">free planner</a> (Windows or Docker) and import
+      your project zip there.</li>{% endif %}
     <li>Upload only files you are entitled to use. ARRL elevation-angle (.PRN) files are copyright ARRL.</li>
   </ul>
   <form method="post" action="/welcome">

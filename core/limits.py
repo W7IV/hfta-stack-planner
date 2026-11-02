@@ -14,9 +14,17 @@ Every limit has a default for the public copy and an environment setting to chan
   LIMIT_MEMORY_PERCENT          share of the memory limit above which no new calculation starts   80
   LIMIT_MEMORY_MB               memory limit in MB; 0 = read it from the container (cgroup) if there is one   0
   LIMIT_TERRAIN_CONCURRENT      online terrain fetches that may run at the same time on the server   2
+  LIMIT_DESIGNER_RUNS           Designer searches per workspace, in total             2
+  LIMIT_SCAN_RUNS               height scans per workspace, in total                  3
+  LIMIT_VOACAP_TABLES           VOACAP tables per workspace, in total                 3
+
+The last three are the allowance of a workspace: the public copy is for trying the planner, and the free Windows or
+Docker version is for real work. Only a calculation that finishes is counted; one that stops with an error or is
+cancelled is not. The counts are kept in a file in the workspace, so a restart of the server does not reset them.
+A negative value means no allowance for that kind (no limit).
 
 Also for the public copy (read in core/compromise.py, core/terrain.py and app.py): STAGE_SECONDS (60),
-MAX_GROUP_LAYOUTS (50000), MAX_UPLOAD_MB (25), HFTA_WORKERS (2), TERRAIN_CACHE_MB (1000).
+SEARCH_SECONDS (600), MAX_GROUP_LAYOUTS (50000), MAX_UPLOAD_MB (25), HFTA_WORKERS (2), TERRAIN_CACHE_MB (1000).
 
 PRN_UPLOAD decides about ARRL elevation-angle (.PRN) files, which are copyright ARRL:
   private (default)  a visitor may upload their own files into their own workspace only; they are never shared or
@@ -27,6 +35,7 @@ The daily counts are kept in memory and start again from zero after a restart of
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 import threading
@@ -36,7 +45,7 @@ from pathlib import Path
 PUBLIC_DEFAULTS = {
     "jobs_per_workspace": 1, "jobs_on_server": 2, "queue_length": 10, "projects": 5, "workspace_mb": 50,
     "voacap_per_day": 3, "terrain_per_day": 20, "new_workspaces_per_day": 10, "memory_percent": 80, "memory_mb": 0,
-    "terrain_concurrent": 2,
+    "terrain_concurrent": 2, "designer_runs": 2, "scan_runs": 3, "voacap_tables": 3,
 }
 ENV_NAMES = {
     "jobs_per_workspace": "LIMIT_JOBS_PER_WORKSPACE", "jobs_on_server": "LIMIT_JOBS_ON_SERVER",
@@ -44,6 +53,7 @@ ENV_NAMES = {
     "voacap_per_day": "LIMIT_VOACAP_PER_DAY", "terrain_per_day": "LIMIT_TERRAIN_PER_DAY",
     "new_workspaces_per_day": "LIMIT_NEW_WORKSPACES_PER_DAY", "memory_percent": "LIMIT_MEMORY_PERCENT",
     "memory_mb": "LIMIT_MEMORY_MB", "terrain_concurrent": "LIMIT_TERRAIN_CONCURRENT",
+    "designer_runs": "LIMIT_DESIGNER_RUNS", "scan_runs": "LIMIT_SCAN_RUNS", "voacap_tables": "LIMIT_VOACAP_TABLES",
 }
 CFG: dict = {}
 PUBLIC = False
@@ -272,6 +282,74 @@ def check_new_job(owner: str, jobs: dict, workspace_dir: Path):
     if GATE.running and memory_busy():
         raise LimitError("The public server is using most of its memory. Try again in a few minutes.", kind="memory")
     check_disk(workspace_dir)
+
+
+# ---------------------------------------------------------------- allowance of a workspace (in total, not per day)
+ALLOWANCE = {"designer": ("designer_runs", "Designer searches"), "scan": ("scan_runs", "height scans"),
+             "voacap": ("voacap_tables", "VOACAP tables")}
+ALLOWANCE_FILE = ".allowance.json"      # in the workspace folder, beside projects/ (never inside a project)
+
+
+def _allowance_path(workspace_dir: Path) -> Path:
+    return Path(workspace_dir) / ALLOWANCE_FILE
+
+
+def allowance_used(workspace_dir: Path) -> dict:
+    """{kind: count} of the calculations this workspace has finished. A missing or damaged file counts as none."""
+    try:
+        data = json.loads(_allowance_path(workspace_dir).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if k in ALLOWANCE and isinstance(v, int) and v >= 0}
+
+
+def allowance(workspace_dir: Path) -> dict:
+    """{kind: {"limit", "used", "left", "name"}} for the page. Kinds with no limit (negative setting) are left out."""
+    used = allowance_used(workspace_dir)
+    out = {}
+    for kind, (key, name) in ALLOWANCE.items():
+        limit = CFG[key]
+        if limit < 0:
+            continue
+        u = used.get(kind, 0)
+        out[kind] = {"limit": limit, "used": u, "left": max(0, limit - u), "name": name}
+    return out
+
+
+def check_allowance(kind: str, n: int, workspace_dir: Path):
+    """Refuse a calculation when the workspace has used its allowance of this kind. Called before the job starts."""
+    if kind not in ALLOWANCE:
+        return
+    key, name = ALLOWANCE[kind]
+    limit = CFG[key]
+    if limit < 0:
+        return
+    used = allowance_used(workspace_dir).get(kind, 0)
+    if used + n > limit:
+        left = max(0, limit - used)
+        more = f" {left} left; this one needs {n}." if left else ""
+        raise LimitError(f"This public copy allows {limit} {name} for each workspace, for trying the planner.{more} "
+                         "For more, download the free planner (Windows or Docker) and run it on your own computer. "
+                         "Your work comes with you: export the project here (zip) and import it there.",
+                         kind=f"allowance_{kind}")
+
+
+def use_allowance(kind: str, n: int, workspace_dir: Path):
+    """Count n finished calculations of this kind. A counting error is logged and never reaches the visitor."""
+    if kind not in ALLOWANCE:
+        return
+    try:
+        with _LOCK:
+            used = allowance_used(workspace_dir)
+            used[kind] = used.get(kind, 0) + n
+            path = _allowance_path(workspace_dir)
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(used))
+            os.replace(tmp, path)
+    except Exception:  # a counting error must never change what the visitor sees
+        logging.getLogger("hfta.limits").exception("allowance count failed")
 
 
 def voacap_tables(body: dict) -> int:
