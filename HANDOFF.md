@@ -49,6 +49,8 @@ Open, in order:
    comparing two distant sites is what the free download is for. Small open point for v1.1.3: the daily VOACAP
    count goes up when a request is accepted, the total only when a table finishes, so a failed or cancelled table
    still uses part of the day's limit.
+   **v1.1.3 prepared** (3 November, `docs/RELEASE_NOTES_v1.1.3.md`) with all of the above. **Paul:** commit,
+   release-readiness on `main`, tag `v1.1.3`, approve signing, then set the public copy's image to `v1.1.3`.
 5. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new
