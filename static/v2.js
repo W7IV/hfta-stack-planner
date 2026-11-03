@@ -965,7 +965,7 @@ function guyBlock(t) {
     ${g.levels.map((l, j) => `<tr><td class="n"><input type="number" data-gh="${j}" value="${l.h}"></td><td class="n"><input type="number" data-gr="${j}" value="${l.r}"></td>
       <td><select data-gw="${j}">${wires.map(w => `<option ${w === l.wire ? "selected" : ""}>${esc(w)}</option>`).join("")}</select></td>
       <td class="n"><input type="number" data-gt="${j}" value="${l.tension ?? META.wires[l.wire].tension}"></td><td><button class="danger small" data-gd="${j}">Remove</button></td></tr>`).join("")}</table></div>
-    <div class="row" style="margin-top:8px"><button class="ghost small" data-gadd>Add guy level</button><button class="ghost small" data-rohn>Rohn 65G 160 ft standard</button>
+    <div class="row" style="margin-top:8px"><button class="ghost small" data-gadd>Add guy level</button>
       <label>Radial ice (in)<select data-gi title="Radial ice thickness on guys and elements. Use the value your engineer gives for the site">
         ${[0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map(v => `<option value="${v}" ${Number(g.ice_in ?? 1) === v ? "selected" : ""}>${v === 0 ? "none" : v + '"'}</option>`).join("")}</select></label><label>Hardware margin (ft)<input type="number" step="0.5" data-gm value="${g.margin_ft ?? 2}"></label>
       <button data-gcheck>Check clearances</button></div><div data-gout></div></div>`;
@@ -975,7 +975,6 @@ function wireGuys(c, t) {
   upd("[data-gh]", "h"); upd("[data-gr]", "r"); upd("[data-gw]", "wire", false); upd("[data-gt]", "tension");
   $$("[data-gd]", c).forEach(b => b.onclick = () => { g.levels.splice(Number(b.dataset.gd), 1); save(); rTowers(); });
   $("[data-gadd]", c).onclick = () => { g.levels.push({ h: 50, r: 100, wire: "Phillystran HPTG-11200I", tension: 1120 }); save(); rTowers(); };
-  $("[data-rohn]", c).onclick = () => { g.levels = [52, 100, 152].map(h => ({ h, r: 128, wire: "Phillystran HPTG-11200I", tension: 1120 })); t.height_ft = 160; save(); rTowers(); };
   $("[data-gi]", c).onchange = e => { g.ice_in = Number(e.target.value); save(); };
   $("[data-gm]", c).onchange = e => { g.margin_ft = Number(e.target.value); save(); };
   $("[data-gcheck]", c).onclick = async () => {
@@ -1460,7 +1459,6 @@ const TIPS = [
   ["[data-gi]", "Radial ice on guys and elements. Use the value your engineer gives for the site."],
   ["[data-gm]", "Extra clearance kept free for hardware and movement, feet."],
   ["[data-gadd]", "Another guy level."],
-  ["[data-rohn]", "Fill the guy table with the Rohn 65G 160 ft standard layout."],
   ["[data-gcheck]", "Check every turning antenna against every guy, with ice and droop."],
   // Stack Designer
   ["#cmSite", "Terrain used for the search."],
@@ -1550,7 +1548,7 @@ function showHelp() {
     <li><b>Switching</b>: which parts of the stack HFTA may select for each target and band.</li>
     <li>Turning radius and droop are used only by the guy check.</li>
   </ul>
-  <p><b>Guy and ice check.</b> Enter guy heights and anchor distances (or the Rohn 65G preset). Pick the radial ice your engineer gives for the site. The check reports, for each turning antenna, how far the iced guy is from the drooping element tip. Negative = contact. The drawing on the card is to one scale, so guys and turning radii can be compared by eye.</p>
+  <p><b>Guy and ice check.</b> Enter the guy heights and anchor distances of your own tower, from its engineering drawings: an engineered tower may have more guy levels, or other heights, for the wind load at your site. Pick the radial ice your engineer gives for the site. The check reports, for each turning antenna, how far the iced guy is from the drooping element tip. Negative = contact. The drawing on the card is to one scale, so guys and turning radii can be compared by eye.</p>
 
   <h3>Stack Designer</h3>
   <p>Searches heights for one tower over all ticked targets at once. Groups: one row per antenna type, with how many of them (Count) and the spacing rules inside the group.</p>

@@ -35,6 +35,11 @@ Open, in order:
    an empty lowest height is a quarter wavelength, and the K6TU and "this computer" texts are corrected. Affects
    every copy since the Designer was added, the Windows zip included. **Paul:** commit, release-readiness, then
    tag `v1.1.2` (with the trial's fixes, or alone) and move the public copy to image `v1.1.2`.
+   Done: v1.1.2 released 3 November (commit 8385bc8). **Paul:** move the public copy to image `v1.1.2`.
+   Not yet released (next release): the "Rohn 65G 160 ft standard" guy button is removed (Paul, 2 November). An
+   engineered tower may have more guy levels or other heights for the wind load at its site, so every user enters
+   the guys from their own tower's drawings. The button also set the tower height to 160 ft without saying so.
+   Guy tables already saved in projects are kept.
 5. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new
