@@ -8,7 +8,7 @@ Every limit has a default for the public copy and an environment setting to chan
   LIMIT_QUEUE_LENGTH            calculations that may wait in line                    10
   LIMIT_PROJECTS                projects per workspace                                5
   LIMIT_WORKSPACE_MB            disk space per workspace                              50
-  LIMIT_VOACAP_PER_DAY          VOACAP tables (one region = one table) per workspace per day   3
+  LIMIT_VOACAP_PER_DAY          VOACAP tables (one region = one table) per workspace per day   7
   LIMIT_TERRAIN_PER_DAY         online terrain fetches per workspace per day          20
   LIMIT_NEW_WORKSPACES_PER_DAY  new workspaces per address per day                    10
   LIMIT_MEMORY_PERCENT          share of the memory limit above which no new calculation starts   80
@@ -16,7 +16,10 @@ Every limit has a default for the public copy and an environment setting to chan
   LIMIT_TERRAIN_CONCURRENT      online terrain fetches that may run at the same time on the server   2
   LIMIT_DESIGNER_RUNS           Designer searches per workspace, in total             2
   LIMIT_SCAN_RUNS               height scans per workspace, in total                  3
-  LIMIT_VOACAP_TABLES           VOACAP tables per workspace, in total                 3
+  LIMIT_VOACAP_TABLES           VOACAP tables per workspace, in total                 7
+
+Both VOACAP values are 7 so that one workspace can make a table for each of the 7 regions once (3 until 3 Nov 2026:
+a worldwide set was refused). The tables can then be saved to the library and used by every project.
 
 The last three are the allowance of a workspace: the public copy is for trying the planner, and the free Windows or
 Docker version is for real work. Only a calculation that finishes is counted; one that stops with an error or is
@@ -44,8 +47,8 @@ from pathlib import Path
 
 PUBLIC_DEFAULTS = {
     "jobs_per_workspace": 1, "jobs_on_server": 2, "queue_length": 10, "projects": 5, "workspace_mb": 50,
-    "voacap_per_day": 3, "terrain_per_day": 20, "new_workspaces_per_day": 10, "memory_percent": 80, "memory_mb": 0,
-    "terrain_concurrent": 2, "designer_runs": 2, "scan_runs": 3, "voacap_tables": 3,
+    "voacap_per_day": 7, "terrain_per_day": 20, "new_workspaces_per_day": 10, "memory_percent": 80, "memory_mb": 0,
+    "terrain_concurrent": 2, "designer_runs": 2, "scan_runs": 3, "voacap_tables": 7,
 }
 ENV_NAMES = {
     "jobs_per_workspace": "LIMIT_JOBS_PER_WORKSPACE", "jobs_on_server": "LIMIT_JOBS_ON_SERVER",

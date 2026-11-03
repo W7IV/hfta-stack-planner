@@ -17,7 +17,14 @@ async function api(method, url, body, isForm) {
   if (body !== undefined) { if (isForm) o.body = body; else { o.headers["Content-Type"] = "application/json"; o.body = JSON.stringify(body); } }
   const r = await fetch(url, o); const j = await r.json().catch(() => ({}));
   if (r.status === 401 && j.login) { location.href = "/login?next=" + encodeURIComponent(location.pathname); throw new Error("Please log in"); }
-  if (!r.ok) { const e = new Error(j.error || r.statusText); e.status = r.status; e.body = j; throw e; } return j;
+  /* Never an empty message: over HTTP/2 (Railway) statusText is always "", and an answer that is not JSON (a proxy
+     page, an upload too large for the server) has no j.error. */
+  if (!r.ok) {
+    const e = new Error(j.error || r.statusText || (r.status === 413 ? "The upload is too large for this server (error 413)."
+      : `The server refused the request (error ${r.status}). Try again; if it happens again, reload the page.`));
+    e.status = r.status; e.body = j; throw e;
+  }
+  return j;
 }
 function toast(msg, ms = 2600) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(t._h); t._h = setTimeout(() => t.hidden = true, ms); }
 /* Saving. Each save is tied to the project it was made for (a project switch within the 500 ms delay still saves

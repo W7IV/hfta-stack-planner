@@ -251,11 +251,12 @@ without `PUBLIC_MODE=1` behaves as described above. `PUBLIC_MODE=1` and `APP_PAS
 - **ARRL files.** With the default `PRN_UPLOAD=private`, a visitor may upload their own `.PRN` files into their own
   workspace only. They are never shared or listed. `PRN_UPLOAD=off` refuses ARRL files; visitors use VOACAP tables.
 - **Limits.** One calculation per workspace; two at once on the server, others wait in line; a memory guard; 5
-  projects and 50 MB per workspace; 25 MB uploads; 3 VOACAP tables and 20 online terrain fetches per workspace per
+  projects and 50 MB per workspace; 25 MB uploads; 7 VOACAP tables and 20 online terrain fetches per workspace per
   day; 10 new workspaces per address per day; shorter Designer search (60 s per stage, 10 minutes for the whole
   search, 50,000 layouts). Each value has a setting; the list is at the top of `core/limits.py`.
 - **Allowance (v1.1.1).** The public copy is for trying the planner. Each workspace can run 2 Designer searches,
-  3 height scans and 3 VOACAP tables in total (not per day); Evaluate and Compare are not counted. Only a calculation
+  3 height scans and 7 VOACAP tables in total (not per day: one table for each of the 7 regions; save them to the
+  library to use them in every project); Evaluate and Compare are not counted. Only a calculation
   that finishes is counted. The notice page and the buttons show what is left; when it is used, the page points to
   the free Windows and Docker downloads, where the exported project zip can be imported.
 - **Pages.** Every page has a footer with the operator, the licence, a link to the source and to the free Windows
@@ -281,7 +282,7 @@ without `PUBLIC_MODE=1` behaves as described above. `PUBLIC_MODE=1` and `APP_PAS
 | `TERRAIN_CACHE_MB` | size limit of the shared terrain-tile cache | 1000 on a public copy, none otherwise |
 | `TRUSTED_PROXY_HOPS` | proxies in front of the app that add to `X-Forwarded-For` | 1 when hosted, 0 otherwise |
 | `SEARCH_SECONDS` | time budget of a whole Designer search, in seconds (0 = none) | 600 on a public copy, 0 otherwise |
-| `LIMIT_DESIGNER_RUNS`, `LIMIT_SCAN_RUNS`, `LIMIT_VOACAP_TABLES` | allowance of a workspace, in total (negative = no limit) | 2, 3, 3 |
+| `LIMIT_DESIGNER_RUNS`, `LIMIT_SCAN_RUNS`, `LIMIT_VOACAP_TABLES` | allowance of a workspace, in total (negative = no limit) | 2, 3, 7 |
 | `LIMIT_*`, `STAGE_SECONDS`, `MAX_GROUP_LAYOUTS` | limits of a public copy | see `core/limits.py` |
 
 The plan and the work done are in `docs/PUBLIC_MODE_BRIEF.md`.

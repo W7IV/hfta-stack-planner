@@ -40,6 +40,10 @@ Open, in order:
    engineered tower may have more guy levels or other heights for the wind load at its site, so every user enters
    the guys from their own tower's drawings. The button also set the tower height to 160 ft without saying so.
    Guy tables already saved in projects are kept.
+   Also not yet released: VOACAP tables per workspace raised from 3 to 7, in total and per day (Paul, 3 November;
+   the trial refused a worldwide set of 7 regions). Until the next release, set `LIMIT_VOACAP_TABLES=7` and
+   `LIMIT_VOACAP_PER_DAY=7` on the public Railway project. And the page never shows an empty error message any more
+   (over HTTP/2 the status text is empty, so a refusal that was not JSON showed as "").
 5. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new

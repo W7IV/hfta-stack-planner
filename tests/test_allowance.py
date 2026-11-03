@@ -63,7 +63,7 @@ def run_job(wid, kind, outcome, n=1):
 def defaults_follow_the_plan():
     out = py("from core import compromise as C, limits as L; "
              "print(L.CFG['designer_runs'], L.CFG['scan_runs'], L.CFG['voacap_tables'], C.SEARCH_SECONDS)", PUBLIC_MODE="1")
-    assert out == "2 3 3 600", out
+    assert out == "2 3 7 600", out
     out = py("from core import compromise as C; print(C.SEARCH_SECONDS)")             # own computer: no time budget
     assert out == "0", out
     out = py("from core import limits as L; print(L.CFG['designer_runs'])", PUBLIC_MODE="1", LIMIT_DESIGNER_RUNS="5")
@@ -98,11 +98,14 @@ def a_used_allowance_refuses_with_the_way_forward():
 @test
 def voacap_tables_count_one_per_region():
     c = visitor(); wid = workspace_of(c); APP.JOBS.clear()
-    run_job(wid, "voacap", "done", n=2)
+    with APP.app.test_request_context():
+        P.set_root(W.root_for(wid)); V2.new_job("voacap", 7)                     # a worldwide set (7 regions) fits
+    APP.JOBS.clear()
+    run_job(wid, "voacap", "done", n=6)
     with APP.app.test_request_context():
         P.set_root(W.root_for(wid))
         try:
-            V2.new_job("voacap", 2); raise AssertionError("4 tables were accepted with an allowance of 3")
+            V2.new_job("voacap", 2); raise AssertionError("8 tables were accepted with an allowance of 7")
         except LM.LimitError as e:
             assert "1 left; this one needs 2" in str(e), str(e)
         V2.new_job("voacap", 1)
@@ -135,9 +138,9 @@ def page_and_notice_show_the_allowance():
     run_job(wid, "designer", "done")
     a = c.get("/api/v2/meta").get_json()["public"]["allowance"]
     assert a["designer"] == {"limit": 2, "used": 1, "left": 1, "name": "Designer searches"}, a
-    assert a["scan"]["left"] == 3 and a["voacap"]["left"] == 3, a
+    assert a["scan"]["left"] == 3 and a["voacap"]["left"] == 7, a
     page = APP.app.test_client().get("/welcome").get_data(as_text=True)
-    assert "2 Designer searches, 3 height scans, 3 VOACAP tables" in page, page
+    assert "2 Designer searches, 3 height scans, 7 VOACAP tables" in page, page
 
 # ---------------------------------------------------------------- time budget of a whole Designer search
 class FakeScorer:

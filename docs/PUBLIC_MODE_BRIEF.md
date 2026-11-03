@@ -111,7 +111,10 @@ enforced unless `PUBLIC_MODE=1`.
 Decisions taken while building, to confirm:
 - A VOACAP table is one region. A request for four regions uses four of the
   three daily tables and is refused. Raise `LIMIT_VOACAP_PER_DAY` after the
-  trial if this is too tight.
+  trial if this is too tight. **Raised to 7 (daily and allowance) by Paul on
+  3 November 2026**, after the trial refused a worldwide set: one table for
+  each of the 7 regions, made once and saved to the library. The limit is for
+  server CPU, not storage (a table is a few kilobytes).
 - Daily counts are kept in memory and start again after a restart.
 - The memory guard reads the container's memory limit when the host shows it.
   If it does not, set `LIMIT_MEMORY_MB` to the replica limit (for example
@@ -128,7 +131,8 @@ Decisions taken while building, to confirm:
   minutes, because `STAGE_SECONDS` limited only the first stage. v1.1.1 adds
   a limit for the whole search (`SEARCH_SECONDS`, 600 s) and, on Paul's
   proposal, an allowance per workspace (2 Designer searches, 3 height scans,
-  3 VOACAP tables, in total). See `docs/RELEASE_NOTES_v1.1.1.md`.
+  3 VOACAP tables, in total; 7 VOACAP tables from 3 November). See
+  `docs/RELEASE_NOTES_v1.1.1.md`.
 
 Environment settings, with these defaults for public mode only:
 
@@ -141,7 +145,7 @@ Environment settings, with these defaults for public mode only:
 | `MAX_GROUP_LAYOUTS` | 50,000 (the present maximum is 200,000) |
 | Projects per workspace | 5 |
 | Disk per workspace | 50 MB, including the upload limit |
-| VOACAP table runs per workspace per day | 3 |
+| VOACAP table runs per workspace per day | 7 (3 until 3 November 2026) |
 | Terrain fetches per workspace per day | 20 |
 | New workspaces per address per day | 10 |
 

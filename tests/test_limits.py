@@ -56,7 +56,7 @@ def public_defaults_follow_the_plan():
              "print(L.enabled(), L.CFG['jobs_per_workspace'], L.CFG['jobs_on_server'], L.CFG['projects'], L.CFG['workspace_mb'], "
              "L.CFG['voacap_per_day'], L.CFG['terrain_per_day'], L.CFG['new_workspaces_per_day'], C.STAGE_SECONDS, "
              "C.MAX_GROUP_LAYOUTS, app.MAX_UPLOAD_MB, L.unpacked_limit())", PUBLIC_MODE="1")
-    assert out == "True 1 2 5 50 3 20 10 60 50000 25 52428800", out         # 50 MB = 50 * 1024 * 1024 = 52,428,800 bytes
+    assert out == "True 1 2 5 50 7 20 10 60 50000 25 52428800", out         # 50 MB = 50 * 1024 * 1024 = 52,428,800 bytes
 
 @test
 def a_copy_that_is_not_public_is_not_limited():
