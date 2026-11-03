@@ -208,8 +208,8 @@ function rSites() {
         <button class="ghost" data-act="move" title="New site at a distance and bearing from this one, to test how sensitive the result is to the exact position (as HFTA's move-the-tower check)">Copy, moved…</button>
         <button class="danger" data-act="del">Delete site</button></div></div>
       </div>
-      <p class="small mute" style="margin:8px 0 0">K6TU sells HFTA-ready one-degree terrain sets: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
-      MicroDEM makes .PRO files from free elevation data. A DEM file is processed on this computer only.</p>${dupBox}`;
+      <p class="small mute" style="margin:8px 0 0">K6TU.NET makes HFTA-ready terrain profiles (360 files, one per degree of bearing) free of charge for registered users. Registration is free: <a href="https://www.k6tu.net" target="_blank" rel="noopener">k6tu.net</a>.
+      MicroDEM makes .PRO files from free elevation data. A DEM file is read only by this planner: it makes the profiles, then deletes the file. The file is not sent to any other service.</p>${dupBox}`;
     $$("[data-k]", c).forEach(inp => bind(inp, s, inp.dataset.k, null, inp.type === "number"));
     const fileIn = $("[data-file]", c), srcSel = $("[data-src]", c);
     if ([...srcSel.options].some(o => o.text === s.terrain?.source)) srcSel.value = s.terrain.source;
@@ -271,7 +271,7 @@ function rSites() {
 function libSaveDialog(kind, item) {
   const what = kind === "sites" ? "site" : "tower", url = `/api/v2/p/${SLUG}/${kind}/${item.id}/to-library`;
   modal(`<h2>Save ${what} to the library</h2>
-  <p class="small mute">The library is shared by all your projects on this computer. ${kind === "sites" ? "The position and the terrain files are saved." : "Antennas, guys and switching are saved. The location is not: you choose the site when you add it to a project."}
+  <p class="small mute">The library is shared by all your projects. ${kind === "sites" ? "The position and the terrain files are saved." : "Antennas, guys and switching are saved. The location is not: you choose the site when you add it to a project."}
   Later changes here do not change the saved copy.</p>
   <form id="libForm" class="row"><label style="flex:1">Name<input name="name" value="${esc(item.name)}" style="width:100%" required></label>
   <div style="width:100%;display:flex;gap:8px;margin-top:8px"><button type="submit">Save</button><button type="button" class="ghost" id="libCancel">Cancel</button></div>
@@ -341,7 +341,7 @@ function moveDialog(s) {
 function demDialog(s) {
   modal(`<h2>Generate terrain profiles from a DEM file</h2>
   <p class="small mute">GeoTIFF (.tif) in latitude/longitude or UTM metres, or ESRI ASCII grid (.asc). USGS 3DEP 1 m LiDAR and 1/3 arc-second DEMs work.
-  The file stays on this computer. Profiles are written in HFTA .PRO format.</p>
+  Only this planner reads the file: it makes the profiles, then deletes the file. Profiles are written in HFTA .PRO format.</p>
   <form id="demForm" class="row">
     <label style="width:100%">DEM file<input type="file" name="dem" accept=".tif,.tiff,.asc" required></label>
     <label>Latitude<input type="number" step="0.000001" name="lat" value="${s.lat ?? ""}" required></label>
@@ -617,7 +617,7 @@ function rTargets() {
     const el = $("#prnLibInfo"); if (!el) return;
     el.innerHTML = L.prns.length ? `Library: ${L.prns.length} files (${L.prns.map(esc).join(", ")}). They are copied into every new project.`
       : META.public ? (META.public.prn_upload ? `Your library has no .PRN files yet. "Save to library" keeps these files for every new project in this workspace.` : "")
-      : `Your library has no .PRN files yet. "Save to library" keeps these files for every new project. They stay on this computer and are not part of the program.`;
+      : `Your library has no .PRN files yet. "Save to library" keeps these files for every new project. They stay in your library and are not part of the program.`;
   });
   if ($("#prnGen")) $("#prnGen").onclick = () => prnGenDialog();
   $("#prnToLib").onclick = async () => { const r = await api("POST", `/api/v2/p/${SLUG}/prn/to-library`); toast(`${r.saved.length} files saved to the library. New projects will start with them.`, 5000); rTargets(); };
