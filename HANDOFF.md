@@ -44,6 +44,11 @@ Open, in order:
    the trial refused a worldwide set of 7 regions). Until the next release, set `LIMIT_VOACAP_TABLES=7` and
    `LIMIT_VOACAP_PER_DAY=7` on the public Railway project. And the page never shows an empty error message any more
    (over HTTP/2 the status text is empty, so a refusal that was not JSON showed as "").
+   Also not yet released: the `/stats` by-day table fits the page without a slider (headings wrap; the refusal
+   reasons are on their own line under each day). Paul decided (3 November) to keep 7 VOACAP tables, not 14:
+   comparing two distant sites is what the free download is for. Small open point for v1.1.3: the daily VOACAP
+   count goes up when a request is accepted, the total only when a table finishes, so a failed or cancelled table
+   still uses part of the day's limit.
 5. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new

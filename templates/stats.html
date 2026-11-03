@@ -27,15 +27,16 @@
   <h2>By day</h2>
   {% if days %}
   <div style="overflow-x:auto">
-  <table>
-    <tr><th>Date</th><th>New workspaces</th><th>Active workspaces</th>
-      {% for key, label in jobs %}<th>{{ label }}</th>{% endfor %}
-      <th>Waited in line</th><th>Refused</th></tr>
+  <table class="stats-days">
+    <tr><th>Date</th><th class="n">New workspaces</th><th class="n">Active workspaces</th>
+      {% for key, label in jobs %}<th class="n">{{ label }}</th>{% endfor %}
+      <th class="n">Waited in line</th><th class="n">Refused</th></tr>
     {% for date, c in days %}
-    <tr><td>{{ date }}</td><td>{{ c.new_workspaces or 0 }}</td><td>{{ c.active_workspaces or 0 }}</td>
-      {% for key, label in jobs %}<td>{{ (c.jobs or {}).get(key, 0) }}</td>{% endfor %}
-      <td>{{ c.queue_waits or 0 }}</td>
-      <td>{% set r = c.refused or {} %}{{ r.values() | sum }}{% if r %} <span class="small mute">({% for k, v in r | dictsort %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %})</span>{% endif %}</td></tr>
+    {% set r = c.refused or {} %}
+    <tr><td style="white-space:nowrap">{{ date }}</td><td class="n">{{ c.new_workspaces or 0 }}</td><td class="n">{{ c.active_workspaces or 0 }}</td>
+      {% for key, label in jobs %}<td class="n">{{ (c.jobs or {}).get(key, 0) }}</td>{% endfor %}
+      <td class="n">{{ c.queue_waits or 0 }}</td><td class="n">{{ r.values() | sum }}</td></tr>
+    {% if r %}<tr class="why"><td></td><td colspan="{{ jobs | length + 4 }}" class="small mute">Refused: {% for k, v in r | dictsort %}{{ k }} {{ v }}{% if not loop.last %}, {% endif %}{% endfor %}</td></tr>{% endif %}
     {% endfor %}
   </table>
   </div>
