@@ -24,6 +24,7 @@ STAGE_SECONDS = int(os.environ.get("STAGE_SECONDS", "60" if _PUBLIC else "240"))
 SEARCH_SECONDS = int(os.environ.get("SEARCH_SECONDS", "600" if _PUBLIC else "0"))
 MIN_STAGE_RUNS = 1500   # a stage is never cut below this many runs, however slow the core is on the terrain
 NODE_BUDGET = 3_000_000   # combinations examined by the branch-and-bound search before it stops and says so
+QUARTER_WAVE_FT = 245.9   # a quarter wavelength in feet is 245.9 / frequency in MHz (40 m at 7.1 MHz: 34.6 ft)
 MAX_GROUP_LAYOUTS = int(os.environ.get("MAX_GROUP_LAYOUTS", "50000" if _PUBLIC else "200000"))   # layouts of one group; above this the request is refused before any work
 
 def _axis(lo, hi, step): return [round(lo + i * step, 2) for i in range(int(math.floor((hi - lo) / step + 1e-9)) + 1)]
@@ -151,7 +152,14 @@ def search(proj, slug, body, pool, job):
     for j, g in enumerate(body["groups"]):
         el = {b: int(n) for b, n in (g.get("el") or {}).items() if n}
         hi = g.get("hi"); hi = rules["max_height"] if hi in (None, "") else min(float(hi), rules["max_height"])
-        step = float(g.get("step") or 5); lo = g.get("lo"); lo = step if lo in (None, "") else float(lo)
+        step = float(g.get("step") or 5); lo = g.get("lo")
+        if lo in (None, ""):
+            # Empty: a quarter wavelength on the group's lowest band, rounded up to the step (40 m: 35 ft, 20 m: 20 ft).
+            # Lower antennas are no real design (a 40 m Yagi at 5 ft); a lower height can still be typed in.
+            f_lo = min((band_freq(proj, b) for b in A.bands_of({"el": el})), default=0)
+            lo = step * math.ceil(QUARTER_WAVE_FT / f_lo / step - 1e-9) if f_lo else step
+            lo = min(lo, hi)
+        else: lo = float(lo)
         cm = g.get("count_max"); cm = int(cm) if cm not in (None, "") else None
         g = {**g, "count": int(g["count"]), "count_max": cm, "lo": lo, "hi": hi, "step": step, "el": el}
         g["ant"] = {"el": el}
@@ -251,6 +259,24 @@ def search(proj, slug, body, pool, job):
         for c in bad: del scored[c]
         dropped += len(bad)
         if not scored: raise ValueError(f"{groups[gi]['name']}: no layout could be scored (the calculation core failed)")
+    # Unused antennas. With switching, each target and band takes its best setting of the stack; an antenna that no
+    # setting chosen uses adds nothing, and its height changes nothing (a 40 m Yagi at 5, 15 or 25 ft under one at
+    # 145 ft, 2 Nov 2026). Such a layout is dropped when the layout of only its used antennas was scored, has no
+    # unused antenna itself and scores at least as well everywhere. Otherwise, of the layouts that differ only in
+    # the heights of unused antennas (same score), one is kept and the result names its unused antennas.
+    def used_of(scored, c): return {h for per_t in scored[c].values() for _, hs in per_t.values() for h in hs}
+    def at_least(scored, a, b): return all(scored[a][t][bd][0] >= v[0] - 1e-9 for t in scored[b] for bd, v in scored[b][t].items())
+    idle = [{} for _ in per_group]; idle_dropped = 0
+    for gi, scored in enumerate(per_group):
+        kept = {}
+        for c in sorted(scored, key=lambda c: [-h for h in c]):       # higher unused antennas are kept first
+            u = used_of(scored, c); spare = [h for h in c if h not in u]
+            if not spare: continue
+            core = tuple(h for h in c if h in u)
+            if (core in scored and set(core) <= used_of(scored, core) and at_least(scored, core, c)) or (len(c), core) in kept:
+                idle_dropped += 1; continue
+            kept[(len(c), core)] = c; idle[gi][c] = spare
+        for c in [c for c in scored if c not in kept.values() and set(c) - used_of(scored, c)]: del scored[c]
     # The score. Per target: mean over all its bands (all groups together). Overall: weighted mean over targets.
     # Because each target's band count is fixed, the overall score is a SUM of one term per group, which makes an
     # exact branch-and-bound search possible (below).
@@ -316,7 +342,8 @@ def search(proj, slug, body, pool, job):
                 elif dfs(gi + 1, chosen + [c], partial + val): return True
             return False
         dfs(0, [], 0.0)
-        return [x[2] for x in sorted(heap, key=lambda x: -x[0])], st
+        # Equal scores: the layout with fewer antennas first.
+        return [x[2] for x in sorted(heap, key=lambda x: (-x[0], sum(len(c) for c in x[2])))], st
     top_n = max(1, min(int(body.get("top", 25)), 200))
     combos, st_all = best_combos(term_all, top_n)
     if not combos:
@@ -326,8 +353,9 @@ def search(proj, slug, body, pool, job):
     for combo in combos:
         parts = [per_group[gi][c] for gi, c in enumerate(combo)]; ts = tscore(parts)
         rows.append({"layout": [list(c) for c in combo], "overall": round(overall(ts), 3), "targets": ts,
-                     "detail": {t["id"]: {b: v for p in parts for b, v in p[t["id"]].items()} for t in targets}})
-    rows.sort(key=lambda r: -r["overall"])
+                     "detail": {t["id"]: {b: v for p in parts for b, v in p[t["id"]].items()} for t in targets},
+                     "unused": [idle[gi].get(c, []) for gi, c in enumerate(combo)]})
+    rows.sort(key=lambda r: (-r["overall"], sum(len(c) for c in r["layout"])))
     # Best for each target alone, with the same rules (spacing, guys, gap between groups) and the same exact search.
     own_best, own_layout, nodes_own, complete_own = {}, {}, 0, True
     for t in targets:
@@ -345,14 +373,14 @@ def search(proj, slug, body, pool, job):
     for r in rows:
         ants = [{"h": h, "el": groups[gi]["el"]} for gi, c in enumerate(r["layout"]) for h in c]
         r["spacing"] = SP.check(ants, lambda b: band_freq(proj, b), spr)
-    return {"groups": [{"name": g["name"], "el": g["el"], "count": g["count"], "bands": g["bands"], "turning_radius": g.get("turning_radius"),
+    return {"groups": [{"name": g["name"], "el": g["el"], "count": g["count"], "bands": g["bands"], "lo": g["lo"], "turning_radius": g.get("turning_radius"),
                         "droop": g.get("droop")} for g in groups], "weights": weights, "spacing_rules": spr,
             "own_best": own_best, "own_layout": own_layout, "curves": curves,
             "stats": {"hfta_runs": len(sc.pat), "stages": sc.stages, "fom_evaluations": sc.n_fom,
                       "group_layouts": [{"name": g["name"], "layouts": len(sc_)} for g, sc_ in zip(groups, per_group)],
                       "combinations_checked": n_combos, "combinations_kept": len(rows), "own_best_steps": nodes_own,
                       "complete": exhaustive, "coarse_grid": any(st_["stage"].find("coarse") >= 0 for st_ in sc.stages),
-                      "failed_runs": sc.n_failed, "filled_runs": sc.n_filled, "layouts_dropped": dropped,
+                      "failed_runs": sc.n_failed, "filled_runs": sc.n_filled, "layouts_dropped": dropped, "unused_dropped": idle_dropped,
                       "time_cut": cut, "search_seconds": SEARCH_SECONDS,
                       "seconds": round(time.time() - t0, 1)}, "rows": rows, "evaluated": len(rows), "runs": len(sc.pat),
             "targets": [{"id": t["id"], "name": t["name"]} for t in targets]}

@@ -79,7 +79,10 @@ models. Two checks are added as notes only; they never change a number:
    guy limits, and shows the loss against each target's own best layout. A run costs 0.01 to 0.7 s depending on
    terrain, band and stack size, so the Designer times a few runs first and coarsens the height grid until each
    stage fits about four minutes, then searches fine around the best coarse layouts; the summary says when it did.
-   Cancel beside the progress bar stops a search.
+   An empty lowest height of a group means a quarter wavelength on its lowest band, rounded up to the step
+   (40 m: 35 ft, 20 m: 20 ft). With stack switching, an antenna that no target selects adds nothing: a layout with
+   such an antenna is left out when the layout without it was also searched; otherwise one such layout is shown,
+   marked "Never selected". Cancel beside the progress bar stops a search.
 4. **Compare**: all sites × towers × targets × bands. Click any value to see the HFTA runs behind it, the elevation
    pattern with the arrival angles, and the exact inputs to type into HFTA.
 5. **Report**: HTML report, Excel workbook (results built from the run log with live formulas), CSV, the

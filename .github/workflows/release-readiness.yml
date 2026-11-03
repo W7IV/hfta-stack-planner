@@ -32,6 +32,7 @@ jobs:
       - run: python tests/test_public_pages.py
       - run: python tests/test_stats.py
       - run: python tests/test_allowance.py
+      - run: python tests/test_designer_unused.py
       - run: python tests/test_single_tower.py
       - run: node --check static/v2.js
       - run: node --check static/site-map.js

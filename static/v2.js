@@ -1475,7 +1475,7 @@ const TIPS = [
   ["[data-ge]", "Elements on this band. Several bands in one row = one multiband antenna."],
   ["[data-gf][data-key=count]", "How many antennas of this kind."],
   ["[data-gf][data-key=count_max]", "Also try up to this many antennas of this kind, so one search compares two against three. Empty = exactly Count."],
-  ["[data-gf][data-key=lo]", "Lowest height tried for this group. Empty = from one step above the ground."],
+  ["[data-gf][data-key=lo]", "Lowest height tried for this group. Empty = a quarter wavelength on the group's lowest band, rounded up to the step (40 m: 35 ft, 20 m: 20 ft). Type a lower height to try one."],
   ["[data-gf][data-key=hi]", "Highest height tried for this group. Follows the tower height; lower it when guys or a mast section limit this group."],
   ["#scGo", "Run one antenna at each height between From and To against the chosen target and band."],
   ["[data-del]", "Remove this target."],
@@ -1713,7 +1713,7 @@ function compCard() {
   <div class="tbl"><table><tr><th>Name</th>${tb.map(b => `<th>${b} m</th>`).join("")}<th class="n">Count</th><th class="n" title="Optional. Also try more antennas of this type, up to this number; the result ranks all counts together">up to</th><th class="n" title="Optional lower limit for this group. Empty = from one step above ground">From (ft)</th><th class="n" title="Highest height for this group. Follows the tower height; lower it to keep this group below a guy, a mast section or another group">To (ft)</th><th class="n">Step</th><th class="n">Min spacing (ft)</th><th class="n">Equal ± (ft)</th><th class="n">Turning radius (ft)</th><th class="n">Droop (ft)</th><th></th></tr>
   ${f.groups.map((g, j) => `<tr><td><input class="w" style="width:110px" data-gn="${j}" value="${esc(g.name || "")}"><br>${bandSetSelect(`data-gset="${j}"`)}</td>
     ${tb.map(b => `<td>${elSelect(`data-ge="${j}" data-band="${b}"`, b, (g.el || {})[b])}</td>`).join("")}
-    ${["count", "count_max", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : k === "lo" ? `placeholder="${g.step || 5}"` : k === "count_max" ? 'placeholder="–"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
+    ${["count", "count_max", "lo", "hi", "step", "min_spacing", "equal_tol", "turning_radius", "droop"].map(k => `<td class="n"><input type="number" class="s" data-gf="${j}" data-key="${k}" value="${g[k] ?? ""}" ${k === "equal_tol" ? 'placeholder="any"' : k === "hi" ? `placeholder="${f.max_height}"` : k === "lo" ? 'placeholder="¼ wave"' : k === "count_max" ? 'placeholder="–"' : ["turning_radius", "droop"].includes(k) ? 'placeholder="–"' : ""}></td>`).join("")}
     <td><button class="danger small" data-gx="${j}">Remove</button></td></tr>`).join("")}</table></div>
   <p class="small mute" style="margin:4px 0 0">Elements per band as in HFTA. Turning radius and droop are needed only with the guy check.</p>
   ${warnList(compFormWarnings(f), "Spacing rules: no warnings.")}
@@ -1779,7 +1779,7 @@ function compResult(r) {
   const q = r.request || {}, nm = id => p.sites.find(x => x.id === id)?.name || "?", tn = id => p.targets.find(x => x.id === id)?.name || "?";
   const inputs = !r.request ? "" : `Site ${nm(q.site)}; tower height ${q.max_height} ft; min gap ${q.min_gap} ft; order ${q.order || "any"}; ${q.guys_from_tower ? "guy check on" : "no guy check"}; switching ${q.switching}.
     Targets: ${(q.targets || []).map(t => `${tn(t)}${(q.weights || {})[t] !== 1 ? " ×" + q.weights[t] : ""}`).join(", ")}.
-    Groups: ${(q.groups || []).map(g => `${esc(g.name || "?")} ×${g.count}${g.count_max ? "–" + g.count_max : ""} (${bandsOf(g).join("/")} m; ${g.lo || "–"} to ${g.hi || q.max_height} ft, step ${g.step}, spacing ≥ ${g.min_spacing})`).join("; ")}.`;
+    Groups: ${(q.groups || []).map((g, i) => `${esc(g.name || "?")} ×${g.count}${g.count_max ? "–" + g.count_max : ""} (${bandsOf(g).join("/")} m; ${g.lo || (r.groups[i] && r.groups[i].lo != null ? r.groups[i].lo + " (¼ wave)" : "–")} to ${g.hi || q.max_height} ft, step ${g.step}, spacing ≥ ${g.min_spacing})`).join("; ")}.`;
   r.inputs_text = inputs.replace(/\s+/g, " ");
   const st = r.stats, n = v => Number(v).toLocaleString();
   const summary = !st ? "" : `<div class="note small"><b>Search summary.</b> ${n(st.hfta_runs)} HFTA runs (each one HFTA calculation of an elevation pattern:
@@ -1794,6 +1794,7 @@ function compResult(r) {
     ${st.time_cut && st.time_cut.length ? `<b>Time limit of this server (${Math.round(st.search_seconds / 60)} min):</b> ${st.time_cut.map(c => c.stopped
       ? `${esc(c.group)}: the fine search stopped at a ${c.step} ft grid`
       : `${esc(c.group)}: at ${c.step} ft only the ${c.top} best layout(s) were refined`).join("; ")}. The free planner on your own computer has no such limit.` : ""}
+    ${st.unused_dropped ? `${n(st.unused_dropped)} layout(s) left out: they had an antenna that no target selects with the switching, so they scored the same as a layout shown, with an extra antenna that adds nothing.` : ""}
     ${st.failed_runs ? `<span class="neg">${n(st.failed_runs)} run(s) failed in the calculation core; ${n(st.layouts_dropped)} layout(s) without a complete score were left out.</span>` : ""}
     ${st.filled_runs ? `${n(st.filled_runs)} run(s) had a few invalid angles filled by interpolation.` : ""}
     Time ${st.seconds < 90 ? st.seconds + " s" : (st.seconds / 60).toFixed(1) + " min"}.
@@ -1818,7 +1819,9 @@ function compResult(r) {
     Best ${r.evaluated} layouts shown, from ${r.runs} HFTA runs (${esc(r.stamp || "")}).
     Loss = difference from the best possible for that target alone (shown in the last row). Heights in ft.</p>
   <div class="tbl"><table><tr><th>#</th><th>Layout</th><th>Spacing</th><th class="n">Overall</th>${r.targets.map(t => `<th class="n">${esc(t.name)} <span class="mute">(w ${r.weights[t.id]})</span></th>`).join("")}<th></th></tr>
-  ${r.rows.map((x, k) => { const sw = worstOf(x.spacing || []); return `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}</td>
+  ${r.rows.map((x, k) => { const sw = worstOf(x.spacing || []);
+    const idle = (x.unused || []).flatMap((hs, i) => hs.map(h => `${r.groups[i].name || r.groups[i].model} at ${h} ft`));
+    return `<tr><td>${k + 1}</td><td>${esc(lay(x.layout))}${idle.length ? `<br><span class="small amb">Never selected: ${esc(idle.join(", "))}. No target uses it with this switching, so it adds nothing and its height makes no difference.</span>` : ""}</td>
     <td>${sw ? `<span class="chip ${sw === "red" ? "bad" : "warn"}" title="${esc((x.spacing || []).map(w => w.text).join("\n"))}">${sw === "red" ? "Too close" : "Close"}</span>` : `<span class="small mute">OK</span>`}</td>
     <td class="n"><b>${fmt(x.overall)}</b></td>
     ${r.targets.map(t => `<td class="n">${x.loss[t.id] >= 0 ? `<b>${fmt(x.targets[t.id])}</b>` : fmt(x.targets[t.id])}<br><span class="small ${x.loss[t.id] < -1 ? "neg" : x.loss[t.id] < -0.3 ? "amb" : "mute"}">${x.loss[t.id] >= 0 ? "best" : fmt(x.loss[t.id])}</span></td>`).join("")}

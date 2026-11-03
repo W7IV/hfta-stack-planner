@@ -30,7 +30,12 @@ Open, in order:
    account-wide usage limits, and the account carries other projects, so the replica size is the cost limit
    (about $50 per month at most). **Paul:** check the project's usage weekly; one-week private trial with the
    acceptance checks in the brief; then announce.
-4. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
+4. **v1.1.2 prepared** (2 November, `docs/RELEASE_NOTES_v1.1.2.md`): the Designer no longer lists layouts with
+   an antenna that no switch setting selects (Paul found "40 m Yagi 5 / 145" equal to "15 / 145" on the public copy),
+   an empty lowest height is a quarter wavelength, and the K6TU and "this computer" texts are corrected. Affects
+   every copy since the Designer was added, the Windows zip included. **Paul:** commit, release-readiness, then
+   tag `v1.1.2` (with the trial's fixes, or alone) and move the public copy to image `v1.1.2`.
+5. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new
 deploys (five or more pushes that day), not a crash or a memory kill. `HFTA_WORKERS` was 24 on Railway and is now 2.
