@@ -21,7 +21,7 @@ copy keeps deploying `main`, so new work is tried there first.
 | D2b | What statistics record | Counts only, on our server. No IP address stored, no third-party scripts |
 | D3 | ARRL `.PRN` files | Option A: private upload only. Ask an attorney to check |
 | D4 | Operator in the footer | Paul F. Merrill, W7IV |
-| D5 | Monthly hard spending limit | $10 per month |
+| D5 | Cost limit of the public copy | Changed 2 November 2026 (was "$10 per month hard limit"). Railway sets usage limits for the whole account only, and the account carries other projects (about $350 in October 2026), so an account limit cannot protect this copy. The cost limit is the replica size, 2 vCPU and 1 GB: about $50 per month at most, with full load all month. Paul checks the project's own usage on Railway every week; above about $1 a week, reduce to 1 vCPU or remove the copy. For scale: the whole planner cost $1.43 in October 2026 |
 | D6 | Ask K6TU to link both ways | Yes, after the private trial |
 
 Paul is the orchestrator. Claude is the developer and carries out the steps.
@@ -277,7 +277,8 @@ stored file, and `/stats` returns 404 without the password.
 ## Step 9: Release
 
 **Status: v1.1.0 released on 2 November 2026 (commit 8ac22b7). v1.1.1
-(allowance and search time limit) prepared the same day; waiting for Paul.**
+(allowance and search time limit) committed (d4641af), release-readiness
+green, tagged and released the same day.**
 The version comes
 from the git tag (there is no version file). Release notes:
 `docs/RELEASE_NOTES_v1.1.0.md`. README Docker example now names `v1.1.0`.
@@ -294,6 +295,19 @@ existing workflow builds the image.
 
 ## After release (Paul)
 
+**Status, 2 November 2026: steps 1 to 4 done. The public copy runs v1.1.1 at
+hfta-stack-planner-production-6f55.up.railway.app. Read-only checks passed:
+`/healthz` ok, notice page with the allowance, `/privacy`, `/stats` asks for
+its password, `/admin` 404, security headers present. `SECRET_KEY` is not
+set: the app keeps a random key on the volume, as Paul's own copy does.
+Step 6 replaced by decision D5 (changed). Next: step 7.**
+
+Lesson from the first attempt: Railway deploys as soon as the image is added,
+and variables added afterwards stay staged until **Deploy** is pressed. The
+first deploy therefore ran without `PUBLIC_MODE` and stopped at the start-up
+check ("Hosted copy without APP_PASSWORD"). Set the variables, the volume and
+the size first, then press Deploy once.
+
 1. Railway: New Project, then Deploy a Docker image
    `ghcr.io/w7iv/hfta-stack-planner:v1.1.1`. Use a new project, not a new
    service in the present one. Replica limits: 2 vCPU, 1 GB.
@@ -303,7 +317,8 @@ existing workflow builds the image.
    and contact. Do not copy variables from the present project.
 4. Networking: generate a domain, or add a custom domain and its DNS record.
 5. Health check path `/healthz`; restart policy "on failure".
-6. Set the usage limit and alert (Workspace, then Usage).
+6. Cost: no account usage limit (see D5). Check the public project's usage on
+   Railway every week.
 7. Private trial for one week with 3 to 5 trusted amateurs. Then announce.
 
 ## Acceptance checks before announcing

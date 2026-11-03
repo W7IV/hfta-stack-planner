@@ -1,6 +1,6 @@
 # HFTA Stack Planner v1.1.1: release notes
 
-Released: to be tagged by Paul after the commit of 2 November 2026. Previous release: v1.1.0.
+Released: 2 November 2026 (commit d4641af). Previous release: v1.1.0.
 
 ## In one line
 

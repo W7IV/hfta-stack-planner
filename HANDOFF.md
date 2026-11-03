@@ -1,6 +1,6 @@
 # HFTA Stack Planner — status and handoff
 
-Updated 2 November 2026 (public copy, v1.1.0). Read this first when you pick the project up again (person or AI
+Updated 2 November 2026 (public copy live, v1.1.1). Read this first when you pick the project up again (person or AI
 assistant). The README describes the program; this file says where it stands, what is open and what was decided.
 
 ## Public copy (2 November 2026)
@@ -23,10 +23,13 @@ Open, in order:
    (`SEARCH_SECONDS`), and the per-workspace allowance Paul proposed: 2 Designer searches, 3 height scans,
    3 VOACAP tables, in total, shown up front. See `docs/RELEASE_NOTES_v1.1.1.md`. Checked in a local build of
    v1.1.1: the same search took 7.3 minutes, best FOM 0.28 dB below the 45-minute result, 107 MB peak.
-   **Paul:** commit, check release-readiness, tag `v1.1.1`.
-3. **Paul:** create the public Railway project (brief, "After release") from image `v1.1.1`, replica 2 vCPU and
-   1 GB, with `LIMIT_MEMORY_MB=1024`, `OPERATOR_CONTACT`, `STATS_PASSWORD` and a $10 spending limit; a one-week
-   private trial; then announce.
+   Done: commit d4641af, release-readiness green, tag `v1.1.1` released.
+3. Done 2 November: the public copy runs v1.1.1 at hfta-stack-planner-production-6f55.up.railway.app
+   (own Railway project, replica 2 vCPU and 1 GB, volume `/data`, `PUBLIC_MODE=1`, `LIMIT_MEMORY_MB=1024`,
+   `OPERATOR_CONTACT`, `STATS_PASSWORD`). Read-only checks passed. Decision D5 changed: Railway has only
+   account-wide usage limits, and the account carries other projects, so the replica size is the cost limit
+   (about $50 per month at most). **Paul:** check the project's usage weekly; one-week private trial with the
+   acceptance checks in the brief; then announce.
 4. **Paul:** attorney check on ARRL files (decision D3). `PRN_UPLOAD=off` is ready if the answer is no.
 
 The 14 October outage (item 1 below) was looked at on 2 November: the deploy logs show normal replacements by new
